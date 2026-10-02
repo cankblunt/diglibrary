@@ -19,7 +19,7 @@
 # purpose: it is genuinely optional (fingerprinting), and a hundred megabytes
 # nobody asked for is not a good first impression.
 #
-# To update for a release: change `url`, `sha256` and `version`, then
+# To update for a release: change `url` and `sha256`, then
 #   brew audit --strict --online Formula/diglibrary.rb
 #   brew fetch --build-from-source diglibrary
 #   brew install --build-from-source diglibrary
@@ -30,8 +30,8 @@ class Diglibrary < Formula
 
   desc "Identify albums, detect transcoded FLAC, and rename and tag reversibly"
   homepage "https://cankblunt.github.io/diglibrary/"
-  url "https://files.pythonhosted.org/packages/f7/23/461ecf94b5568549b30ea820b45787e8ee20bc1175a3e590211781ede86d/diglibrary-1.6.1.tar.gz"
-  sha256 "846d8e28b9593a03270ff1cbca45bc60e54d5b3a8a7a355264cf03c757cb6967"
+  url "https://files.pythonhosted.org/packages/39/b8/8a9eeb0bdbf3a344283af75814f04c59dbf104f37590b5739e3cfc0fc889/diglibrary-1.7.0.tar.gz"
+  sha256 "a0b4ba824c1e72771ed06c669d7214220719e08d18801b32cc8f46dd8026fe0c"
   license "MIT"
 
   # macOS only, and the application says so itself on any other system. Declared
