@@ -1,0 +1,79 @@
+# Publishing to a package index, with no long-lived key anywhere.
+#
+# GitHub signs a short-lived identity for this workflow, the index verifies it
+# against a publisher declared once for the project, and issues an upload token
+# that lives for minutes. Nothing to keep on a laptop, nothing to leak, nothing
+# to rotate.
+#
+# **Manual only, on purpose.** A push trigger would make an accidental tag into
+# a permanent release — a version number can never be reused. So this runs when
+# somebody presses Run workflow and names the index, and it defaults to the one
+# that can be thrown away.
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      index:
+        description: "Where to publish"
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build and check the artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      # Only what checking out a public repository needs. The default for a
+      # workflow with no `permissions:` is far wider, which is why there is an
+      # empty one above and a narrow one here.
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # The wheel is `py3-none-any` — no compiled part, nothing platform
+      # specific — so a Linux runner builds the same file a Mac does. macOS is
+      # what the application *runs* on, which the classifiers state; it is not
+      # what the packaging needs.
+      - run: python -m pip install --upgrade build twine
+      - run: python -m build
+      - run: python -m twine check --strict dist/*
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: distributions
+          path: dist/
+
+  publish:
+    name: Publish to ${{ inputs.index }}
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment is the second gate: a required reviewer on it means the
+    # upload waits for a person even after the workflow has started.
+    environment: ${{ inputs.index }}
+    permissions:
+      # The whole mechanism. Without this the runner cannot ask GitHub for the
+      # signed identity, and with it there is still no secret in this repository.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: distributions
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: >-
+            ${{ inputs.index == 'pypi'
+                && 'https://upload.pypi.org/legacy/'
+                || 'https://test.pypi.org/legacy/' }}

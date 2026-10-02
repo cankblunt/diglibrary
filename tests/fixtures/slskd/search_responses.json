@@ -1,0 +1,1304 @@
+[
+  {
+    "fileCount": 20,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\01 - Track 01.mp3",
+        "length": 181,
+        "size": 4004096,
+        "isLocked": false
+      },
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\02 - Track 02.mp3",
+        "length": 182,
+        "size": 4008192,
+        "isLocked": false
+      },
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\03 - Track 03.mp3",
+        "length": 183,
+        "size": 4012288,
+        "isLocked": false
+      },
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\04 - Track 04.mp3",
+        "length": 184,
+        "size": 4016384,
+        "isLocked": false
+      },
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\05 - Track 05.mp3",
+        "length": 185,
+        "size": 4020480,
+        "isLocked": false
+      },
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\06 - Track 06.mp3",
+        "length": 186,
+        "size": 4024576,
+        "isLocked": false
+      },
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\07 - Track 07.mp3",
+        "length": 187,
+        "size": 4028672,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 2.jpg",
+        "size": 4094208,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 3.jpg",
+        "size": 4098304,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 4.jpg",
+        "size": 4102400,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 5.jpg",
+        "size": 4106496,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 6.jpg",
+        "size": 4110592,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 7.jpg",
+        "size": 4114688,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 8.jpg",
+        "size": 4118784,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 9.jpg",
+        "size": 4122880,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 10.jpg",
+        "size": 4126976,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 11.jpg",
+        "size": 4131072,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\Folder 6\\File 12.jpg",
+        "size": 4135168,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\File 1.png",
+        "size": 4032768,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share1\\Folder 1\\Folder 2\\folder.jpeg",
+        "size": 4036864,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 1030762,
+    "username": "peer-1"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share3\\Folder 7\\Folder 8\\Folder 9\\Folder 10\\File 13.mp3",
+        "length": 188,
+        "size": 4139264,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": false,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 2102,
+    "token": 1001,
+    "uploadSpeed": 913266,
+    "username": "peer-4"
+  },
+  {
+    "fileCount": 0,
+    "files": [],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 2,
+    "lockedFiles": [
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share4\\Folder 11\\Folder 12\\File 14.flac",
+        "length": 188,
+        "sampleRate": 44100,
+        "size": 4143360,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share5\\Folder 13\\File 15.wav",
+        "length": 188,
+        "sampleRate": 44100,
+        "size": 4147456,
+        "isLocked": false
+      }
+    ],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 986288,
+    "username": "peer-5"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 160,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share6\\Folder 3\\Folder 14\\Folder 15\\13 - Track 13.mp3",
+        "length": 189,
+        "size": 4151552,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 47,
+    "token": 1001,
+    "uploadSpeed": 835440,
+    "username": "peer-6"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share7\\Folder 16\\Folder 17\\File 16.mp3",
+        "length": 190,
+        "size": 4155648,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 601863,
+    "username": "peer-7"
+  },
+  {
+    "fileCount": 0,
+    "files": [],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 1,
+    "lockedFiles": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share8\\Folder 3\\Folder 18\\Folder 19\\Folder 20\\Folder 21\\Folder 22\\Folder 23\\13 - Track 13.mp3",
+        "length": 189,
+        "size": 4159744,
+        "isLocked": false
+      }
+    ],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 1166940,
+    "username": "peer-8"
+  },
+  {
+    "fileCount": 0,
+    "files": [],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 1,
+    "lockedFiles": [
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share9\\Folder 24\\File 17.wav",
+        "size": 4163840,
+        "isLocked": false
+      }
+    ],
+    "queueLength": 664,
+    "token": 1001,
+    "uploadSpeed": 596043,
+    "username": "peer-9"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 248,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share10\\Folder 25\\Folder 14\\Folder 26\\29 - Track 29.mp3",
+        "length": 189,
+        "size": 4167936,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 7,
+    "token": 1001,
+    "uploadSpeed": 975028,
+    "username": "peer-10"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share11\\Folder 27\\Folder 28\\Folder 29\\Folder 30\\Folder 31\\File 16.mp3",
+        "length": 190,
+        "size": 4155648,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 327,
+    "token": 1001,
+    "uploadSpeed": 392277,
+    "username": "peer-11"
+  },
+  {
+    "fileCount": 77,
+    "files": [
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\01 - Track 01.flac",
+        "length": 191,
+        "sampleRate": 44100,
+        "size": 4172032,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\02 - Track 02.flac",
+        "length": 192,
+        "sampleRate": 44100,
+        "size": 4176128,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\03 - Track 03.flac",
+        "length": 193,
+        "sampleRate": 44100,
+        "size": 4180224,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\04 - Track 04.flac",
+        "length": 194,
+        "sampleRate": 44100,
+        "size": 4184320,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\05 - Track 05.flac",
+        "length": 195,
+        "sampleRate": 44100,
+        "size": 4188416,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\06 - Track 06.flac",
+        "length": 196,
+        "sampleRate": 44100,
+        "size": 4192512,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\07 - Track 07.flac",
+        "length": 197,
+        "sampleRate": 44100,
+        "size": 4196608,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\08 - Track 08.flac",
+        "length": 198,
+        "sampleRate": 44100,
+        "size": 4200704,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\09 - Track 09.flac",
+        "length": 199,
+        "sampleRate": 44100,
+        "size": 4204800,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\10 - Track 10.flac",
+        "length": 200,
+        "sampleRate": 44100,
+        "size": 4208896,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\11 - Track 11.flac",
+        "length": 201,
+        "sampleRate": 44100,
+        "size": 4212992,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\12 - Track 12.flac",
+        "length": 199,
+        "sampleRate": 44100,
+        "size": 4217088,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\13 - Track 13.flac",
+        "length": 202,
+        "sampleRate": 44100,
+        "size": 4221184,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\14 - Track 14.flac",
+        "length": 203,
+        "sampleRate": 44100,
+        "size": 4225280,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\15 - Track 15.flac",
+        "length": 191,
+        "sampleRate": 44100,
+        "size": 4229376,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\16 - Track 16.flac",
+        "length": 204,
+        "sampleRate": 44100,
+        "size": 4233472,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\17 - Track 17.flac",
+        "length": 205,
+        "sampleRate": 44100,
+        "size": 4237568,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\18 - Track 18.flac",
+        "length": 205,
+        "sampleRate": 44100,
+        "size": 4241664,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\19 - Track 19.flac",
+        "length": 206,
+        "sampleRate": 44100,
+        "size": 4245760,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\20 - Track 20.flac",
+        "length": 207,
+        "sampleRate": 44100,
+        "size": 4249856,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\21 - Track 21.flac",
+        "length": 208,
+        "sampleRate": 44100,
+        "size": 4253952,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 35\\cover.jpg",
+        "size": 4258048,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\01 - Track 01.flac",
+        "length": 209,
+        "sampleRate": 44100,
+        "size": 4262144,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\02 - Track 02.flac",
+        "length": 210,
+        "sampleRate": 44100,
+        "size": 4266240,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\03 - Track 03.flac",
+        "length": 211,
+        "sampleRate": 44100,
+        "size": 4270336,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\04 - Track 04.flac",
+        "length": 212,
+        "sampleRate": 44100,
+        "size": 4274432,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\05 - Track 05.flac",
+        "length": 213,
+        "sampleRate": 44100,
+        "size": 4278528,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\06 - Track 06.flac",
+        "length": 214,
+        "sampleRate": 44100,
+        "size": 4282624,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\07 - Track 07.flac",
+        "length": 215,
+        "sampleRate": 44100,
+        "size": 4286720,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\08 - Track 08.flac",
+        "length": 216,
+        "sampleRate": 44100,
+        "size": 4290816,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\09 - Track 09.flac",
+        "length": 217,
+        "sampleRate": 44100,
+        "size": 4294912,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\10 - Track 10.flac",
+        "length": 218,
+        "sampleRate": 44100,
+        "size": 4299008,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\11 - Track 11.flac",
+        "length": 219,
+        "sampleRate": 44100,
+        "size": 4303104,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\12 - Track 12.flac",
+        "length": 220,
+        "sampleRate": 44100,
+        "size": 4307200,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\13 - Track 13.flac",
+        "length": 221,
+        "sampleRate": 44100,
+        "size": 4311296,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 36\\cover.jpg",
+        "size": 4315392,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\01 - Track 01.flac",
+        "length": 222,
+        "sampleRate": 44100,
+        "size": 4319488,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\02 - Track 02.flac",
+        "length": 210,
+        "sampleRate": 44100,
+        "size": 4323584,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\03 - Track 03.flac",
+        "length": 223,
+        "sampleRate": 44100,
+        "size": 4327680,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\04 - Track 04.flac",
+        "length": 224,
+        "sampleRate": 44100,
+        "size": 4331776,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\05 - Track 05.flac",
+        "length": 225,
+        "sampleRate": 44100,
+        "size": 4335872,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\06 - Track 06.flac",
+        "length": 190,
+        "sampleRate": 44100,
+        "size": 4339968,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\07 - Track 07.flac",
+        "length": 226,
+        "sampleRate": 44100,
+        "size": 4344064,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\08 - Track 08.flac",
+        "length": 205,
+        "sampleRate": 44100,
+        "size": 4348160,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\09 - Track 09.flac",
+        "length": 227,
+        "sampleRate": 44100,
+        "size": 4352256,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\10 - Track 10.flac",
+        "length": 228,
+        "sampleRate": 44100,
+        "size": 4356352,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\11 - Track 11.flac",
+        "length": 229,
+        "sampleRate": 44100,
+        "size": 4360448,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\12 - Track 12.flac",
+        "length": 230,
+        "sampleRate": 44100,
+        "size": 4364544,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 37\\cover.jpg",
+        "size": 4368640,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\01 - Track 01.flac",
+        "length": 231,
+        "sampleRate": 44100,
+        "size": 4372736,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\02 - Track 02.flac",
+        "length": 232,
+        "sampleRate": 44100,
+        "size": 4376832,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\03 - Track 03.flac",
+        "length": 233,
+        "sampleRate": 44100,
+        "size": 4380928,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\04 - Track 04.flac",
+        "length": 215,
+        "sampleRate": 44100,
+        "size": 4385024,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\05 - Track 05.flac",
+        "length": 187,
+        "sampleRate": 44100,
+        "size": 4389120,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\06 - Track 06.flac",
+        "length": 234,
+        "sampleRate": 44100,
+        "size": 4393216,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\07 - Track 07.flac",
+        "length": 235,
+        "sampleRate": 44100,
+        "size": 4397312,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\08 - Track 08.flac",
+        "length": 236,
+        "sampleRate": 44100,
+        "size": 4401408,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\09 - Track 09.flac",
+        "length": 237,
+        "sampleRate": 44100,
+        "size": 4405504,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\10 - Track 10.flac",
+        "length": 238,
+        "sampleRate": 44100,
+        "size": 4409600,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\11 - Track 11.flac",
+        "length": 239,
+        "sampleRate": 44100,
+        "size": 4413696,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\12 - Track 12.flac",
+        "length": 240,
+        "sampleRate": 44100,
+        "size": 4417792,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 24,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\13 - Track 13.flac",
+        "length": 241,
+        "sampleRate": 44100,
+        "size": 4421888,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 38\\cover.jpg",
+        "size": 4425984,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\01 - Track 01.flac",
+        "length": 218,
+        "sampleRate": 44100,
+        "size": 4430080,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\02 - Track 02.flac",
+        "length": 199,
+        "sampleRate": 44100,
+        "size": 4434176,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\03 - Track 03.flac",
+        "length": 225,
+        "sampleRate": 44100,
+        "size": 4438272,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\04 - Track 04.flac",
+        "length": 242,
+        "sampleRate": 44100,
+        "size": 4442368,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\05 - Track 05.flac",
+        "length": 198,
+        "sampleRate": 44100,
+        "size": 4446464,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\06 - Track 06.flac",
+        "length": 243,
+        "sampleRate": 44100,
+        "size": 4450560,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\07 - Track 07.flac",
+        "length": 244,
+        "sampleRate": 44100,
+        "size": 4454656,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\08 - Track 08.flac",
+        "length": 207,
+        "sampleRate": 44100,
+        "size": 4458752,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\09 - Track 09.flac",
+        "length": 245,
+        "sampleRate": 44100,
+        "size": 4462848,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\10 - Track 10.flac",
+        "length": 246,
+        "sampleRate": 44100,
+        "size": 4466944,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\11 - Track 11.flac",
+        "length": 247,
+        "sampleRate": 44100,
+        "size": 4471040,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\12 - Track 12.flac",
+        "length": 248,
+        "sampleRate": 44100,
+        "size": 4475136,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\13 - Track 13.flac",
+        "length": 249,
+        "sampleRate": 44100,
+        "size": 4479232,
+        "isLocked": false
+      },
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 3\\Folder 32\\Folder 33\\Folder 34\\Folder 39\\cover.jpg",
+        "size": 4483328,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": false,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 20,
+    "token": 1001,
+    "uploadSpeed": 2721911,
+    "username": "peer-12"
+  },
+  {
+    "fileCount": 0,
+    "files": [],
+    "hasFreeUploadSlot": false,
+    "lockedFileCount": 2,
+    "lockedFiles": [
+      {
+        "code": 1,
+        "extension": "",
+        "filename": "@@share12\\Folder 40\\File 18.wav",
+        "size": 4163840,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share12\\Folder 40\\File 19.wav",
+        "length": 188,
+        "sampleRate": 44100,
+        "size": 4163840,
+        "isLocked": false
+      }
+    ],
+    "queueLength": 161,
+    "token": 1001,
+    "uploadSpeed": 124327,
+    "username": "peer-13"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 41\\Folder 42\\Folder 43\\20 - Track 20.mp3",
+        "isVariableBitRate": false,
+        "length": 190,
+        "size": 4487424,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 8115658,
+    "username": "peer-14"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 69,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 44\\Folder 45\\Folder 46\\File 20.m4a",
+        "isVariableBitRate": false,
+        "length": 250,
+        "size": 4491520,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 660909,
+    "username": "peer-15"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 47\\Folder 43\\20 - Track 20.mp3",
+        "isVariableBitRate": false,
+        "length": 190,
+        "size": 4495616,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 96,
+    "token": 1001,
+    "uploadSpeed": 587088,
+    "username": "peer-16"
+  },
+  {
+    "fileCount": 0,
+    "files": [],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 1,
+    "lockedFiles": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 48\\Folder 49\\Folder 50\\Folder 51\\Folder 52\\File 21.mp3",
+        "isVariableBitRate": false,
+        "length": 251,
+        "size": 4499712,
+        "isLocked": false
+      }
+    ],
+    "queueLength": 0,
+    "token": 1001,
+    "uploadSpeed": 3124365,
+    "username": "peer-17"
+  },
+  {
+    "fileCount": 0,
+    "files": [],
+    "hasFreeUploadSlot": false,
+    "lockedFileCount": 1,
+    "lockedFiles": [
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share13\\Folder 3\\Folder 53\\Folder 54\\Folder 55\\Folder 56\\03 - Track 03.flac",
+        "length": 252,
+        "sampleRate": 44100,
+        "size": 4503808,
+        "isLocked": false
+      }
+    ],
+    "queueLength": 174,
+    "token": 1001,
+    "uploadSpeed": 190228,
+    "username": "peer-18"
+  },
+  {
+    "fileCount": 2,
+    "files": [
+      {
+        "bitRate": 320,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 57\\Folder 58\\Folder 59\\Folder 60\\Folder 61\\Folder 62\\File 22.mp3",
+        "isVariableBitRate": false,
+        "length": 253,
+        "size": 4507904,
+        "isLocked": false
+      },
+      {
+        "bitDepth": 16,
+        "code": 1,
+        "extension": "",
+        "filename": "Folder 63\\Folder 64\\Folder 65\\File 23.wav",
+        "length": 188,
+        "sampleRate": 44100,
+        "size": 4163840,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": false,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 267187,
+    "token": 1001,
+    "uploadSpeed": 15318,
+    "username": "peer-19"
+  },
+  {
+    "fileCount": 1,
+    "files": [
+      {
+        "bitRate": 192,
+        "code": 1,
+        "extension": "",
+        "filename": "@@share14\\Folder 66\\Folder 67\\05 - Track 05.mp3",
+        "length": 190,
+        "size": 4512000,
+        "isLocked": false
+      }
+    ],
+    "hasFreeUploadSlot": true,
+    "lockedFileCount": 0,
+    "lockedFiles": [],
+    "queueLength": 108,
+    "token": 1001,
+    "uploadSpeed": 1477490,
+    "username": "peer-20"
+  }
+]

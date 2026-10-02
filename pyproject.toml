@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diglibrary"
+version = "1.7.0"
+description = "Organize a whole music library at once — names, tags and cover art from MusicBrainz and Discogs — with a plan you approve first and can undo, and a check on whether each FLAC is really lossless."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "DigLibrary Contributors" }]
+keywords = [
+  "music",
+  "flac",
+  "lossless",
+  "audio-quality",
+  "spectrogram",
+  "metadata",
+  "tagging",
+  "discogs",
+  "musicbrainz",
+  "acoustid",
+  "dj",
+  "rekordbox",
+  "serato",
+  "library",
+]
+# What a package index shows before anybody installs anything. macOS is stated
+# here because it is the one thing that decides whether this is usable at all,
+# and a stranger on Linux should learn it from the page rather than from a
+# window that never opens. Python 3.12 is the only version claimed: it is the
+# declared floor and the one the suite runs on. The interface is English, so no
+# Portuguese classifier is claimed — the walkthrough is translated, the window
+# is not. No `License ::` classifier: `license = "MIT"` above is the SPDX
+# expression, and stating it twice is what current packaging refuses.
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: MacOS X",
+  "Intended Audience :: End Users/Desktop",
+  "Natural Language :: English",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Multimedia :: Sound/Audio :: Analysis",
+]
+
+dependencies = [
+  "mutagen>=1.47",
+  "pywebview>=5.0",
+  # Key and tempo are measured from the audio: a chromagram and an onset
+  # autocorrelation over a decoded track. Both are FFT arithmetic over arrays
+  # of a few million samples, which the standard library can express and
+  # cannot run at a usable speed.
+  "numpy>=2.0",
+]
+
+# Navigational, and pinned to `main` on purpose — unlike the pictures on the
+# page itself. These say *where the project lives*, which does not change with
+# a release; a changelog frozen at one tag would answer the question it exists
+# for with one version's worth of it.
+#
+# This table stands after every key of `[project]`, and that is not cosmetic:
+# TOML gives a bare key to the table above it, so `dependencies` written below
+# this heading becomes `project.urls.dependencies` and the runtime requirements
+# leave the package without any error.
+[project.urls]
+Homepage = "https://github.com/cankblunt/diglibrary"
+Changelog = "https://github.com/cankblunt/diglibrary/blob/main/CHANGELOG.md"
+Issues = "https://github.com/cankblunt/diglibrary/issues"
+
+[project.scripts]
+diglibrary = "diglibrary.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+  "black>=26.0.0",
+  "build>=1.3.0",
+  "coverage>=7.13.0",
+  "pytest>=9.0.0",
+  "ruff>=0.15.0",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"diglibrary.ui" = ["web/*"]
+# The Dock icon, drawn once and carried rather than drawn on the machine that
+# asks for it. Redrawing every size takes several seconds — affordable for a
+# command somebody types, and not for a box they tick while a window waits.
+# `tests/ui/test_icon.py` refuses one that has drifted from the drawing that
+# made it.
+"diglibrary.desktop" = ["*.icns"]
+# Shipped so a first run has something to read. Without it, an installation
+# that is not a checkout has no configuration file and cannot start.
+"diglibrary.config" = ["default.toml"]
+# The 512-tap analysis window of ISO/IEC 11172-3, which the frame-grid
+# measurement runs the encoder's own filterbank with. Carried as data rather
+# than as a literal because it is a published table, quoted here with its
+# provenance in the file's own header, and a table nobody can trace back is a
+# number this project would not be able to defend.
+"diglibrary.quality" = ["enwindow_iso.txt"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]

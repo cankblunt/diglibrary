@@ -1,0 +1,80 @@
+[
+  {
+    "name": "@@share1\\Folder 1\\Folder 2",
+    "fileCount": 9,
+    "files": [
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "01 - Track 01.mp3",
+        "size": 4004096
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "02 - Track 02.mp3",
+        "size": 4008192
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "03 - Track 03.mp3",
+        "size": 4012288
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "04 - Track 04.mp3",
+        "size": 4016384
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "05 - Track 05.mp3",
+        "size": 4020480
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "06 - Track 06.mp3",
+        "size": 4024576
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "07 - Track 07.mp3",
+        "size": 4028672
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "File 1.png",
+        "size": 4032768
+      },
+      {
+        "attributeCount": 0,
+        "attributes": [],
+        "code": 1,
+        "extension": "",
+        "filename": "folder.jpeg",
+        "size": 4036864
+      }
+    ]
+  }
+]

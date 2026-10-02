@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigLibrary — your music library, sorted out before Rekordbox inherits it</title>
+<meta name="description" content="Organize a whole music library at once — names, tags and cover art — against MusicBrainz and Discogs, with a plan you approve first and can undo. It also tells you whether a FLAC is really lossless. Runs entirely on your Mac. Free and open source.">
+<link rel="icon" href="brand/diglibrary-icon-1024.png">
+<meta property="og:title" content="DigLibrary — your library, sorted out before Rekordbox inherits it">
+<meta property="og:description" content="One plan for the whole batch — names, tags, cover art — from MusicBrainz and Discogs, approved before anything is written and undoable afterwards. And it knows whether that FLAC is really a FLAC.">
+<meta property="og:image" content="https://raw.githubusercontent.com/cankblunt/diglibrary/main/docs/brand/diglibrary-lockup.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="./">
+      <img src="brand/diglibrary-icon-1024.png" alt="">
+      <b>DigLibrary</b>
+    </a>
+    <nav>
+      <a href="#what">What it does</a>
+      <a href="lossless.html">Is my FLAC real?</a>
+      <a href="#verify">How to verify it</a>
+      <a href="https://github.com/cankblunt/diglibrary">Source</a>
+      <a class="cta" href="#install">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<div class="wrap hero">
+  <p class="kicker">Free · open source · macOS</p>
+  <h1>Sort out your library <em>before</em> Rekordbox inherits it.</h1>
+  <p class="lede">
+    Or simply keep it organised and up to date, always. Your files came from a
+    hundred places and it shows: DigLibrary reads your folders, works out what
+    every album actually is, and hands you <strong>one plan for the whole
+    batch</strong> — folder names, file names, tags and cover art, in the shape
+    you decide.
+  </p>
+  <p class="lede" style="margin-top:-16px">
+    Nothing on your disk changes until you approve it, and everything it writes
+    can be undone.
+  </p>
+
+  <figure class="scope">
+    <div class="plan">
+      <div class="plan-side">
+        <p class="plan-head">What you have</p>
+        <ul>
+          <li>(2001) loose gravel trio - glasswork town [FLAC]/</li>
+          <li>01 - track01.flac</li>
+          <li>02 - track02.flac</li>
+          <li class="plan-dim">…and 11 more</li>
+          <li class="plan-gap">night ferry/</li>
+          <li>a1.flac</li>
+          <li>a2.flac</li>
+          <li class="plan-gap">various - tidewater sessions 1995 FLAC/</li>
+          <li>01.flac</li>
+        </ul>
+      </div>
+      <div class="plan-arrow" aria-hidden="true">→</div>
+      <div class="plan-side">
+        <p class="plan-head">What the plan writes</p>
+        <ul>
+          <li class="plan-new">Loose Gravel Trio - Glasswork Town (1969) [FLAC]/</li>
+          <li class="plan-new">01. Market Steps.flac</li>
+          <li class="plan-new">02. Blue Casement.flac</li>
+          <li class="plan-dim">…and 11 more</li>
+          <li class="plan-gap plan-new">The Velvet Harbour - Night Ferry (1981) [FLAC]/</li>
+          <li class="plan-new">01. Dockside.flac</li>
+          <li class="plan-new">02. Lanterns.flac</li>
+          <li class="plan-gap plan-warn">VA - Tidewater Sessions (1995) [Lossy]/</li>
+          <li class="plan-warn">01. Ilse Corwen - Launch.flac</li>
+        </ul>
+      </div>
+    </div>
+    <figcaption>
+      <span>Read it, change any line, approve the lot.</span>
+      <span><b>History</b> puts every one of them back.</span>
+    </figcaption>
+  </figure>
+</div>
+
+<div class="wrap install" id="install">
+  <ol class="lines">
+    <li><code>brew install python ffmpeg pipx &amp;&amp; pipx ensurepath</code></li>
+    <li><code>pipx install diglibrary</code></li>
+    <li><code>diglibrary</code></li>
+  </ol>
+  <p style="color:var(--muted); font-size:16px; margin:0;">
+    macOS 12 or later. Close the Terminal and open it again after the first line.
+    The first time it opens, it offers to put itself in your Applications folder —
+    after that you never need the Terminal again.
+    <a class="inline" href="https://github.com/cankblunt/diglibrary#getting-started">Full walkthrough, step by step →</a>
+  </p>
+</div>
+
+<section id="what">
+  <div class="wrap">
+    <h2>Four things, and it asks before it writes a single byte</h2>
+    <p class="sub">
+      Built for a library rather than for a file: a hundred albums are one gesture,
+      not a hundred. The Quality screen is what nothing else here does — but the
+      reason to run it is the first card.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">Organise · the whole shelf</span>
+        <h3>Your standard, applied to everything</h3>
+        <p>Six naming styles, or write your own template. Folder names, file names,
+        tags and cover art move together, so what Rekordbox reads and what your
+        Finder shows finally agree.</p>
+        <p>Approve a hundred albums in one gesture, or go through them one at a
+        time. <strong>Words you typed yourself are kept</strong> — a correction you
+        made by hand is never quietly overwritten by a catalogue.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Identify · double-checked</span>
+        <h3>What this album actually is</h3>
+        <p>MusicBrainz and Discogs, and the sound itself through AcoustID when the
+        name says nothing at all. They disagree often, so nothing is taken on one
+        source's word: a third is consulted as a <em>witness</em>, and it can settle
+        which of two catalogue entries describes your pressing — without writing a
+        single character of its own.</p>
+        <p>When nothing is trusted, the file is <strong>left alone</strong> and put on
+        a list for you. A name is never invented.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Quality · what a tagger cannot do</span>
+        <h3>And whether the audio is what it claims</h3>
+        <p>Every other organiser believes the file extension. This one measures
+        where each track's spectrum ends and how sharply it falls off — and then
+        asks a second question no spectrogram can answer: <strong>where the audio
+        was cut into frames</strong>. An MP3 compresses on a fixed grid, and
+        converting it to FLAC copies that grid along with the sound. Trying all
+        576 alignments finds it, which reaches even a 320 kbps transcode with no
+        low-pass at all — the file every ceiling-based test lets walk. An album
+        is judged from all of its tracks together, never from a single one, so the
+        MP3 somebody sold you as FLAC is labelled before it reaches your decks.</p>
+        <p><a class="inline" href="lossless.html">How to read that yourself →</a></p>
+      </div>
+      <div class="card">
+        <span class="tag">Mixing</span>
+        <h3>Key and tempo, measured here</h3>
+        <p>From the audio, on your own machine — nothing uploaded, no service, no
+        account — and shown as Camelot neighbours, so what mixes with what is on the
+        screen instead of in your head. Each key carries how decided the reading was,
+        and names the key it beat where the two came in level.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>It will not wreck a library that works</h2>
+    <p class="sub">
+      This is the real reason not to run an automatic renamer over years of
+      collecting, so it is answered first rather than in the small print.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">Reversible</span>
+        <h3>Every write, not most of them</h3>
+        <p>Nothing happens until you have read the plan and approved it. Every write
+        is preceded by a reversible backup, and the <strong>History</strong> screen
+        puts an album back where it was — names, tags and artwork.</p>
+        <p>A run that fails partway is followed too: what landed is recorded and can
+        be undone like anything else.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Local</span>
+        <h3>There is no DigLibrary server</h3>
+        <p>Not "we don't sell your data" — there is nowhere for it to go. The only
+        addresses this application can reach are the music catalogues themselves,
+        when you ask it to identify something, and Soulseek through your own slskd,
+        if you use that service.</p>
+        <p>No account, no sign-up, no key shipped inside it. Your library never
+        leaves your Mac, and neither does a list of what is in it.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Untracked</span>
+        <h3>Nothing is counted about you</h3>
+        <p>No analytics, no telemetry, no crash reporting, no update ping — not
+        disabled by a setting, simply <strong>not present</strong>. It is one grep
+        over the source, and that is the intended way to check it.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Out of the way</span>
+        <h3>Your DJ software is untouched</h3>
+        <p>DigLibrary never opens your Rekordbox or Serato library. It works on the
+        files themselves, which is what those applications read — so you organise
+        first, and import a collection that is already right.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>The window</h2>
+    <p class="sub">Six screens. This is the shelf and the mixing bench.</p>
+    <div class="shots">
+      <figure class="shot">
+        <img src="images/screen-library.png" alt="The Library screen: album cards in a grid, each with a sleeve, a rating and a status chip.">
+        <figcaption>Library — every album, what state it is in, and what it is waiting for.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screen-mixing.png" alt="The Mixing screen: tracks listed with musical key, tempo, and a word for how decided each key reading was — with the key it beat where the two came close.">
+        <figcaption>Mixing — key and tempo, measured here, with Camelot neighbours.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="verify">
+  <div class="wrap">
+    <h2>Built with AI. Verify it, don't trust it.</h2>
+    <p class="sub">
+      This is said plainly because you would rather know. DigLibrary is written with
+      heavy AI assistance, directed, questioned, corrected and audited by a person at
+      every step — and what it claims can be checked on your own machine.
+    </p>
+
+    <div class="figures">
+      <div class="fig"><b>1,997</b><span>tests, offline<br>and deterministic</span></div>
+      <div class="fig"><b>40k</b><span>lines of Python<br>you can read</span></div>
+      <div class="fig"><b>MIT</b><span>and published<br>with provenance</span></div>
+    </div>
+
+    <p class="sub" style="margin-bottom:22px">
+      Every rule in this application was measured before it was accepted — against
+      real libraries, and against a benchmark of known transcodes whose recipe
+      ships with the source, so the quality verdicts can be put to the test.
+    </p>
+
+    <p style="margin:0 0 30px">
+      <a class="inline" href="verify.html">How to check any of this for yourself →</a>
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">Repeat the measurement</span>
+        <h3>benchmark/</h3>
+        <p>The encoder arms and the scripts that build, measure and score them.
+        Build the transcodes from audio of your own and read the verdicts.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Run the suite</span>
+        <h3>pytest</h3>
+        <p>Every test is offline and deterministic — clocks, sleeps and HTTP transports
+        are injected. Architecture boundaries are asserted by tests, not by convention.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Check the package</span>
+        <h3>Provenance</h3>
+        <p>Published from a tagged commit by a workflow with no stored key, and every
+        release carries a signed attestation you can fetch from PyPI.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <a href="https://github.com/cankblunt/diglibrary">GitHub</a>
+      <a href="https://pypi.org/project/diglibrary/">PyPI</a>
+      <a href="https://github.com/cankblunt/diglibrary/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/cankblunt/diglibrary/blob/main/LEIAME.md">Em português</a>
+      <a href="https://github.com/cankblunt/diglibrary/issues">Issues</a>
+    </div>
+    <p style="margin:0; max-width:70ch">
+      MIT licensed. macOS 12 or later — Windows and Linux are intended, with no date;
+      installing on either succeeds and the application then refuses to open and says
+      so. If you would like to be the reason one of them arrives,
+      <a href="https://github.com/cankblunt/diglibrary/issues">open an issue and say which</a>.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

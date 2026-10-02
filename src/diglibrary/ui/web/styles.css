@@ -1,0 +1,3645 @@
+/* DigLibrary — dark, booth-first. One palette, defined once. */
+
+:root {
+  --bg: #0e0f12;
+  --panel: #16181d;
+  --panel-raised: #1c1f26;
+  --line: #262a33;
+  --text: #e8e6e1;
+  --muted: #8b8f98;
+  /* The same grey at half strength, for the one chip that is outlined rather
+     than filled. Declared beside it rather than written into the rule, so the
+     two can never drift apart. */
+  --muted-line: rgba(139, 143, 152, 0.5);
+  /* The one step down from the body size, declared once. Written into each
+     rule, it is a number nobody can move without finding every copy. It is a
+     ratio, in a stylesheet whose other sizes are absolute, so that it follows
+     the three densities this window offers. */
+  --text-step-down: 0.92em;
+  --accent: #ffb454;
+  --accent-ink: #241a05;
+  /* The pairing table's two answers: this file is paired to a track, or it is
+     not. Declared here rather than written as raw hex in the rules, which is
+     one fact in several places and the way a palette drifts. They are
+     deliberately not `--good` and `--warn`: those are saturated enough to
+     shout from a column that repeats on every row of every album. */
+  --paired: #34c98e;
+  --unpaired: #d9a13b;
+  --good: #7fd77f;
+  --info: #6aa5f8;
+  --warn: #ffb454;
+  --bad: #ff6b6b;
+  /* `Organized` is what the shelf mostly says, so it has a colour of its own
+     and that colour is soft. `--good` exists and is not it: #7fd77f is 40%
+     saturated at 84% brightness and would shout from nearly every card. This
+     is 17% at 65%. It still clears the chip's own legibility bar: 5.66:1
+     against the composited chip background. And it is a colour rather than a
+     second grey — 24 units of CIELAB from `--muted`, which the shelf wears on
+     `Not scanned` right beside it.
+     Kept separate from `--good` rather than folded into it, because `--good`
+     says *this went well* on the run's own screens and a chip on a sleeve is
+     not an outcome. */
+  --organized: #8aa88c;
+  /* The colour of a question still open. It is read by the plan's *your file
+     says* line — nothing is wrong there and nothing is blocked, and amber on
+     that screen already means *this pairing is offered*. */
+  --unasked: #b9a5e8;
+  /* A star that has been given, and the only white in this window that is
+     pure. `--text` is a warm off-white made to be read in paragraphs, and
+     against sleeve art under a dark pill it reads as grey. Declared rather
+     than written into the rule so the two whites cannot drift, and named for
+     the thing rather than for the colour, because `--white` would invite the
+     next screen to reach for it. */
+  --star: #ffffff;
+  --radius: 10px;
+  /* The brand's own colours, sampled from the logo's artwork, and used only by
+     the mark and the wordmark. They are close to `--accent` and deliberately not
+     merged with it: the interface keeps one amber of its own, and the logo keeps
+     the yellow it was drawn in. Eight pixels apart in the header is exactly
+     where two nearly-identical yellows would read as a mistake. */
+  --brand-yellow: #f2c230;
+  --brand-cream: #ebddc4;
+  /* How much room the lists take, which is set in Settings. Compact is the
+     default: a list of files is read at about one text line a row. */
+  --text-size: 13px;
+  --row-pad: 4px;
+  --row-line: 1.3;
+  /* Everything a row can hold answers to the density too, not only its text:
+     the sleeve thumbnail, the verdict badge, the finding chip and the button
+     that reverts a run. Any one of these keeping its own size sets the height
+     of the row it is in, whatever the density says. */
+  --row-cover: 17px;
+  --chip-font: 10px;
+  --chip-pad: 1px 6px;
+  --row-button-pad: 2px 8px;
+  /* One floor for every track row, so the lists agree with each other.
+     Declared rather than left to the content, because what a row happens to
+     contain is what makes two lists of the same type size come out a few
+     pixels apart. */
+  --row-min: 22px;
+  /* And a second floor, for the row that is an *album* rather than a file. Two
+     floors because the two rows are not the same thing: an album row carries a
+     sleeve and a marking box, a file row carries neither, and a single floor
+     could only be right about one of them.
+     The sleeve is what sets this number, so it is derived from it and not
+     guessed: floor − padding − rule. */
+  --row-min-album: 26px;
+  /* The height every control in a screen's bar is given, so every bar comes
+     out the same number instead of several near-misses. It answers the density
+     like the rows do — a roomier list with a cramped toolbar over it would be
+     the same disagreement in the other direction. */
+  --bar-control: 28px;
+  /* The space between things, on one scale. The structural surfaces — the
+     frame, the bars, the dialog's head and foot — take their spacing from it:
+     spaced one by one, two rows end up a pixel apart and read as a mistake
+     nobody can name. Component-internal padding is its own affair and the
+     density variables above own the rows; this scale owns the layout. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+}
+
+:root[data-density="cosy"] {
+  --text-size: 14px;
+  --row-pad: 7px;
+  --row-line: 1.45;
+  --row-cover: 21px;
+  --chip-font: 11px;
+  --chip-pad: 2px 7px;
+  --row-button-pad: 4px 10px;
+  --row-min: 26px;
+  --row-min-album: 36px;
+  --bar-control: 32px;
+}
+
+:root[data-density="roomy"] {
+  --text-size: 15px;
+  --row-pad: 10px;
+  --row-line: 1.6;
+  --row-cover: 25px;
+  --chip-font: 12px;
+  --chip-pad: 3px 8px;
+  --row-button-pad: 6px 12px;
+  --row-min: 30px;
+  --row-min-album: 46px;
+  --bar-control: 36px;
+}
+
+* { box-sizing: border-box; }
+
+/* Every word on screen can be selected and copied — a folder name, a refusal,
+   a path in the log. WebKit makes the text inside a control unselectable, and
+   most of what this window shows lives inside one: the cards are buttons and
+   the list rows are clickable. Clicking opens; dragging selects. */
+* {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Where the keyboard is, said in the interface's own amber. Without a focus
+   style, tabbing in a dark booth is tabbing blind. Only the keyboard's focus
+   draws this — `:focus-visible` stays quiet for the mouse — and the few
+   controls that answer focus in their own way override it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--text-size)/var(--row-line) -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 650; }
+h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+.muted { color: var(--muted); margin: 0.2em 0; }
+
+/* --- top bar ----------------------------------------------------------- */
+
+/* The header and the progress bar travel together and stay pinned while the
+   grid scrolls: progress that scrolls out of sight is not progress. */
+.chrome {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.brand { display: flex; align-items: center; gap: var(--space-2); }
+.brand h1 { font-size: 17px; letter-spacing: 0.02em; }
+/* The application's mark. A little larger than the type it sits beside,
+   because it is a picture of a record and not a glyph. */
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: block;
+  border-radius: 5px;
+}
+.brand-dig { color: var(--brand-cream); }
+.brand-library { color: var(--brand-yellow); }
+
+.tabs { display: flex; gap: var(--space-1); }
+.tab {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  /* Room for the bar below, on every tab and not only the marked one, so that
+     marking a tab never moves the row sideways or down. */
+  position: relative;
+}
+
+/* An accent bar under the active tab. The raised pill alone is too quiet for
+   the job it has: Library and Quality are both a long table of albums with a
+   verdict in it, and at a glance the two screens read as the same screen. The
+   bar is the loudest mark available that adds no element and moves no layout.
+
+   Deliberately not bolder as well: a `font-weight: 600` on the marked tab
+   widens it by a few pixels, which shoves every tab to its right sideways each
+   time the screen changes. A row that twitches when it is used is worse than a
+   quiet mark. */
+.tab.is-active { background: var(--panel-raised); color: var(--text); }
+.tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -2px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+.root-path {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+  direction: rtl;
+}
+
+/* The one thing in the frame that belongs to every tab: whether anything is
+   running. It reads as text with a turning ring rather than as a control,
+   because there is nothing to press — it is an answer to "should I wait?". */
+.activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.activity-ring {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* --- buttons ----------------------------------------------------------- */
+
+.button {
+  background: var(--panel-raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+/* The button that started something says so, for as long as it is running. A
+   disabled button says "not now"; this one says "this is what you are waiting
+   for". `currentColor` so it works on the amber primary and the plain one
+   without a second rule. */
+.button.is-working { cursor: progress; }
+.button.is-working::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 8px;
+  vertical-align: -1px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  opacity: 0.85;
+  animation: spin 0.7s linear infinite;
+}
+.button:hover:not(:disabled) { border-color: var(--muted); }
+.button:disabled { opacity: 0.45; cursor: default; }
+.button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+.button-danger { color: var(--bad); border-color: rgba(255, 107, 107, 0.4); }
+/* The way back. A plain button beside a red one and a filled one reads as the
+   one that is switched off, and a grey border is not enough to change that, so
+   it is red on every screen that offers it.
+
+   It is not filled, because a second filled button would be a second
+   invitation. What it takes instead is the *whole* of this palette's red,
+   where `.button-danger` takes 40% of it — so the two are told apart by weight
+   rather than by hue, and the heavier of the two is the one that undoes rather
+   than the one that destroys. */
+.button-way-back { border-color: var(--bad); color: var(--bad); }
+/* Where the other copy of this audio actually is. Under its name, quieter than
+   it, and allowed to wrap: a path is long and truncating it would take away
+   the part that answers the question. */
+.shared-pair-where {
+  margin: 2px 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+.button-icon { padding: 8px 10px; }
+
+/* A button that lives inside a list row answers to the row, not to the toolbar
+   it looks like. The ordinary one stands 35 pixels tall and wraps to 52 in a
+   narrow column, and a row is as tall as the control it carries. */
+.button-row {
+  padding: var(--row-button-pad);
+  border-radius: 6px;
+  font-size: var(--text-step-down);
+  line-height: var(--row-line);
+  white-space: nowrap;
+}
+
+/* --- progress ---------------------------------------------------------- */
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-raised);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  /* Every bar in this window is green, wherever it is. Amber is what this
+     palette uses for a warning, and a bar filling up is not one. */
+  background: var(--good);
+  transition: width 0.25s ease;
+}
+.progress-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+/* A scan ends visibly: completion is a state, not an absence. */
+.scan-done {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 13px;
+}
+.scan-done > span:first-child { color: var(--good); font-weight: 600; }
+.reach-label { color: var(--muted); font-size: 12px; }
+
+/* --- library ----------------------------------------------------------- */
+
+main { padding: 20px; }
+
+/* There is no `.summary` and no row of `.chip`s: which albums are on screen is
+   one question, asked through one menu in the bar on every screen that asks
+   it, not through a row of controls that is always on screen. */
+.view-toggle { display: flex; gap: 4px; margin-left: auto; }
+/* One control, not a pair: the half that is already showing hides, so the one
+   button on screen wears the view a press would switch to — and needs no
+   accent, because it is never the current state. */
+.view-toggle .button.is-active { display: none; }
+
+/* Applying reports what it did: a panel, not a three-second toast. */
+.apply-result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  background: var(--panel);
+  border: 1px solid var(--good);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.apply-result > div { flex: 1; }
+.apply-result b { color: var(--good); }
+.apply-failures { list-style: none; margin: 6px 0 0; padding: 0; color: var(--bad); font-size: 13px; }
+
+.albums-list { width: 100%; border-collapse: collapse; }
+.albums-list th {
+  text-align: left;
+  font-size: var(--chip-font);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: var(--row-pad) 12px;
+  border-bottom: 1px solid var(--line);
+}
+.albums-list td { padding: var(--row-pad) 12px; border-bottom: 1px solid var(--line); }
+.albums-list tbody tr { cursor: pointer; }
+.albums-list tbody tr:hover td { background: var(--panel); }
+
+/* The album floor, for the table rows. `height` on a `<tr>` is a *minimum* in
+   table layout, which is the only way a table row can be given a floor at all
+   — `min-height` on a cell does nothing. Without this the tables size
+   themselves by whatever they happen to contain, and a sleeve or a badge
+   decides the height of a screen. */
+.albums-list tbody tr,
+.history tbody tr {
+  height: var(--row-min-album);
+}
+/* The one row that must not be squeezed to it: the album a Quality row opens
+   holds a table of its own, and a floor is not a ceiling but `height` on a row
+   whose content is smaller would still cramp what it lays out. */
+.albums-list tbody tr.quality-detail,
+.albums-list tbody tr.mixing-partner-row {
+  height: auto;
+}
+
+.empty { color: var(--muted); text-align: center; padding: 80px 0; }
+
+/* An external tool this machine does not have, said on every screen that needs
+   it. Amber rather than muted grey: it is the reason a gesture is missing, so it
+   has to be read before the empty state below it, which describes a different
+   nothing. */
+.missing-tool {
+  margin: 0 auto 12px;
+  max-width: 42em;
+  text-align: center;
+  font-size: 13px;
+  color: var(--warn);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.card:hover { transform: translateY(-2px); border-color: var(--muted); }
+
+.card-cover {
+  aspect-ratio: 1;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+  background: linear-gradient(135deg, #23252d, #191b21);
+}
+.card-cover-placeholder {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34px;
+  color: var(--line);
+  background: linear-gradient(135deg, #23252d, #191b21);
+}
+
+.card-body { padding: 10px 12px 12px; }
+.card-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-sub {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* There is no `.card-folder`: on an organized album the folder repeats the two
+   lines above it, so the card does not draw it and the stylesheet does not
+   dress it. */
+.list-folder {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The one line under the sleeve, and it has to be a line that can give.
+ *
+ * A flex with no gap and no wrap, holding items that are all
+ * `white-space: nowrap`, can only ever be as wide as its contents, and when it
+ * is wider than the card the card's own `overflow: hidden` cuts it off: the
+ * last badge ends mid-digit at the card's edge.
+ *
+ * How many badges a card carries is settled where badges are chosen. This rule
+ * is why the foot cannot be *clipped* rather than merely crowded: it wraps,
+ * and a wrapped foot is a card one line taller instead of a number sliced in
+ * half. */
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 8px;
+}
+
+.badge {
+  font-size: var(--chip-font);
+  font-weight: 650;
+  border-radius: 4px;
+  padding: var(--chip-pad);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  /* On one line, always. A badge that wraps is a badge that sets the height of
+     its whole row. */
+  white-space: nowrap;
+  display: inline-block;
+}
+/* Auto is blue and done is green: one says the app is confident enough to act
+   without being asked, the other says it already acted. In the same green they
+   would be the same badge at a glance, which is the one distinction the grid
+   exists to make. */
+.badge-automatic { background: rgba(106, 165, 248, 0.15); color: var(--info); }
+.badge-review { background: rgba(255, 180, 84, 0.15); color: var(--warn); }
+/* Neither an answer nor a problem: an album this scan deliberately did not
+   touch. It is the common state of the shelf, so it is the soft green and not
+   a bright one. The fill is a shade heavier than a 7% white would be, because
+   a hue at 7% over this panel is a grey with an opinion. */
+.badge-organized { background: rgba(138, 168, 140, 0.14); color: var(--organized); }
+.badge-rejected, .badge-blocked { background: rgba(255, 107, 107, 0.15); color: var(--bad); }
+/* The files that dissented from an arrangement's majority, and the line that
+   reads a catalogue's answer against the tags. The dissent is quiet — it is
+   information, not a fault — and the tags-say line borrows the palette's own
+   verdict colours because agreeing and differing are its two answers. */
+.album-dissent {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.tags-say { margin: 4px 0 0; font-size: 12px; }
+/* The soft green, not `--good`, which would shout from every card that agrees.
+   Same green as the match chip above it, which is the other thing on this
+   screen that reports rather than asks. */
+.tags-say.is-agreeing { color: var(--organized); }
+/* **Differing is not amber.** Amber is a claim on attention, and an album can
+   already make several of those at once — the badge, a blocker and the names'
+   verdict. The words stay; only the claim is withdrawn. */
+.tags-say.is-differing { color: var(--muted); }
+
+.badge-nomatch { background: rgba(255, 107, 107, 0.15); color: var(--bad); }
+/* The album is not in the folder it was recorded in, so nothing else this card
+   could say is about anything. It wears the fault colour and, unlike every
+   other badge here, it is not a verdict about the music — so it says its three
+   words in ordinary letters, the way `from your tags` does. */
+.badge-gone {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--bad);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 550;
+}
+/* Nothing has been compared for this album yet, which is neither an answer nor
+   a fault. Outlined rather than filled: the filled badges are verdicts, and
+   this is the absence of one.
+
+   **Grey.** No filled badge on the shelf wears this grey, so the chip cannot
+   be confused with a verdict of the same colour.
+
+   **Outlined.** Outlining is the whole difference between this chip and
+   nothing at all, which is why the line is declared in the palette at half
+   strength beside the grey it is made of, rather than written into this
+   rule. */
+.badge-unlooked {
+  background: none;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--muted-line);
+  border-radius: 4px;
+}
+/* This album is in the run that is under way. It borrows the accent because it
+   is the one badge on the shelf that is about right now. */
+.badge-working {
+  background: rgba(255, 180, 84, 0.12);
+  color: var(--accent);
+}
+.badge-working::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  vertical-align: 0;
+  border: 1.5px solid rgba(255, 180, 84, 0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.confidence { font-size: 12px; color: var(--muted); }
+
+/* --- history ----------------------------------------------------------- */
+
+.history { width: 100%; border-collapse: collapse; }
+.history th {
+  text-align: left;
+  font-size: var(--chip-font);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: var(--row-pad) 12px;
+  border-bottom: 1px solid var(--line);
+}
+/* The same padding every other list uses. A fixed padding here would ignore
+   the density setting, and this screen would read as a different application
+   from the one beside it. */
+.history td { padding: var(--row-pad) 12px; border-bottom: 1px solid var(--line); }
+.history .is-reverted td { color: var(--muted); }
+/* A run that stopped partway is the row most worth finding again. */
+.history .is-partial td { color: var(--warn); }
+
+/* --- dialogs ----------------------------------------------------------- */
+
+.dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  width: min(780px, 92vw);
+  max-height: 86vh;
+  padding: 0;
+}
+.dialog-narrow { width: min(460px, 92vw); }
+.dialog::backdrop { background: rgba(5, 6, 8, 0.7); }
+
+.dialog-head {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--line);
+  align-items: flex-start;
+}
+.dialog-head h2 { font-size: 18px; }
+.dialog-close { margin-left: auto; }
+/* The album's context gestures and the ✕, one quiet group at the head's edge:
+   neither decides the plan, so neither sits in the footer with the buttons
+   that do. */
+.dialog-head-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+/* The position in the shelf, between the two arrows that move it. Quiet and in
+   the tabular figures, so `9 of 10` and `10 of 10` do not shift the buttons
+   apart from one album to the next. */
+.album-position {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5em;
+  text-align: center;
+}
+/* The footer's ⋯ keeps to the left, so the three decisions keep the right
+   edge to themselves and the eye reads the row as one question. */
+.dialog-more { margin-right: auto; }
+.dialog-cover { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; }
+/* The picture and the gesture that changes it, one column. The gesture is grey
+   and small — an edit offered, not a step owed — and it keeps its place
+   whether or not there is a picture, so the eye learns one spot. */
+.dialog-cover-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+.dialog-cover-empty {
+  border: 1px dashed var(--muted-line);
+  box-sizing: border-box;
+}
+.cover-edit {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cover-edit:hover { color: var(--text); text-decoration: underline; }
+.reason { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+.dialog-body {
+  padding: 20px;
+  overflow-y: auto;
+  max-height: 52vh;
+  display: grid;
+  gap: 24px;
+  /* A dialog's scroll stops at the dialog: otherwise reaching its end hands the
+     wheel to the grid behind it, which moves while the album is open. */
+  overscroll-behavior: contain;
+}
+
+.operations, .candidates, .blockers { list-style: none; margin: 10px 0 0; padding: 0; }
+.operations li {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.operations .op-kind { color: var(--accent); white-space: nowrap; font-weight: 600; }
+.operations .op-detail { color: var(--muted); overflow-wrap: anywhere; }
+.operations .op-detail b { color: var(--text); font-weight: 600; }
+
+/* **Not red.** Red is for a fault in the library, and a plan that cannot cover
+   every file is not one — the record may simply be the wrong record, which the
+   line above says. Red paragraphs before the table would compete with it. */
+.blockers li { color: var(--muted); font-size: 12px; padding: 2px 0; }
+
+/* The one notice of a record nothing matched. Two registers and no third: the
+   fact in amber — the only claim on attention this screen makes — and the ways
+   out in the ordinary grey of information. Red is absent on purpose: nothing
+   here is a fault of the library. */
+.wrong-record { margin: 10px 0 0; }
+.wrong-record-fact { margin: 0; color: var(--warn); font-size: 13px; font-weight: 600; }
+.wrong-record-ways { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+/* The witness's way out. Grey and unemphasised on purpose: the amber above is
+   this screen's one claim on attention, and a second one competes with it. The
+   tracklist is a plain reading list — nothing in it is a control, because
+   nothing here may adopt what the witness said. */
+.witness-way { margin: 6px 0 0; }
+.witness-said { margin: 0; color: var(--muted); font-size: 13px; }
+.witness-controls { display: flex; gap: 14px; margin: 0; }
+.witness-tracks {
+  margin: 6px 0 0;
+  padding: 0 0 0 22px;
+  color: var(--muted);
+  font-size: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.witness-tracks li { padding: 1px 0; }
+/* What the record *is*, over there — the line that answers *does this album
+   exist somewhere at all*, which is the question a folder nothing could name
+   raises. The page it was read on sits here, because a witness that
+   contributed to a decision has to be one that can be checked. */
+.witness-head { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.warnings { list-style: none; margin: 10px 0 0; padding: 0; }
+/* The same, and for the same reason: a warning is about what a plan leaves
+   behind, which is a fact and not an alarm. */
+.warnings li { color: var(--muted); font-size: 12px; padding: 2px 0; }
+
+/* The names' own verdict, in the amber this window uses for *look at this*, and
+   heavier than a warning because it is the sentence that decides whether the
+   whole plan below is about this record at all. */
+.names-disagree {
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 0;
+}
+
+/* Where the before-and-after table stands for every other album. It takes the
+   same room a small plan would, so opening a scanned album and an unscanned
+   one does not move the rest of the dialog around. Dashed, because the border
+   is the outline of something absent rather than a panel of its own, and the
+   button is centred because it is the only thing to do here. */
+.unscanned {
+  margin-top: 12px;
+  padding: 22px 16px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  text-align: center;
+}
+.unscanned-heading {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.unscanned-note {
+  margin: 6px auto 14px;
+  max-width: 42em;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The welcome. Each optional service is one block: what it buys, then the
+   field, then where to get it — in that order, because the reason has to
+   arrive before the ask. */
+.connect { margin-bottom: 22px; }
+.connect h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.connect-why {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.connect-row { display: flex; gap: 8px; }
+.connect-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+}
+.connect-row + p { margin: 6px 0 0; font-size: 12px; }
+.connect a { color: var(--accent); }
+
+/* A fold keeps the long lists out of the way until they are wanted. */
+.fold { margin-top: 12px; }
+.fold > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 6px 0;
+  list-style-position: inside;
+}
+.fold > summary::marker { color: var(--muted); }
+
+/* **The open fold gets one type size and one rhythm.** The lines stacked
+   inside `#album-details` are text of one rank, so they share one size and one
+   margin instead of each rule choosing its own.
+
+   Two steps and one step only: the summary leads at 13px, everything the fold
+   holds is 12px, and every child is separated by 6px from the one above with
+   nothing above the first. Sizes and colours below this comment are set here so
+   the individual rules stop competing; a rule that needs to differ has to say
+   why. */
+#album-details > * {
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+/* The line right after the summary, whatever element it happens to be — not
+   `:first-of-type`, which is per element type and would zero the first paragraph
+   *and* the first list, leaving two lines touching in the middle of the stack. */
+#album-details > summary,
+#album-details > summary + * { margin-top: 0; }
+/* The summary's own size is set further down, where the rest of this control is
+   described. It is declared there only: a second declaration here would be
+   outranked by that one and would read as a decision while doing nothing. */
+
+.find-form { display: grid; gap: 8px; margin-top: 10px; }
+.find-row { display: flex; gap: 8px; }
+.find-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+}
+.find-status { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+.find-status.is-busy::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .find-status.is-busy::before,
+  .activity-ring,
+  .badge-working::before,
+  .button.is-working::after { animation-duration: 3s; }
+  .flash { transition: none; }
+}
+
+/* --- the end of a run, said in the middle of the window -------------------
+   A progress bar disappearing is an absence, and an absence is not an
+   announcement — the line that stays afterwards is read on the way to something
+   else. This is read at the moment it happens, and then it is gone: it carries
+   no ✕ because a notice that has to be dismissed is a notice about a problem. */
+.flash {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: fit-content;
+  height: fit-content;
+  padding: 14px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  /* Opaque as soon as it opens, and only the leaving is animated: a fade *in*
+     needs a frame to be painted between opening and styling, and a window that
+     is not being drawn never paints one. */
+  opacity: 1;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  /* It says something finished; it must never be in the way of what finished. */
+  pointer-events: none;
+}
+.flash.is-leaving { opacity: 0; transform: translateY(-6px); }
+
+.candidates .candidate {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.candidates .candidate.is-adopted {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+.candidates .cand-head { display: flex; align-items: center; gap: 12px; }
+.candidates .cand-main {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.candidates .cand-title { font-weight: 600; }
+.candidates .cand-title::before { content: "▸ "; color: var(--muted); }
+.candidates .candidate:has(.cand-body:not([hidden])) .cand-title::before { content: "▾ "; }
+.candidates .cand-sub { color: var(--muted); font-size: 12px; }
+.cand-body { padding: 8px 0 4px 14px; }
+.cand-facts, .cand-evidence { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+.cand-evidence { color: var(--text); }
+.cand-tracks { margin: 8px 0 6px 18px; padding: 0; font-size: 12px; color: var(--muted); }
+.cand-tracks li { padding: 1px 0; }
+
+
+/* Every identification links to its source. */
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 4px 0 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.link-button:hover { text-decoration: underline; }
+
+/* --- the plan, editable in place -------------------------------------------
+   One surface: what will be written is what can be typed. Two columns, aligned
+   like the evidence table — the name on disk and the name applying would write
+   — because names are compared with the eye, and a line break defeats that.
+   Editing is deliberate: the name is text until the pencil is asked for it. */
+
+.plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin: 10px 0 14px;
+  table-layout: fixed;
+}
+.plan-table thead th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  font-weight: 600;
+  padding: 4px 8px 6px;
+}
+.plan-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.plan-table th.plan-label, .plan-table td.plan-label { width: 7ch; padding-right: 0; }
+.plan-table th.plan-arrow, .plan-table td.plan-arrow { width: 3ch; padding: 4px 0; }
+
+/* A row that needs no change is still a row that can be edited, and at 0.55 it
+   reads as a disabled control. Dimmed enough that the changes carry the eye,
+   and no further. */
+.plan-row.is-unchanged { opacity: 0.82; }
+.plan-row.is-missing .plan-now { color: var(--warn); }
+/* A pairing offered rather than settled, in the amber this window already
+   spends on "look at this" — the same `--warn` as a partial run in History.
+   The tint marks the row without shouting over the others that are simply
+   fine.
+   No `display` here: this is a `<td>`, and a `display` on one takes the cell
+   out of its row and paints the row's border on the wrong box. */
+.plan-row.is-offered { background: rgba(255, 180, 84, 0.07); }
+.plan-row.is-offered .plan-now,
+.plan-row.is-offered .plan-after { color: var(--warn); }
+.plan-agree { margin-left: 8px; }
+.plan-row:hover { background: rgba(255, 255, 255, 0.03); }
+
+.plan-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The per-row verdict, drawn to be counted rather than read: it sits in a fixed
+   slot so the ticks line up into a column the eye can run down, and the one row
+   that breaks the column is the message. Deliberately quiet — a column of
+   shouting ticks would be worse than none, and what has to stand out is the
+   exception. */
+.plan-mark {
+  display: inline-block;
+  width: 1.1em;
+  margin-right: 2px;
+  text-align: center;
+  font-size: 11px;
+}
+.plan-mark.is-yes { color: var(--good); opacity: 0.75; }
+.plan-mark.is-asking { color: var(--warn); font-weight: 700; }
+/* Paired by a length and nothing else. Not the good colour: a green tick says
+   the row is right, and what holds this pair is two durations a few seconds
+   apart while the names do not agree. */
+.plan-mark.is-length { color: var(--warn); opacity: 0.9; }
+.plan-now { color: var(--muted); }
+.plan-arrow { color: var(--info); text-align: center; }
+
+/* The files nothing claimed, listed on the row of the track nothing claimed.
+   Quiet: this is a shortlist to look at, not a verdict, and it must not
+   out-shout the name the row is actually about. */
+.plan-loose-head { margin-top: 4px; color: var(--warn); font-size: var(--text-step-down); }
+/* The one place the unclaimed files are named when several tracks are asking.
+   A panel and not a row, because it is about the album rather than about any
+   one track — and it stands under the table for the same reason the held
+   pairings stand above it: a table takes rows, not paragraphs. */
+.plan-unclaimed {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+}
+.plan-unclaimed .plan-loose-head { margin-top: 0; }
+.plan-unclaimed .plan-loose { margin-top: 4px; }
+.plan-loose { margin: 2px 0 0; padding-left: 1.1em; list-style: disc; }
+.plan-loose li { margin: 1px 0; }
+.plan-loose-name { color: var(--text); overflow-wrap: anywhere; }
+.plan-loose-why {
+  display: block;
+  color: var(--muted);
+  font-size: 0.88em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- pairing a file to a track by hand -----------------------------------
+   Quiet at rest and legible when the row is under the eye, exactly like the
+   pencil: the plan is read for its names, and a control on every row would be
+   read instead of them. The one exception is a pairing already made by hand,
+   which stays visible — a decision that cannot be seen cannot be undone. */
+
+.plan-pick {
+  margin-left: 8px;
+  padding: 1px 6px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.plan-row:hover .plan-pick { color: var(--text); }
+.plan-pick:hover, .plan-pick:focus-visible { border-color: var(--accent); color: var(--accent); }
+
+.plan-picker { margin-top: 3px; }
+.plan-pick-open {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--line);
+  font: inherit;
+  font-size: 0.85em;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.plan-row:hover .plan-pick-open { color: var(--muted); }
+.plan-pick-open:hover, .plan-pick-open:focus-visible { color: var(--accent); outline: none; }
+.plan-pick-list {
+  display: block;
+  max-width: 100%;
+  margin-top: 3px;
+  background: var(--panel-raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.9em;
+}
+
+.plan-hand { margin-top: 2px; font-size: 0.85em; }
+.plan-hand-said { color: var(--accent); }
+.plan-hand-undo {
+  margin-left: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.plan-hand-undo:hover, .plan-hand-undo:focus-visible { color: var(--accent); outline: none; }
+
+/* Pairings held over from another release: a question, so it is a panel and not
+   a line of text — and the pairings are named, because nobody can answer about
+   work they cannot see. */
+.plan-held-panel {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+}
+.plan-held-head { color: var(--warn); }
+.plan-held-list {
+  margin: 6px 0;
+  padding-left: 1.1em;
+  list-style: disc;
+  color: var(--text);
+  font-size: var(--text-step-down);
+}
+.plan-held-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+.plan-cell { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0; }
+/* A piece of the name wraps its text, its field and its pencil so that only one
+   of them opens at a time; `contents` keeps all three as items of the cell's own
+   flex row, which is what makes the name read as one line. */
+.plan-field { display: contents; }
+/* The derived part of a name is not typed by anyone, so it is quiet: what can
+   be edited is drawn in full colour. */
+.plan-affix { color: var(--muted); white-space: pre; }
+.plan-stem, .plan-part { color: var(--text); }
+.plan-row.is-unchanged .plan-stem, .plan-row.is-unchanged .plan-part { color: var(--muted); }
+/* A credit the catalogue never published still needs somewhere to click, and an
+   empty word in a name has to look unwritten rather than merely missing. Muted
+   and italic, not `--line`: `--line` on this panel is #262a33 on #16181d,
+   which is a word nobody would find. The pencil may rest that quiet because it
+   brightens when the row is hovered; a word cannot. */
+.plan-part.is-placeholder { color: var(--muted); font-style: italic; }
+
+/* **The name fields, and only them.** `.plan-cell input` would be every input
+   a plan cell will ever hold — so the number offered beside a track added by
+   hand would be drawn, wired and invisible. No static guard over these files
+   can see that: the markup is right, the script is right, and a rule about one
+   thing reaches another. Written as what it is about: an input that belongs to
+   an editable piece of a name waits behind its pencil. */
+.plan-field input { display: none; }
+.plan-cell.is-editing .plan-stem { display: none; }
+.plan-field.is-editing .plan-part { display: none; }
+.plan-field.is-editing input {
+  display: inline-block;
+  flex: 0 1 auto;
+  min-width: 8ch;
+  max-width: 100%;
+  background: var(--panel-raised);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  padding: 1px 6px;
+  margin: -2px 2px;
+}
+.plan-field.is-editing input:focus { outline: none; }
+
+/* Quiet, but never invisible. Hidden until the row is hovered, the table is a
+   wall of text with no way in, and the album reads as one that offers no
+   editing at all. An affordance has to be findable without being discovered
+   by accident. */
+.plan-pencil {
+  margin-left: 8px;
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--line);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.plan-row:hover .plan-pencil { color: var(--muted); }
+.plan-pencil:hover, .plan-pencil:focus-visible, .plan-field.is-editing .plan-pencil {
+  color: var(--accent);
+  outline: none;
+}
+
+/* Only while the row is open: at rest the cell already shows the written name,
+   and repeating it under itself says nothing. The moment it earns its place is
+   the moment the field holds a title the name does not contain. */
+.plan-derived { display: none; }
+.plan-cell.is-editing + .plan-derived {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-top: 3px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--line);
+}
+/* **Smaller than the dialog's body size.** A footer of four or five buttons at
+   that size — one of which is filled amber and carries the longest label on
+   the screen — takes a strip the height of three rows of the plan they are
+   about. The size comes down rather than the padding alone, because it is the
+   words that are large. */
+.dialog-actions .button { font-size: 12px; padding: 7px 12px; }
+
+/* --- settings ---------------------------------------------------------- */
+
+.settings-form { padding: var(--space-5); display: grid; gap: var(--space-4); }
+.settings-form label { display: grid; gap: 6px; }
+.settings-check { display: flex !important; align-items: center; gap: 10px; }
+/* The welcome footer carries a line of its own above its button. The sentence
+   does not fit beside a primary button in a 460px dialog, so the row wraps and
+   takes the full width rather than being squeezed to three words. */
+.welcome-actions { flex-wrap: wrap; }
+.welcome-actions .settings-check { flex-basis: 100%; }
+/* A gesture rather than a preference: the button does something once, and the
+   line beside it is what happened. `.settings-form label` is a grid, and this is
+   not a label, so it declares its own two rows. */
+.settings-row { display: grid; gap: 6px; justify-items: start; }
+.settings-row .muted:empty { display: none; }
+.settings-form select,
+.settings-form input[type="number"],
+.settings-form input[type="text"] {
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  padding: 8px 10px;
+}
+.settings-form .dialog-actions { padding: 0; border: none; }
+
+
+
+/* --- toast ------------------------------------------------------------- */
+
+/* The toast is a popover so that it lives in the top layer: otherwise an apply
+   failure raised from an open album dialog is drawn underneath it and reads as
+   silence. */
+/* The container is a stack of notices and carries no look of its own: each
+   notice is its own box, so two failures are two boxes rather than one that
+   replaced the other. */
+.toast {
+  position: fixed;
+  inset: auto;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  max-width: min(720px, calc(100vw - 48px));
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+/* Scoped to :popover-open on purpose: a bare `display: flex` here would
+   override the user-agent rule that keeps a closed popover hidden. */
+.toast:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--panel-raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px 10px 18px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  /* A refusal names every problem a plan has, including full paths, so it needs
+     room to wrap. */
+  text-align: left;
+  line-height: 1.45;
+}
+
+.notice.is-error {
+  border-color: var(--bad);
+}
+
+.notice-message {
+  flex: 1;
+  /* A path is longer than this box and has nowhere to break; it wraps rather
+     than pushing the ✕ off the edge. */
+  overflow-wrap: anywhere;
+}
+
+/* How many times the same thing has happened. A poll that fails keeps failing,
+   and thirty copies of one sentence bury every other failure on screen. */
+.notice-tally {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.notice-tally:empty {
+  display: none;
+}
+
+.toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.toast-close:hover { color: var(--text); }
+
+/* --- the certificate and its evidence ------------------------------------- */
+/* **One palette, defined once.** A palette colour written out as a hex is the
+   same fact in two places and the way a palette drifts, and a hex that is
+   close to `--good` or `--warn` without being either reads as though it were.
+
+   This line says which kind of evidence settled the album, which is the
+   quietest fact in the fold, so it wears no bold and no colour of its own.
+   `proof-audio` / `proof-titles` / `proof-text` are still put on the element,
+   because the class is assembled from `album.proof` and a class with no rule
+   is refused by the guard.
+
+   Class kept, rule collapsed: whichever of the three it is, it is grey. */
+.proof-line { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.proof-audio,
+.proof-titles,
+.proof-text { color: var(--muted); }
+.evidence { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 8px 0 4px; }
+.evidence td { padding: 3px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+/* **One grey.** These two columns take `--muted` like every other piece of
+   secondary text: a brighter grey of their own would make the least important
+   cells of the table read louder than the rest of the window. */
+.evidence td:nth-child(2), .evidence td:nth-child(4) { text-align: right; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.evidence td:nth-child(3) { text-align: center; white-space: nowrap; }
+/* **Declared once, beside the palette, and referred to.** These colours are
+   the pairing table's own semantics, where a green tick and an amber gap are
+   the whole point of the column — unlike the proof line above, whose only job
+   is to name which kind of evidence won. */
+.ev-paired td:nth-child(3) { color: var(--paired); }
+.ev-unmatched_file td:nth-child(3), .ev-unmatched_track td:nth-child(3) {
+  color: var(--unpaired);
+}
+
+/* --- quality survey ------------------------------------------------------- */
+
+/* There is no `.quality-head`: the heading of this screen is `.screen-bar`,
+   the one every screen wears, and the sentence explaining the screen is the
+   title's tooltip. */
+
+/* **Green is the only good news on this screen, and nothing else may wear it.**
+   `lossy` in the same green as `lossless`, at a slightly different fill, would
+   be one colour said twice on the one axis this whole screen exists to answer.
+
+   `lossy` and `was lossy` share the fault colour on purpose, the way the shelf's
+   four fault badges do: they are two ways of saying *this is not lossless*, and
+   telling them apart is the word's job. `lossy` is also the rare state in a
+   library kept lossless, so colouring it paints very little. */
+.badge-lossless { background: rgba(127, 215, 127, 0.15); color: var(--good); }
+.badge-lossy { background: rgba(255, 107, 107, 0.12); color: var(--bad); }
+.badge-transcoded { background: rgba(255, 107, 107, 0.15); color: var(--bad); }
+.badge-overstated { background: rgba(255, 180, 84, 0.15); color: var(--warn); }
+.badge-undecided { background: rgba(255, 255, 255, 0.07); color: var(--muted); }
+
+/* A suspect album is marked on the row itself, not only in its badge: the
+   eye finds the stripe before it reads the word.
+
+   Painted on the first cell rather than on the row, because a cell's own
+   background covers the row's — so a stripe on the row vanishes under the
+   pointer, which is the one moment it is being looked at. */
+.quality-suspect > td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+
+/* Borderline is a question, not a verdict, and it is drawn as one: an outline
+   where a verdict is filled, and a stripe of the warning colour. A convicted
+   album keeps its red stripe — the two never contradict, because nothing
+   convicted is ever borderline. */
+.badge-borderline {
+  background: none;
+  color: var(--warn);
+  border: 1px dashed var(--warn);
+  margin-left: 6px;
+}
+.quality-borderline > td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+
+/* --- one album's tracks, and the word given over them --------------------- */
+
+.albums-list tr.is-openable { cursor: pointer; }
+
+/* **The open album and its panel, drawn as one block.** With `is-open` on the
+   card alone, a panel of tracks in the list opens under a row drawn exactly
+   like every other one, and nothing tells which album is being read. Scoped to
+   `#quality-table` on purpose: `albums-list` is also the Library's table and
+   Mixing's, and neither unfolds like this.
+
+   The amber is a `box-shadow: inset`, not a border or a flex child: a `display`
+   on a `<td>` stops it being a table cell, and a left border would shift the
+   text of the first column by its own width. The bottom line goes so the row
+   and the panel touch. */
+#quality-table tbody tr.is-open > td,
+#quality-table tbody tr.quality-detail > td {
+  background: var(--panel-raised);
+}
+#quality-table tbody tr.is-open > td {
+  border-bottom-color: transparent;
+}
+#quality-table tbody tr.is-open > td:first-child,
+#quality-table tbody tr.quality-detail > td {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+/* The background is stated from `#quality-table` and not here on purpose:
+   `.albums-list tbody tr:hover td` outranks a plain class, so a hover over the
+   open panel would repaint it — the row being read changing colour under the
+   pointer while it is read. */
+.quality-detail > td { padding: 12px 16px 14px; }
+
+.q-verdict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.q-verdict.is-compact { gap: 4px; justify-content: flex-end; }
+.q-verdict-label { font-size: 12px; color: var(--muted); margin-right: 4px; }
+.q-verdict .mode-button { font-size: 11px; padding: 2px 9px; }
+/* The word that was given is the loud one; the other two are quiet offers. */
+.q-verdict .mode-button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(255, 180, 84, 0.12);
+}
+/* The one gesture that reaches every row of the table under it, **given the
+   weight of what it reaches**.
+
+   The words are the same as the per-track control's and the size deliberately
+   is not: above a table carrying two of those chips per track, a control of
+   the same size would make the two that decide the whole album the quietest
+   thing on the screen. The difference is what says which one reaches every
+   track.
+
+   A band of its own, sunk against the panel rather than divided from it by a
+   line. No amber: amber marks which album is open and which word was given,
+   and a third use here would be the same fact in the colour reserved for it. */
+.q-every {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+/* Scoped: `q-verdict-label` also captions the per-track control, which stays
+   quiet — the difference between them is the whole point. */
+.q-every .q-verdict-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  margin-right: 2px;
+}
+.q-every .mode-button { font-size: 13px; padding: 5px 14px; }
+.q-every .mode-button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(255, 180, 84, 0.12);
+}
+
+.q-tracks { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+.q-tracks th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  font-weight: 600;
+  padding: 4px 8px 6px;
+}
+.q-tracks td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-wrap: anywhere;
+}
+.q-tracks th:nth-child(3), .q-tracks th:nth-child(4), .q-tracks th:nth-child(5),
+.q-tracks td:nth-child(3), .q-tracks td:nth-child(4), .q-tracks td:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+/* The word sits at the right edge of its cell, because `.q-verdict.is-compact`
+   ends its row there — so the heading goes with it, and stands over the
+   buttons it names like every other column heading in this table. */
+.q-tracks th:nth-child(7) { text-align: right; }
+/* **A last column exists only where there is more than one cell.** The
+   spectrogram row is a single `<td colspan="8">`, which is its row's first cell
+   and its last at the same time — so a plain `:last-child` reaches it, and the
+   note that stands above the picture is set flush right. Written as the
+   condition it means rather than as a list of the rows that must escape it, so
+   the next full-width row added here is right without anybody remembering
+   this. */
+.q-tracks th:last-child, .q-tracks td:last-child:not(:only-child) { text-align: right; }
+.q-look { white-space: nowrap; }
+
+/* The spectrogram. The ruler is drawn here, not by ffmpeg: the picture is the
+   bare spectrum, so a frequency is a row — linearly from zero to the top drawn,
+   which is the stream's Nyquist limit or `DRAWN_TOP_HERTZ` where that limit is
+   higher — and every label and the wall line are placed by that one mapping.
+   Nothing here may add padding above or below the image, because a pixel of
+   offset is a few hundred hertz of error. */
+.q-spectrogram > td { padding: 10px 8px 14px; border-bottom: none; }
+.spec { display: flex; align-items: stretch; gap: 6px; }
+.spec-ruler {
+  position: relative;
+  flex: none;
+  /* `22 kHz` is six characters, and the ticks are pinned to `right: 0` under
+     `white-space: nowrap` — too narrow a gutter does not wrap them, it slides
+     them out over the picture. Seven, with the tabular figures below, so the
+     widest label still has air. */
+  width: 7ch;
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.spec-tick {
+  position: absolute;
+  right: 0;
+  /* Centred on its own frequency: a label sitting below its line reads as the
+     next one down, and 5 kHz of misreading is the whole point of the picture. */
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+.spec-frame { position: relative; flex: 1; min-width: 0; line-height: 0; }
+.spec-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  /* An outline and not a border, for the reason written above this block: a
+     border is laid out, so it pushes the picture one pixel down inside the very
+     frame every line is placed against. The error that produces grows with the
+     frequency, tens of hertz near the top of the picture, which is the shape
+     of an offset and not of rounding. An outline is painted outside the box
+     and moves nothing.
+
+     The error is smaller than the width the wall band already admits to, and
+     is avoided anyway: that band is a limit of the measurement, and an offset
+     is the drawing being wrong about a number the measurement has right. */
+  outline: 1px solid var(--line);
+  outline-offset: -1px;
+}
+/* **Nothing is ruled across the picture.** A stroke laid over a
+   spectrum is read as part of it: a dashed edge at 19 kHz draws the very
+   horizontal boundary a low-pass filter leaves, on a file that has none. The
+   picture exists so that the number can be checked against it, and a mark that
+   looks like the evidence prevents that. So these two are anchors with no
+   height and no border — each one only places its label at a frequency. */
+.spec-wall {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
+}
+.spec-wall-label {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  transform: translateY(-50%);
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+/* The reference rungs. Always drawn, and deliberately the quietest thing on
+   the picture: they share it with the measured wall, and only the wall is a
+   finding about this file. So no accent and no fill — if these competed with
+   the amber, the picture would suggest a verdict it has not got. */
+.spec-reference {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
+}
+.spec-reference-label {
+  position: absolute;
+  top: 0;
+  left: 4px;
+  transform: translateY(-50%);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 9px;
+  line-height: 1.5;
+  white-space: nowrap;
+  /* The anchor ignores the pointer so it cannot swallow a click meant for the
+     picture; the label takes it back, because the caveats live in its tooltip
+     and a tooltip nobody can reach is a caveat nobody reads. */
+  pointer-events: auto;
+}
+
+.spec-reading { margin: 6px 0 0 calc(4ch + 6px); font-size: 11.5px; }
+
+.quality-folder { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* On one line: findings that wrap grow the row, and a second line of them is
+   not read anyway. What does not fit is in the row's tooltip.
+
+   Spaced by a margin and not by a flex `gap`, because this is a `<td>`.
+   `display: flex` beats `display: table-cell`, so the cell stops being one: the
+   table wraps it in an anonymous cell that stretches to the row, while the flex
+   box inside is only as tall as its chips — and the row's `border-bottom` is
+   painted on the flex box. The separator of this column then ends a few pixels
+   above every other column's, and further above on an album with no findings
+   at all, where the box holds nothing but its padding.
+
+   The nowrap and the clipping are not lost with the flex: every cell of this
+   table already has both from the `tbody td` rule below. */
+.quality-findings .finding + .finding { margin-left: 4px; }
+.finding {
+  padding: var(--chip-pad);
+  border-radius: 999px;
+  font-size: var(--chip-font);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* An element with its own display rule ignores the `hidden` attribute, because
+   the agent stylesheet's [hidden]{display:none} loses to any class selector.
+   Without this the grid stays on screen underneath the list view. */
+[hidden] { display: none !important; }
+
+.list-cover-cell { width: calc(var(--row-cover) + 10px); padding-right: 0 !important; }
+/* The sleeve answers to the density like everything else in the row. It is
+   still the fastest way to recognise a record — which is why it is here at all
+   — and the roomy density gives it its largest size. */
+.list-cover {
+  width: var(--row-cover);
+  height: var(--row-cover);
+  border-radius: 3px;
+  object-fit: cover;
+  display: block;
+}
+div.list-cover { display: grid; place-items: center; font-size: calc(var(--row-cover) * 0.45); }
+
+/* --- identification review: source visibility ----------------------------- */
+
+.find-mode { display: flex; gap: 6px; margin-bottom: 8px; }
+.mode-button {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.mode-button.is-active { border-color: var(--accent, #ffb454); color: var(--fg, #e8eaf0); }
+
+.evidence thead th {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  padding: 4px 8px 6px;
+}
+.evidence thead .ev-head-right { text-align: right; }
+
+.cand-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(127, 215, 127, 0.15);
+  color: var(--good);
+  white-space: nowrap;
+}
+.cand-link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 2px 6px;
+}
+.cand-link:hover { color: inherit; text-decoration: underline; }
+
+/* The word given about one file, inside the row that shows that file's name.
+   Quiet by default — it appears only where a measurement marked something —
+   and lit once a word has been given, so the row says what is deciding the
+   name beside it. */
+.plan-table th.plan-word, .plan-table td.plan-word {
+  width: 4ch;
+  padding-left: 6px;
+  text-align: right;
+  white-space: nowrap;
+}
+.plan-quality { white-space: nowrap; }
+
+/* The flag says one thing — this audio was lossy before it arrived — and it is
+   quiet until the row is hovered or something is standing. A plan is read for
+   its names; a lit control on every row would be read instead. */
+.plan-quality-button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.plan-row:hover .plan-quality-button,
+.plan-quality-button:focus-visible { opacity: 0.55; }
+.plan-quality-button:hover { opacity: 1; }
+.plan-quality-button.is-fake { opacity: 1; color: var(--bad); }
+/* A word given by hand, not the measurement's: the same flag, underlined. */
+.plan-quality-button.is-said { text-decoration: underline; text-underline-offset: 3px; }
+.plan-quality-button.is-said:not(.is-fake) { opacity: 1; color: var(--good); }
+
+/* How much of an album is settled, in one number. Green only when the plan may
+   run: the number answers "is this only a rename?", and an album that cannot
+   be applied is not, whatever it counts. */
+.match {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+}
+/* Above the bar, the soft green of `organized` — a colour and not a second
+   grey, and deliberately not `--good`, which would shout. */
+.match.is-strong { color: var(--organized); border-color: rgba(138, 168, 140, 0.45); }
+/* **A measurement, not a decision.** A low match reports what was measured and
+   asks for nothing, while the amber lines of this dialog are about what
+   applying would write. Grey, and it keeps its number. */
+.match.is-weak { color: var(--muted); border-color: var(--muted-line); }
+/* **The dialog's standing line**: the verdict, then what the record is. In the
+   head and not in the fold, because the match is the largest thing this screen
+   says about the identification and a fold is often left closed. The chip
+   leads because it is the answer; the facts follow because they are what the
+   answer is checked against. */
+.album-standing {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+.album-standing-facts { color: var(--muted); font-size: 12px; }
+#album-match { flex: 0 0 auto; }
+
+/* --- audio held in more than one album ------------------------------------
+ *
+ * Deliberately quiet: holding one recording in two places is not a fault, since
+ * a track can belong both to the artist's album and to a compilation. It is
+ * `--muted` with a hairline, never `--warn`, so the shelf does not read as a
+ * list of problems. It is a button because it opens the place to answer.
+ */
+.shared-badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.shared-badge:hover { color: var(--text); border-color: var(--muted); }
+/* On a card it is the mark alone, sized to sit on the same line as the badge
+   beside it without changing the foot's height. */
+.shared-badge.is-icon { padding: 1px 6px; line-height: 0; border-color: transparent; }
+.shared-badge.is-icon:hover { border-color: var(--line); }
+/* On the list, the flex lives on an element inside the cell — a `display` on a
+   `<td>` stops it being a cell and paints the row's border on the wrong box. */
+.list-shared { display: flex; margin-top: 2px; }
+.shared-pair { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.shared-pair:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.shared-pair-name { margin: 0 0 4px; }
+.shared-track-list { margin: 0 0 8px; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.shared-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* The proof that a file is a track, folded into the row that renames it. */
+/* One word apart from what the file's own name says. `--unasked` and not
+   `--warn`: nothing is wrong here and nothing is blocked — the amber on this
+   screen already means *this pairing is offered*, and reusing it would put two
+   meanings on one colour. */
+.plan-yours {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11.5px;
+}
+.plan-yours-said { color: var(--unasked); }
+.plan-yours-keep { font-size: 11.5px; }
+/* The same aside once it has been answered. `--unasked` is the colour of a
+   question still open on this screen, and this line's question is closed — so
+   the sentence goes quiet and becomes a fact among facts. The button stays a
+   link, because the way back must not read as louder than the way in. */
+.plan-yours.is-kept .plan-yours-said { color: var(--muted); }
+.plan-yours-drop { font-size: 11.5px; }
+
+/* The album's own way out, above the table it speaks about. */
+.plan-yours-standing {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.plan-proof { color: var(--muted); font-size: 11px; margin-top: 2px; }
+/* The name settled this pair and the length disagrees anyway. Warn and not
+   bad: nothing is blocked here, it is a thing to look at. */
+.plan-proof.is-off { color: var(--warn); }
+.plan-row.is-orphan .plan-now { color: var(--warn); }
+.plan-row.is-orphan .plan-stem { color: var(--muted); font-style: italic; }
+
+/* --- acquisition ---------------------------------------------------------
+   A Soulseek result is a folder with files inside it, and that is how it is
+   drawn: a parent row anyone can read across, and the tracks beneath it once
+   it is opened. */
+
+.acquire-bar {
+  display: flex;
+  gap: 8px;
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+/* The one thing this screen is for. Graphite, a size up, and a little taller
+   than an ordinary field: on a screen with nothing else on it, the search box
+   is what the eye should land on. A box the colour of the background with a
+   hairline around it reads as an outline rather than as a field. */
+/* It says what it is without words: a mark inside the field, with the
+   placeholder sentence beside it. Drawn into the background rather than placed
+   as an element, because an `<input>` takes no children — and written as a
+   data URI for the same reason the marking box is, so it costs no request and
+   stays crisp on any display. `#` is written `%23`: inside a URI it would
+   begin a fragment, and the rule would silently draw nothing.
+
+   `background-size` is declared. Left to itself an SVG with a `viewBox` and no
+   intrinsic size is scaled to the box it is painted in, which on a field this
+   wide is a magnifier the width of the screen. */
+.acquire-input {
+  flex: 1;
+  min-width: 0;
+  /* The left padding is the mark's room. It is part of the mark, not a taste:
+     text starting under the glyph is the one way this can look broken. */
+  padding: 11px 14px 11px 38px;
+  border-radius: 8px;
+  border: 1px solid #333944;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%238b8f98' stroke-width='1.6'/%3E%3Cpath d='M10.4 10.4 L14 14' stroke='%238b8f98' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E")
+      14px center / 16px 16px no-repeat,
+    #22262e;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(var(--text-size) + 1px);
+}
+.acquire-input::placeholder { color: var(--muted); }
+.acquire-input:hover { border-color: #3d4450; }
+
+.acquire-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* There is no Album/Track selector and no `.acquire-kind`: the network does
+   not distinguish the two, so the words typed are the whole question. */
+
+.acquire-status {
+  margin: 8px 2px 12px;
+  min-height: 1.2em;
+}
+
+.acquire-results {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  /* No `overflow: hidden` here, however much the rounded corners want it: an
+     ancestor that clips becomes the scroll container for anything sticky
+     inside it, and the column heading then sticks to a box that never scrolls
+     — which is to say it does not stick at all. The corners are rounded on the
+     first and last rows instead. */
+}
+
+.acquire-results > .acquire-head,
+.acquire-results > .transfer-head {
+  border-radius: 9px 9px 0 0;
+}
+
+.acquire-results > div:last-child > *:last-child {
+  border-radius: 0 0 9px 9px;
+}
+
+/* The same track on both rows, so the columns line up between the header and
+   every folder underneath it. */
+/* One grid for the header, the folder rows and the file rows alike, so File
+   sits under File and Attributes under Attributes however deep the tree goes. */
+.acquire-head,
+.acquire-row,
+.acquire-file {
+  display: grid;
+  /* Folder carries the path below the share, not one segment, so it takes the
+     room: the File column on a folder row says only how many there are. Free
+     Free holds a dot and nothing else: the queue is on hover, not on the row.
+
+     The variable is what a dragged column edge writes. It lives on the results
+     box, above the heading and every row, so rows built after a drag — and this
+     window rebuilds rows constantly — take the widths without being told. */
+  grid-template-columns: var(
+    --acquire-columns,
+    12ch 5ch 6ch minmax(20ch, 1.7fr) minmax(14ch, 1fr) 9ch 17ch
+  );
+  gap: 10px;
+  align-items: center;
+  padding: var(--row-pad) 12px;
+  /* Every cell on one line. Attributes wrapping to two doubles the height of
+     every file row, and a list of tracks is read at about one text line a
+     row. */
+  white-space: nowrap;
+}
+
+.acquire-head > *,
+.acquire-row > *,
+.acquire-file > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acquire-head {
+  /* Opaque, because this heading does not move with the list: a translucent
+     one lets every row scroll through it and read as part of the results. */
+  background: var(--panel-raised);
+  font-size: 0.82em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.acquire-row {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.acquire-row:hover,
+.acquire-row:focus-visible {
+  background: var(--surface-2, rgba(127, 127, 127, 0.1));
+}
+
+/* The row last clicked, on both wide lists. Seven columns of closely spaced
+   rows are read across, and without a mark nothing says which row the eye is
+   on — in Find music a mis-read row is a different album downloaded. Stronger
+   than hover, because hover follows the pointer and this follows the decision,
+   and an edge on the left so it is findable in a long list without reading. */
+.acquire-row.is-picked,
+.acquire-file.is-picked,
+.transfer-line.is-picked {
+  background: rgba(255, 180, 84, 0.1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.acquire-row .twist {
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.acquire-row[aria-expanded="true"] .twist {
+  transform: rotate(90deg);
+}
+
+.acquire-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acquire-free {
+  font-size: 0.85em;
+}
+
+.acquire-free.is-free {
+  color: var(--ok, #4c9f70);
+}
+
+.acquire-free.is-busy {
+  color: var(--muted);
+}
+
+.acquire-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.acquire-files {
+  /* No line under the folder row: the album continues from it. The only rule in
+     sight is the one the *next* folder draws above itself, which is what ends
+     this one. */
+  /* No shading. An open folder is part of the same list as the rows around it,
+     and a paler band would say it is somewhere else. The ruled lines are what
+     separate a track from a track. */
+  padding: 2px 0 6px;
+}
+
+.acquire-file {
+  padding-block: 1px;
+  font-size: var(--text-step-down);
+  line-height: var(--row-line);
+  min-height: var(--row-min);
+}
+
+/* No rule between one track and the next: an album is read as a block, and a
+   line every twenty pixels is a fence through the middle of one thing. The
+   folder rows keep theirs, because those really are separate results. */
+
+/* The name occupies the File column; the columns to its left belong to the
+   folder, and a file has no user or rate of its own. */
+.acquire-file-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acquire-file-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* A column header that orders the list says so, and says which way. */
+.acquire-head [data-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* The hint that these headings can be clicked to sort by them. The colour is a
+   variable this palette defines: an invalid `var()` leaves the property with
+   no value at all, and the hint would do nothing. */
+.acquire-head [data-sort]:hover,
+.acquire-head [data-sort]:focus-visible {
+  color: var(--text);
+}
+
+.acquire-head [data-sort].is-sorted {
+  color: var(--accent);
+}
+
+.acquire-head [data-sort].is-sorted::after {
+  content: " ▲";
+  font-size: 0.7em;
+}
+
+.acquire-head [data-sort].is-sorted[data-direction="desc"]::after {
+  content: " ▼";
+}
+
+/* --- a tab per search ----------------------------------------------------- */
+/* Several searches are held at once, side by side, and each of these is a
+   whole search: its own rows, its own selection, its own thread on the other
+   side of the bridge. */
+
+.acquire-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.acquire-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  max-width: 22ch;
+}
+
+.acquire-tab.is-active {
+  border-color: var(--accent);
+  background: var(--panel-raised);
+}
+
+.acquire-tab-name {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acquire-tab-count {
+  color: var(--muted);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+
+.acquire-tab-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.acquire-tab-close:hover {
+  color: var(--bad);
+  background: var(--line);
+}
+
+/* What the row is showing: the folder as the peer sharing it holds it, or only
+   what the words matched because that peer has gone offline. */
+.acquire-note {
+  margin: 2px 0 6px;
+  font-size: 0.82em;
+}
+
+/* --- the right-click menu -------------------------------------------------- */
+
+.context-menu {
+  position: fixed;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  color: var(--text);
+  min-width: 20ch;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.context-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* What the entries under it answer. Quiet and not pressable, so two lists in
+   one menu stop reading as one list of everything. The first heading loses its
+   top rule: a line above the first thing in a box separates it from nothing. */
+.context-heading {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+.context-heading:first-child {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 4px;
+}
+
+.context-item:hover,
+.context-item:focus-visible {
+  background: var(--line);
+}
+
+/* --- what is coming in ----------------------------------------------------- */
+/* One tree in one Name column. User, Folder and File side by side put three
+   columns of long names next to each other and push the status, the estimate
+   and the speed off the right of the screen. */
+
+.transfer-head,
+.transfer-line {
+  display: grid;
+  grid-template-columns: var(--transfer-columns, minmax(28ch, 1fr) 12ch 13ch 8ch 10ch 12ch 7ch);
+  gap: 10px;
+  align-items: center;
+  padding: var(--row-pad) 12px;
+  white-space: nowrap;
+  min-height: var(--row-min);
+}
+
+.transfer-head > *,
+.transfer-line > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transfer-head {
+  /* Opaque, for the reason on .acquire-head. */
+  background: var(--panel-raised);
+  font-size: 0.82em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* A row is something you can act on, so it answers the pointer like one.
+   Without a hover the rows read as a printout, and a right-click menu nobody
+   expects is a menu nobody opens. */
+.transfer-line:hover {
+  background: var(--surface-2, rgba(127, 127, 127, 0.1));
+}
+
+/* Depth is the whole hierarchy, so it is drawn rather than implied. A user rules
+   off above itself, the way a folder does in the search results. */
+.transfer-line.is-depth-0 {
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.transfer-line.is-depth-1 {
+  cursor: pointer;
+}
+
+.transfer-line.is-depth-0 .transfer-name { padding-left: 0; font-weight: 650; }
+.transfer-line.is-depth-1 .transfer-name { padding-left: 18px; }
+/* The tracks sit under the name that opened them, and take the extra step in
+   for the twist their parents have and they do not. */
+.transfer-line.is-depth-2 .transfer-name { padding-left: 54px; font-size: var(--text-step-down); }
+
+.transfer-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.transfer-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-line .twist {
+  display: inline-block;
+  width: 1em;
+  flex: none;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.transfer-line.is-open .twist {
+  transform: rotate(90deg);
+}
+
+/* The bar and the number together: the bar is read across a list to find which
+   is nearly there, the number on one row to know how near. */
+.transfer-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transfer-bar {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.transfer-line.is-depth-2 .transfer-bar {
+  height: 4px;
+}
+
+.transfer-fill {
+  display: block;
+  height: 100%;
+  background: var(--good);
+}
+
+.transfer-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.transfer-state {
+  font-size: 0.82em;
+}
+
+.transfer-state.is-completed { color: var(--good); }
+.transfer-state.is-in_progress { color: var(--info); }
+.transfer-state.is-failed { color: var(--bad); }
+/* Stopped, and not all of it here. Warned rather than failed: the bytes that
+   arrived are on disk and `Retry` fetches the rest, so this is not the red of
+   a transfer that brought nothing. */
+.transfer-state.is-incomplete { color: var(--warn); }
+.transfer-state.is-queued,
+.transfer-state.is-cancelled,
+.transfer-state.is-unknown { color: var(--muted); }
+
+/* --- draggable column edges ------------------------------------------------ */
+/* A grip on the right edge of every heading but the last, which takes whatever
+   is left over and so has nothing to be dragged against. */
+
+.has-grip {
+  position: relative;
+}
+
+.column-grip {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  /* Wider than it looks: a two-pixel target is a two-pixel target however thin
+     the line drawn in it. */
+  touch-action: none;
+  z-index: 2;
+}
+
+.column-grip::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  left: 4px;
+  width: 1px;
+  height: 60%;
+  background: var(--line);
+}
+
+.column-grip:hover::after,
+.column-grip:active::after {
+  background: var(--accent);
+  top: 0;
+  height: 100%;
+}
+
+/* A fixed layout is what lets a width be a width; without it the browser keeps
+   its own counsel about how wide a column ought to be. */
+.albums-list,
+.history {
+  table-layout: fixed;
+}
+
+.albums-list th,
+.history th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* And so does every cell under them. A folder name is longer than any column
+   that could hold it, so without this it wraps and one row takes several
+   lines. The whole name is still readable: it is the row's tooltip, and the
+   column can be dragged wider.
+
+   The album a Quality row opens is exempt: that cell holds a table of its own,
+   and clipping it to one line would hide the tracks it exists to show. */
+.albums-list tbody td:not(.quality-detail td),
+.history tbody td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-detail > td { white-space: normal; }
+
+/* The row last clicked, one at a time, so the ⋯ menu and the eye agree about
+   which run is being acted on.
+
+   `box-shadow` and not `border-left`: a border on a cell takes its width out of
+   the padding, and the text would need a `padding-left` written beside it to
+   stay where the other rows have it. An inset shadow is painted inside the box
+   and moves nothing.
+
+   A download row carries no bar of its own colour: the What column and the
+   State column already say in words that the row is a download, and a coloured
+   edge would be one more signal with no legend. */
+.history tbody tr.is-current td { background: var(--panel); }
+.history tbody tr.is-current td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* --- headings that stay while the list scrolls ----------------------------- */
+/* A results list runs past the bottom of the window, and a column heading that
+   scrolls away takes the meaning of every column with it. The top bar is
+   already sticky at zero, so these sit below it. */
+
+.acquire-head,
+.transfer-head,
+.albums-list thead th,
+.history thead th,
+#quality-table thead th {
+  position: sticky;
+  top: var(--chrome-height, 64px);
+  z-index: 3;
+}
+
+/* A table heading is transparent by default, and sticky cells show whatever
+   scrolls under them. */
+.albums-list thead th,
+.history thead th,
+#quality-table thead th {
+  background: var(--bg);
+}
+
+/* --- what has already been asked for --------------------------------------- */
+/* A results list cannot say twice that something was already asked for, so the
+   row says it: the colour at a glance, the arrow when read. */
+
+.acquire-row.is-requested .acquire-folder,
+.acquire-file.is-requested .acquire-file-name {
+  color: var(--good);
+}
+
+.requested-mark {
+  color: var(--good);
+  font-weight: 700;
+}
+
+/* --- folders dropped onto the window ---------------------------------------- */
+/* An overlay rather than a border on the library: the drop is accepted anywhere
+   on the window, and a target drawn around one list would say it is not. */
+
+.drop-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  background: rgba(14, 15, 18, 0.82);
+  /* Pointer events off, or the veil takes the drop away from the page beneath
+     it and the whole gesture ends in nothing. */
+  pointer-events: none;
+  text-align: center;
+}
+
+body.is-dropping .drop-veil {
+  display: grid;
+}
+
+.drop-veil::before {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+}
+
+.drop-veil b {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.drop-veil span {
+  color: var(--muted);
+}
+
+
+/* --- taking one album off the Library ---------------------------------------- */
+/* The card is a button that opens the album, so this sits on top of it and stops
+   the click going through. Invisible until the card is under the pointer: it is
+   a way out, not one of the things the card is for. */
+
+.card { position: relative; }
+
+/* --- the rating of a record ----------------------------------------------
+   No amber and no yellow: amber on this shelf already means *this pairing is
+   offered*, and a rating warns about nothing. The chosen stars take their own
+   colour and the rest `--muted`, which is the pair the rest of this screen
+   already reads in. */
+
+.stars {
+  display: inline-flex;
+  gap: 1px;
+  line-height: 1;
+  color: var(--muted);
+}
+/* **The colour lives on `.star` and nowhere else.** Resetting it to `inherit`
+   inside `.stars.is-pickable .star`, to undo what a browser paints a
+   `<button>`, is one class more specific than `.star.is-on` and wins: every
+   filled star computes to `--muted` and reads exactly like an empty one. Both
+   spellings of a star take their colour from the same two rules. */
+.star {
+  font-size: 13px;
+  color: var(--muted);
+}
+.star.is-on { color: var(--star); }
+
+.stars.is-pickable { gap: 2px; }
+.stars.is-pickable .star {
+  border: none;
+  background: none;
+  padding: 0 1px;
+  cursor: pointer;
+  font-size: 16px;
+}
+.stars.is-pickable .star:hover,
+.stars.is-pickable .star:focus-visible { color: var(--star); }
+
+.album-rating { margin-top: 4px; }
+
+/* On the sleeve, bottom-left. The ✕ is in the opposite corner, and the foot has
+   less free width than five stars need: anything added to it wraps it onto a
+   second line. Quiet at rest exactly like the ✕ below, so an unrated card
+   carries nothing extra.
+
+   **This box is the sleeve, not the card.** `bottom` measures against `.card`,
+   which is the positioned ancestor, and would put the stars on top of the mark
+   box and the badge. The sleeve is `aspect-ratio: 1` at full width, so the same
+   two declarations reproduce its box exactly and the strip sits at the bottom
+   of it — with no pixel guessed and nothing to re-measure if the card resizes.
+   **`pointer-events` off on the box and on again for the strip alone.** The
+   box is the whole sleeve, so leaving it live would make the sleeve stop
+   opening the album — the card is one button and this sits over most of it.
+   Only the stars themselves catch a press, and that press stops there. */
+.card-stars {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  padding: 7px;
+  z-index: 1;
+  pointer-events: none;
+}
+.card-stars .stars {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(14, 15, 18, 0.78);
+  /* Tight, and behind rather than around. A 2px blur on a 15px glyph bleeds
+     into strokes this thin and takes the edge off the very thing the shadow is
+     there to lift off the artwork, which reads as an opaque star. */
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+}
+/* Wider than the reading form: on the shelf each of these is a target for a
+   pointer, and 13px glyphs at 1px apart are not one. */
+.card-stars .star {
+  font-size: 15px;
+  padding: 0 1px;
+}
+
+/* **At rest the number, under the pointer the five.** Five glyphs are 82px on
+   a 198px sleeve whatever the rating, so a fully rated shelf would wear the
+   same block on every card. `4★` is 36px and carries the same fact. Only one
+   of the two is in flow at a time, so they occupy the same corner without
+   being positioned against each other. */
+.card-rating-brief { pointer-events: none; }
+.card-rating-count {
+  font-size: 13px;
+  font-weight: 600;
+  padding-right: 1px;
+}
+.card-stars .stars.is-pickable { display: none; }
+.card:hover .card-rating-brief { display: none; }
+.card:hover .card-stars .stars.is-pickable {
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.card-forget {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  border: none;
+  border-radius: 999px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  background: rgba(14, 15, 18, 0.75);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.card:hover .card-forget,
+.card-forget:focus-visible {
+  opacity: 1;
+}
+
+.card-forget:hover {
+  color: var(--bad);
+  background: rgba(14, 15, 18, 0.95);
+}
+
+/* The History row's one way in. Quiet at rest like the ✕ beside it on the
+   shelf — the list is read far more often than it is acted on — but never
+   invisible, because for someone who has just installed this it is the only
+   thing that says a run can be undone at all. It answers to the row's own
+   button padding, so it cannot set the height of the line it sits in. */
+.history-more {
+  padding: var(--row-button-pad);
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  /* The same size a control in a row takes in `.button-row`: at the page's own
+     13px this one glyph makes the History row one pixel taller than every
+     other album table. */
+  font-size: var(--text-step-down);
+  line-height: 1;
+}
+.history tbody tr:hover .history-more { color: var(--text); border-color: var(--line); }
+.history-more:hover, .history-more:focus-visible { color: var(--accent); border-color: var(--accent); }
+
+/* The same button in the list, where there is no card to be absolute inside:
+   it sits in its own cell and appears on the row, not on the sleeve. */
+.list-forget-cell { width: 28px; text-align: center; }
+
+.list-forget-cell .card-forget { position: static; background: none; }
+
+.albums-list tbody tr:hover .card-forget {
+  opacity: 1;
+}
+
+/* What a row in the Transfers tree *is*. Indentation says which level, and this
+   says what a level means, which three rows deep is not obvious. */
+.transfer-kind {
+  flex: none;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 5ch;
+}
+
+/* A control in the bar that is currently *on* — the tree that stays open. The
+   rule names the bar every screen wears and not one screen's container, so
+   Transfers and Find music, which have the same control, both get the mark. */
+.screen-actions .button.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A way to change what you are looking at, not one of the things the screen is
+   for: it reads as a control rather than as an action. */
+.button-quiet {
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+}
+.button-quiet:hover:not(:disabled) { border-color: var(--line); color: var(--text); }
+
+/* Marking says what the next Scan is about, so unlike the ✕ beside it, it is
+   always visible: choosing several albums means reading which are chosen
+   without moving the pointer over every one of them.
+
+   It sits in the card's foot beside the badge, not on the sleeve — the sleeve
+   is how a record is recognised, and a control on top of it is in the way.
+   One rule, one place, no positioning to undo in the list. */
+/* The box that decides what the next Scan and the next Apply are about is the
+   most consequential control on the card, and the platform's 13px default does
+   not read as a checkbox at a glance. It is drawn here instead, larger, with a
+   border that is visible against the sleeve.
+
+   **The tick is inside it while it is empty**, in grey, at a third of the
+   weight of the real one. A ghost tick risks reading as *already ticked*,
+   which is why the two states differ in three ways at once rather than one:
+   an empty box is a dark box with a faint grey mark, a ticked box is a filled
+   amber box with a black one.
+
+   Drawn as a background image and not as `::after`, because a pseudo-element
+   on a replaced element is the kind of rule that is silently ignored, and a
+   declaration that draws nothing fails without a message.
+   `#` is written `%23`: inside a URI it would start a fragment. */
+.card-mark {
+  flex: none;
+  margin: 0;
+  vertical-align: middle;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 5px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.4l2.4 2.4L9.5 3.7' fill='none' stroke='%238b8f98' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' opacity='.5'/%3E%3C/svg%3E")
+      center / 11px no-repeat,
+    rgba(255, 255, 255, 0.05);
+}
+.card-mark:hover { border-color: rgba(255, 255, 255, 0.55); }
+.card-mark:checked {
+  border-color: var(--accent);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.4l2.4 2.4L9.5 3.7' fill='none' stroke='%23131313' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      center / 11px no-repeat,
+    var(--accent);
+}
+
+.list-mark-cell { width: 26px; text-align: center; }
+
+/* An album on screen that nobody has looked up yet: it is waiting, not failed,
+   and the card should not read like an identification that came back empty. */
+.card.is-unlooked .card-title,
+.albums-list tbody tr.is-unlooked td { color: var(--muted); }
+
+
+/* --- the one bar every screen wears ---------------------------------------
+   Two questions and the actions that follow them, on one line: which albums are
+   on screen, what happened to them, and what to do about it. Two rows of loose
+   chips cost more height and do not say they are asking different things.
+
+   It is every screen's bar and not the Library's, which is why it is not
+   called `.library-bar`: a class serving several screens under one screen's
+   name is a name with two meanings. One class also gives every screen a
+   heading of the same height, where separate headings differed by whether a
+   screen had a note under its title.
+
+   The order, read across every screen: the title, the questions about what is
+   on screen, the bar's one stretch of free space, and then the gestures. */
+.screen-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+  /* Tight, because it is on every screen: at `--space-2` all round it stands
+     52px tall. The controls inside it are sized for the bar as well. */
+  padding: var(--space-1) var(--space-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* The screen's own name, in the bar rather than above it. The long sentence
+   that explains the screen is the title's tooltip: a note standing under the
+   title is needed once and is then read on every visit. */
+.screen-title {
+  flex: none;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  margin-right: var(--space-1);
+}
+/* A title with something to say says so, quietly — an underline the eye finds
+   only when it is looking for one. */
+.screen-title[title] {
+  text-decoration: underline dotted var(--line);
+  text-underline-offset: 4px;
+  cursor: help;
+}
+
+/* Every control in this bar answers to the bar, not to the page. An ordinary
+   `.button` is 34px tall, which makes this row 52, and a toolbar of 34px
+   buttons is louder than the content under it. The words are the same as on
+   any button; only the box around them is smaller.
+
+   The height is *declared* rather than left to each control's own padding.
+   Left to them, a bar holding only buttons and a bar holding a field or a
+   picker differ by nine tenths of a pixel, because a 13px field at 5px padding
+   is 28.9 and a button is 28. A difference that small cannot be named by
+   whoever looks at it, and is still seen as two screens that are not quite
+   the same. */
+.screen-bar .button,
+.screen-bar .search-field,
+.screen-bar .select {
+  height: var(--bar-control);
+  padding-block: 0;
+}
+.screen-bar .button { padding-inline: 12px; }
+.screen-bar .button-icon { padding-inline: 9px; }
+
+/* The questions about what is on screen — filter, search, order, view —
+   grouped so an empty screen can put them away together while the gestures that
+   fill it stay. */
+.screen-questions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.screen-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+/* The toggle keeps its own `margin-left: auto`, which inside the questions
+   group is what puts the bar's one stretch of free space after the search.
+   The order of this row: order, shelf, search, space, and the gestures. */
+
+/* The Library's search. It grows into whatever the bar has spare and stops
+   before it crowds the actions on the right, so a narrow window keeps every
+   control reachable instead of pushing them onto a second row. */
+.library-search { position: relative; display: flex; align-items: center; flex: 1 1 180px; max-width: 320px; }
+
+/* --- the search that is a mark until it is wanted --------------------------
+   Only inside a screen's bar. The picker's own search is the dialog's whole
+   subject and stays open; these are one question among four, and an open field
+   holds 320px of a bar that has little room.
+
+   The field is narrowed rather than hidden, because a hidden control cannot be
+   focused — and focusing it is the whole point of pressing the mark. */
+.screen-bar .library-search { flex: 0 0 auto; }
+.screen-bar .library-search .search-open { flex: none; }
+/* The mark itself, at a size that can be seen. `⌕`, U+2315, is a hairline the
+   type size cannot rescue, so the mark is drawn: the box keeps its size and
+   the mark inside it is larger, as with the settings gear. `currentColor` so
+   it brightens with the button rather than staying grey when the button says
+   it is live. */
+.search-mark {
+  display: block;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+.search-open:hover .search-mark,
+.search-open:focus-visible .search-mark { color: var(--text); }
+.screen-bar .library-search .search-field {
+  width: 0;
+  padding-inline: 0;
+  border-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: width 140ms ease, opacity 140ms ease;
+}
+.screen-bar .library-search.is-open { flex: 1 1 180px; }
+.screen-bar .library-search.is-open .search-field {
+  width: 100%;
+  padding-inline: 10px 26px;
+  border-width: 1px;
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Open, the mark would be a second control saying what the field already says. */
+.screen-bar .library-search.is-open .search-open { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .screen-bar .library-search .search-field { transition: none; }
+}
+
+/* The order picker's mark, in place of the words `Sort by`. */
+.sort-mark { color: var(--muted); font-size: 12px; }
+
+/* A mark *on* a button, not a button beside it. Small and lifted, the way a
+   superscript sits: it modifies the glyph it is on rather than standing next
+   to it as a second thing to press. */
+.icon-plus {
+  font-size: 0.72em;
+  line-height: 1;
+  vertical-align: super;
+  margin-left: 1px;
+  color: var(--muted);
+}
+.button:hover .icon-plus { color: var(--text); }
+.search-field {
+  width: 100%;
+  padding: 5px 26px 5px 10px;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 13px;
+}
+/* The order picker, built out of the same parts as the field beside it so the
+   bar reads as one row rather than as a form dropped into it. */
+.sort-picker { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.sort-label { color: var(--muted); font-size: 12px; }
+.sort-picker .select {
+  padding: 5px 8px;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 13px;
+}
+.sort-picker .select:focus { outline: none; border-color: var(--accent); }
+.search-field::placeholder { color: var(--muted); }
+.search-field:focus { outline: none; border-color: var(--accent); }
+/* The type is `search`, and WebKit draws its own ✕ inside it. Ours is the one
+   that clears the state as well as the field, so the browser's is taken away
+   rather than left beside it as a second control that does half the job. */
+.search-field::-webkit-search-cancel-button { appearance: none; display: none; }
+.search-clear { position: absolute; right: 2px; border: 0; background: none; padding: 2px 4px; }
+
+/* There is no `.segmented` and no `.segment`: the Library is one shelf, and a
+   stylesheet that dresses something nobody draws sends its reader looking for
+   a control that is not there. */
+
+.status-menu { white-space: nowrap; }
+
+/* The window saying it broke, instead of drawing nothing. Loud on purpose:
+   this is the only thing on screen when the script that draws everything else
+   never ran. */
+.window-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--bad);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* The band's own ✕. It inherits the band's colour rather than the app's button
+   palette, because this element has to look right with `styles.css` as the only
+   thing that loaded. `flex-shrink: 0` so a long message never squeezes it to
+   nothing — which would be the same as not having it. */
+#window-failure-text {
+  flex: 1;
+}
+
+#window-failure-close {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+#window-failure-close:hover {
+  opacity: 1;
+}
+
+/* The album header's one line: facts, the source in use, its witnesses. The
+   links sit inside running text, so they carry no button padding — the name
+   is the link. */
+.album-essentials {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+.album-essentials .link-button { padding: 0; font-size: inherit; }
+
+/* `Write tags`, folded. The arrow is the summary's own marker, so it turns
+   without a line of script — and the label is plain: it is a way in, not a
+   heading. */
+.op-fold { flex: 1; }
+.op-fold > summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 400;
+  list-style: revert;
+}
+.op-fold-said {
+  margin: 4px 0 0 1.1em;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* `View details` leads like `What will change` does: white and bold, the same
+   rank as every other fold heading, with only the content inside staying grey.
+   One fold styled unlike the rest reads as a different kind of thing. The
+   weight and colour come from `.fold > summary`; only the marker fix is here. */
+#album-details { margin-top: 4px; }
+/* **The triangle.** `display: inline-block` on a `<summary>` takes the
+   disclosure marker away. `list-item` keeps it a marker and
+   `width: fit-content` keeps the control the size of its words rather than the
+   width of the dialog. */
+#album-details > summary {
+  display: list-item;
+  width: fit-content;
+}
+#album-details[open] > summary { margin-bottom: 6px; }
+/* Closed, the two folds sit as neighbours of one list: the 12px a fold puts
+   above itself would double the summaries' own padding into a hole between
+   `View details` and `What will change`. Named by the plan fold itself, not by
+   `#album-details + *`: hidden notices sit between the two, so the
+   adjacent-sibling selector reaches only a block that does not render.
+   Open, the fold's own margin makes the room instead. */
+#plan-details { margin-top: 0; }
+#album-details[open] { margin-bottom: 10px; }
+
+/* --- the quality bench --------------------------------------------------- */
+
+/* Headless and narrow: the column is the gesture, not a fact. */
+.q-mark-cell {
+  width: 28px;
+  text-align: center;
+}
+
+/* How sure, never instead of the verdict. Outlined rather than filled, because
+   every filled badge in this window is a verdict and this one is not. */
+.badge-conf {
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.badge-conf-strong { color: var(--good); }
+.badge-conf-fair { color: var(--muted); }
+.badge-conf-weak { color: var(--warn); }
+
+
+/* Which reading convicted a line, said quietly.
+
+   **Grey, all three of them, and outlined like the confidence chip beside it.**
+   Only the strictly essential wears amber and everything else is grey without
+   bold, and this row already carries the verdict chip, the numbers and the
+   picture. A second colour here would be one more emphasis for a fact that is
+   a qualifier, not a finding. The word itself is the difference. */
+.badge-proof {
+  border: 1px solid var(--muted-line);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+
+/* The three exist as separate rules because the guard refuses a class the
+   stylesheet never defines, and because the next colour decision about them
+   has somewhere to land without touching the markup. */
+.badge-proof-grid { border-style: dashed; }
+.badge-proof-wall { border-style: solid; }
+.badge-proof-spectrum { border-style: dotted; }
+
+/* The word came from audio that is not this file's. Outlined and muted like
+   `badge-conf`, because this is not a verdict and must not read as one — it
+   qualifies the verdict standing beside it. Dashed rather than dotted so it is
+   not mistaken at a glance for the spectrum proof. */
+.badge-shared-measurement {
+  border: 1px dashed var(--muted);
+  background: transparent;
+  color: var(--muted);
+}
+
+/* The note that stands above a picture which cannot show what convicted.
+
+   Above the spectrogram and inside its cell, so it is read on the way to the
+   image rather than found underneath it. Left rule rather than a filled panel:
+   this is an explanation, and a box would read as a warning about the file. */
+.spec-grid-note {
+  border-left: 2px solid var(--muted-line);
+  padding: 2px 0 2px 10px;
+  margin: 0 0 8px 0;
+  max-width: 70ch;
+}
+
+.spec-grid-head {
+  margin: 0 0 4px 0;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.spec-grid-body {
+  margin: 0;
+  font-size: var(--text-step-down);
+  color: var(--muted);
+}
+
+.spec-grid-peak {
+  margin: 4px 0 0 0;
+  font-size: var(--text-step-down);
+}
+
+/* What the album was found to be, in words, at the head of its own fold.
+
+   It replaces nothing: the chips and the numbers stay exactly where they are.
+   A sentence that lives only on `title` is a tooltip that is rarely opened,
+   so it is written on the screen. */
+.q-evidence {
+  margin: 0 0 10px 0;
+  max-width: 80ch;
+}
+
+.q-evidence-reason {
+  margin: 0;
+  color: var(--text);
+}
+
+/* The gesture that settles the sentence above it, quiet: it costs seconds and
+   writes nothing by itself, so it does not need to compete with the verdict. */
+.q-evidence-settle {
+  margin-top: 8px;
+}
+
+/* What agreeing readings mean, folded. The same paragraph rides every album
+   the grid convicts, so it is offered rather than served: the lead stays on
+   screen and the explanation opens on a click. */
+.q-evidence-fold {
+  margin: 8px 0 0 0;
+}
+
+.q-evidence-head {
+  margin: 0 0 2px 0;
+  font-weight: 650;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.q-evidence-body {
+  margin: 0;
+  font-size: var(--text-step-down);
+}
+
+
+/* Cards are for a handful of albums being worked through; a bench of thousands
+   is a list. Nothing differs between them but the size. */
+.bench-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.bench-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.bench-card:hover { border-color: var(--accent); }
+
+.bench-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bench-card-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.bench-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bench-card-facts { font-size: 12px; }
+
+/* The unfolded album among the cards. A card is a grid cell and the detail is a
+   table, so it cannot open inside one — it spans every column instead, directly
+   after the card it belongs to. */
+.bench-detail {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+}
+
+.bench-card.is-open {
+  border-color: var(--accent);
+  background: var(--panel-raised);
+}
+
+/* A finished deep measurement waiting for a decision. Nothing here is written. */
+.bench-analysis {
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+}
+
+.bench-analysis-head { margin: 0 0 8px; font-weight: 600; }
+
+.bench-analysis-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.bench-analysis-list .is-moved { color: var(--warn); }
+
+.bench-analysis-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* The band-pass table: the reading a separate spectrum viewer would give. */
+.bench-bands { margin: 6px 0; font-size: 12px; }
+
+.bench-bands summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.bench-band-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+}
+
+.bench-band-name {
+  min-width: 220px;
+  overflow-wrap: anywhere;
+}
+
+.bench-band {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* Flat between neighbours is an encoder's noise floor. Marked, because that is
+   the one shape this table exists to make visible. */
+.bench-band.is-flat { color: var(--warn); font-weight: 600; }
+
+/* A verdict that was stated by the user rather than measured. Outlined like
+   the confidence badge, because it is not a measurement either. */
+.badge-spoken {
+  border: 1px solid var(--info);
+  background: transparent;
+  color: var(--info);
+}
+
+/* What the audio itself answered, on the Quality bench. Narrow and quiet: for
+   some catalogues the usual answer is that the service does not know the
+   recording, and a column shouting that on every row would drown the
+   measurements the screen is about. */
+.q-heard { white-space: nowrap; }
+.q-heard .link-button { padding: 0; font-size: inherit; }
+.q-heard .is-unknown { font-style: italic; opacity: 0.75; }
+.q-acoustic-reach { margin: 0 0 0.6rem; font-size: 0.85em; }
+
+/* The album dialog is the one whose contents can grow while it is open. A head
+   with no height limit above a body pinned to a fixed height lets
+   `View details` take the surface the plan needs without ever scrolling away.
+   So the dialog is a column, the body takes whatever is left of it, and the
+   fold scrolls with the plan it belongs to. */
+/* `[open]`, and never without it. A closed <dialog> is hidden by the browser's
+   own `dialog:not([open]) { display: none }`, and an id selector outranks it —
+   so declaring `display` without `[open]` shows the dialog on every screen. */
+#album-dialog[open] { display: flex; flex-direction: column; }
+#album-dialog .dialog-body { max-height: none; flex: 1 1 auto; min-height: 0; }
+
+/* --- the mixing screen --------------------------------------------------- */
+/* Drawn under the same criteria as the rest of the window: space from the
+   scale, density answered by the row variables, no colour that is not already
+   in this palette, and no `display` on a cell. */
+
+.mixing-board {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* The wheel keeps its place while the list scrolls: it is the legend for what
+   the list is showing, and a legend that scrolls away stops being one. */
+.mixing-wheel { position: sticky; top: var(--space-5); }
+.mixing-wheel svg { width: 100%; height: auto; display: block; }
+
+/* A segment nothing was measured into is present and quiet — the wheel shows
+   which keys the library holds *and* which it does not, which a wheel drawn
+   only from the measured tracks could not. */
+.wheel-slice {
+  fill: var(--panel-raised);
+  stroke: var(--bg);
+  stroke-width: 1;
+  cursor: default;
+}
+.wheel-slice.has-tracks { fill: var(--line); cursor: pointer; }
+.wheel-slice.has-tracks:hover { fill: var(--muted); }
+.wheel-slice.is-chosen { fill: var(--accent); }
+/* What mixes with the chosen key, in the same amber at a weight that reads as
+   "also" rather than as "this one". */
+.wheel-slice.is-partner { fill: var(--warn); opacity: 0.45; }
+.wheel-label {
+  fill: var(--muted);
+  font-size: 7px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+.wheel-label.on-tracks { fill: var(--text); }
+.wheel-label.on-chosen { fill: var(--accent-ink); font-weight: 650; }
+
+.mixing-selected { margin-top: var(--space-3); text-align: center; }
+
+/* The chip that carries a Camelot code. Answers the density like every other
+   chip, so a compact list stays compact. */
+.camelot-chip {
+  display: inline-block;
+  padding: var(--chip-pad);
+  border-radius: 999px;
+  font-size: var(--chip-font);
+  font-weight: 650;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--text);
+  white-space: nowrap;
+}
+.camelot-chip.is-chosen { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* A tempo the audio did not settle says so, quietly, beside the number it did
+   choose — never instead of it. */
+.tempo-twin { color: var(--muted); font-size: 0.9em; }
+/* And the key the reading beat by nothing, said the same way beside the word.
+   Its own class rather than the tempo's: two rules with one name is one place
+   for the next change to land by half. */
+.key-twin { color: var(--muted); font-size: 0.9em; }
+/* The key's sureness wears the bench's own `.badge-conf`, which is outlined
+   rather than coloured-in. It is a raw correlation coefficient: not a
+   probability and not a verdict, so it is never painted red, amber or green. */
+
+/* The row that opens under the track it is about. The cell stays a cell — the
+   flex lives on the box inside it — because a `display` on a `<td>` takes it
+   out of its own row and paints the border in the wrong place. */
+.mixing-partner-row > td { padding: 0; background: var(--panel); }
+.mixing-partner-holder { padding: var(--space-3) var(--space-4) var(--space-4); }
+.mixing-partner-heading {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.mixing-partner-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.mixing-partner {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--row-min);
+  padding: var(--row-pad) 0;
+}
+/* The chosen track and the answer under it read as one block. */
+.albums-list tr.is-chosen > td { background: var(--panel); }
+.mixing-partner-why { color: var(--muted); font-size: var(--text-step-down); }
+.mixing-partner-name { flex: 1 1 auto; }
+
+/* The album picker for a measurement. Rows answer the density like every other
+   list in this window. */
+.measure-search { max-width: none; margin-bottom: var(--space-3); }
+.measure-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); max-height: 46vh; overflow-y: auto; }
+.measure-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-min);
+  padding: var(--row-pad) var(--space-2);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.measure-row:hover { background: var(--panel-raised); }
+.measure-row-name { flex: 1 1 auto; }
+/* Already measured, said quietly: measuring again is allowed and is rarely
+   what is wanted. */
+.measure-row-known { color: var(--muted); font-size: var(--text-step-down); }
+
+/* The frame's settings icon. A 13px glyph in this box is hard to read on a
+   real screen, so the mark is larger; the box keeps its own padding. */
+.topbar-icon { font-size: 17px; line-height: 1; }
+
+/* The name composer. Two lines of pieces and the name they would produce,
+   inside the settings panel beside the other naming settings. */
+.composer {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.composer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+/* The label above rather than beside: beside, three pieces and a picker leave
+   the chips too little width to share, each one takes its own line, and a list
+   of pieces that reads as a column is not a name in an order. */
+.composer-line {
+  margin-bottom: 8px;
+}
+
+.composer-what {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+}
+
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Wraps rather than scrolls: the order is the content here, and a piece that
+   scrolled out of sight would be a chosen piece nobody can see. */
+.composer-parts {
+  display: flex;
+  flex-wrap: wrap;
+  /* `min-width: 0` because a flex item's floor is its content: without it the
+     chips refuse to wrap and squeeze the picker instead. */
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-raised);
+  font-size: var(--text-step-down);
+  /* A piece's name is one word of the arrangement; wrapped in half it reads as
+     two pieces. */
+  white-space: nowrap;
+}
+
+/* Measured, not transcribed: the three pieces that exist only where the track
+   has been analysed are drawn as the different kind of promise they are. */
+.composer-chip.is-measured {
+  border-style: dashed;
+}
+
+.composer-chip button {
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer-chip button:hover {
+  color: var(--text);
+}
+
+.composer-add {
+  flex-shrink: 0;
+  max-width: 210px;
+}
+
+/* The shape line reads as the recipe and the rendered line as the result, so
+   the preview carries the text colour and only the note about missing pieces
+   is dimmed: the eye lands on the real name. */
+.composer-preview {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  /* The preview is one folder and the track under it, so the newline in the
+     string has to survive — and a long name must not widen the dialog. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.composer-preview .composer-missing {
+  color: var(--muted);
+}
+
+.composer-preview.is-bad {
+  color: var(--bad);
+}
+
+/* A file the release does not list, offered a place on the tracklist. The row
+   already says the name on the right; this sits after it, quiet, so the table
+   still reads as a table and not as a form. */
+/* One control, read as one thing. The word, the number and the button share a
+   border, so the eye takes the group before the parts; as three loose pieces
+   the word sits furthest from the button that acts on it. */
+.plan-adopt {
+  display: inline-flex;
+  /* `center` leaves slivers of the container above and below the buttons, and
+     a sliver of a container inside a line of text draws the text cursor — a
+     little bar appearing between the buttons as the pointer passes. Stretching
+     means the children *are* the control: there is nothing left over to
+     hover. */
+  align-items: stretch;
+  gap: 0;
+  margin-left: 8px;
+  flex: none;
+  white-space: nowrap;
+  /* And said rather than inherited, for the hairline borders between them. */
+  cursor: default;
+  user-select: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--panel-raised);
+}
+
+.plan-adopt-label {
+  color: var(--muted);
+  font-size: var(--chip-font);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  cursor: default;
+}
+
+/* A menu of the legal numbers, not a field to type into: a place the album
+   cannot hold is not on the list. Styled as a chip, so the row reads as one
+   line of chips at rest. */
+.plan-adopt-number {
+  display: inline-block;
+  flex: none;
+  appearance: none;
+  cursor: pointer;
+  width: 3em;
+  min-width: 3em;
+  padding: var(--chip-pad);
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-left: 1px solid var(--line);
+  font-size: var(--chip-font);
+  text-align: center;
+  text-align-last: center;
+}
+
+.plan-adopt-button {
+  flex: none;
+  padding: var(--row-button-pad);
+  font-size: var(--chip-font);
+  border: none;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+}
+
+/* The name of a file that has no track yet, said in the column where a written
+   name goes — so it reads as a proposal rather than as a fact. */
+.plan-stem-orphan {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* The way back out of an adoption, on the row it undoes. */
+.plan-adopted-drop {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: var(--chip-font);
+}
+
+/* Said only when a position given by hand moved a track the catalogue numbered. */
+.plan-numbering {
+  color: var(--warn);
+  margin: 0 0 8px;
+}
+
+/* A cover picked by hand, waiting to be read before it is written. */
+.cover-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+/* The picture itself, beside the sentence about it. */
+.cover-choice-preview {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex: none;
+}

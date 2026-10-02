@@ -1,0 +1,48 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# One installation's own settings, which is not a file this project ships. The
+# template that *is* shipped lives at src/diglibrary/config/default.toml, and
+# `config.home.resolve` copies it to ~/.diglibrary/config.toml on a first run.
+# Versioned here, a clone would always have a config beside the code, so that
+# first run would never happen.
+config.toml
+
+# Runtime artifacts
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+# A copy of the database taken aside before writing to it: `*.sqlite3` does
+# not match a name that ends in a timestamp.
+*.sqlite3.backup-*
+logs/*
+reports/*
+cache/*
+temp/*
+backup/*
+# The compressed copies of the database, taken as the window opens. Not the
+# same thing as `backup/` above, which holds the images a write replaced.
+database-copies/*
+
+# Whatever a build leaves behind. `diglibrary make-icon` writes to a temporary
+# folder, so nothing about a build belongs to the repository. The icon it
+# copies does, and lives beside the drawing in `desktop/`.
+build/
+
+# Session tooling, written for one machine, absolute paths included. It belongs
+# beside the code and outside the history.
+.claude/
+
+# What the Finder leaves in a folder it has been asked to display. It appears
+# in any directory somebody opens — including the root, where an untracked file
+# is what makes a release preflight refuse.
+.DS_Store

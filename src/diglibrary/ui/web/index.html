@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- The window is served from a local http server, and WebKit caches what it
+       is served — across restarts. A cached `app.js` against a fresh
+       `index.html` is the worst possible pairing here: the script registers its
+       listeners at module scope, so one id that no longer exists kills the whole
+       module and the window draws *nothing*, with no error anywhere in Python.
+       These assets are read off the disk beside the app; there is nothing to
+       gain by caching them and a whole window to lose. -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <title>DigLibrary</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- A window that fails says so. A script that throws once during the
+       first render leaves an empty Library that looks exactly like a library
+       with nothing in it, and nothing anywhere says a line of code stopped.
+       This listener is inline and first on purpose: it is the one thing that
+       still works when `app.js` itself never loads. -->
+  <div id="window-failure" class="window-failure" hidden>
+    <span id="window-failure-text"></span>
+    <!-- It closes. The band is drawn by the one script that still runs when
+         `app.js` is dead, so its button is wired right here for the same
+         reason — a dismissal that depends on the module that just died is no
+         dismissal. The words are literal rather than from `strings.js`, which
+         may never have loaded. -->
+    <button id="window-failure-close" type="button" title="Dismiss" aria-label="Dismiss">✕</button>
+  </div>
+  <script>
+    (function () {
+      var box = document.getElementById("window-failure");
+      var text = document.getElementById("window-failure-text");
+      // What has already been read and dismissed. The same fault usually
+      // arrives once per redraw, so a band that reopened on a repeat would be
+      // a band with no ✕ at all. A *different* message is news and opens it
+      // again.
+      var dismissed = null;
+      var showing = null;
+      function say(what) {
+        var line = "This window hit an error and stopped drawing: " + what;
+        showing = line;
+        if (line === dismissed) return;
+        box.hidden = false;
+        text.textContent = line;
+      }
+      document.getElementById("window-failure-close").addEventListener("click", function () {
+        dismissed = showing;
+        box.hidden = true;
+      });
+      window.addEventListener("error", function (event) {
+        say(
+          (event.message || "script error") +
+            (event.filename ? " — " + event.filename.split("/").pop() : "") +
+            (event.lineno ? ":" + event.lineno : "")
+        );
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        say(String((event.reason && event.reason.message) || event.reason));
+      });
+    })();
+  </script>
+  <div class="chrome">
+    <header class="topbar">
+      <div class="brand">
+        <!-- The project's mark, at the size the header shows it: the sleeve, the
+             label and the spindle. The tonearm is left out on purpose — it is
+             four pixels of diagonal at twenty and turns to haze, which is the
+             same reason the app icon drops it below 64px. Drawn rather than
+             linked so it stays crisp on any display and adds no request. -->
+        <svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true">
+          <rect width="1024" height="1024" rx="224" fill="#EBDDC4" />
+          <circle cx="512" cy="512" r="337.5" fill="#131313" />
+          <circle cx="512" cy="512" r="133.5" fill="#F2C230" />
+          <circle cx="512" cy="512" r="24.5" fill="#131313" />
+        </svg>
+        <!-- Two-tone, as the project's lockup has it. -->
+        <h1><span class="brand-dig">Dig</span><span class="brand-library">Library</span></h1>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button class="tab is-active" data-tab="library" role="tab" data-str="tabLibrary">Library</button>
+        <button class="tab" data-tab="acquire" role="tab" data-str="tabAcquire">Find music</button>
+        <button class="tab" data-tab="transfers" role="tab" data-str="tabTransfers">Transfers</button>
+        <button class="tab" data-tab="quality" role="tab" data-str="tabQuality">Quality</button>
+        <button class="tab" data-tab="mixing" role="tab" data-str="tabMixing">Mixing</button>
+        <button class="tab" data-tab="history" role="tab" data-str="tabHistory">History</button>
+      </nav>
+      <div class="topbar-actions">
+        <!-- Only what is true on every tab lives in the frame. The Library's
+             own controls live in the Library's bar, beside the questions they
+             answer. -->
+        <!-- The one thing here that belongs to every tab: whether anything is
+             running at all. Nearly all of this app's work happens on a worker
+             thread, and without this a screen with no progress bar reports
+             that work by looking exactly like a screen with nothing to do. -->
+        <span id="activity" class="activity" data-str-title="tipBusy" hidden>
+          <span class="activity-ring" aria-hidden="true"></span>
+          <span id="activity-label"></span>
+        </span>
+        <button id="open-settings" class="button button-icon topbar-icon"
+          data-str-title="tipSettings">⚙</button>
+      </div>
+    </header>
+
+    <div id="progress" class="progress" hidden>
+      <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+      <span id="progress-label" class="progress-label"></span>
+    </div>
+
+    <div id="scan-done" class="scan-done" hidden>
+      <span id="scan-done-label"></span>
+      <span id="reach-label" class="reach-label"></span>
+    </div>
+  </div>
+
+  <main>
+    <section id="view-library" class="view">
+      <!-- One shelf, and the bar asks about it: what happened to these albums,
+           which one, in what order. The shelf is not split by how a record
+           arrived: where a record came from is a fact about its past, and a
+           split by origin hides albums in the bucket nobody is watching. -->
+      <!-- The one bar with no title in it. This screen carries more controls
+           than any other, and it is the only one whose tab name already says
+           everything a title could. What a note would say is what the empty
+           state below already says to someone looking at an empty shelf. -->
+      <div id="library-bar" class="screen-bar">
+        <!-- The questions about the albums on screen, hidden together while
+             there are none: a filter, a search and an order over an empty shelf
+             are questions about nothing. What stays is the other group — the
+             gestures that put albums there. -->
+        <div id="library-questions" class="screen-questions" hidden>
+          <!-- The order first, the shelf second, the search third, and then the
+               bar's one stretch of free space. -->
+          <!-- No `Sort by` words: they cost width and name what the chosen
+               option already says. The mark stands for the label, and the
+               sentence is the picker's own tooltip. -->
+          <label class="sort-picker" data-str-title="sortBy">
+            <span class="sort-mark" aria-hidden="true">⇅</span>
+            <select id="library-sort" class="select">
+              <option value="recent" data-str="sortRecent">Recently added</option>
+              <option value="oldest" data-str="sortOldest">Oldest first</option>
+              <option value="artist" data-str="sortArtist">Artist A–Z</option>
+              <option value="album" data-str="sortAlbum">Album A–Z</option>
+              <option value="year" data-str="sortYear">Release year, newest</option>
+              <!-- Both ways down the scale, and in both of them an unrated
+                   record comes after every rated one: the unrated are not the
+                   worst albums on the shelf, they are the ones this order has
+                   nothing to say about. -->
+              <option value="rating_best" data-str="sortRatingBest">Rating, best first</option>
+              <option value="rating_worst" data-str="sortRatingWorst">Rating, worst first</option>
+            </select>
+          </label>
+          <button id="status-menu" class="button button-quiet status-menu"></button>
+          <!-- The third question this bar answers, beside "in what order" and
+               "which shelf": which album. A long shelf is past what the eye
+               finds by scrolling, and a dropped album that was already there
+               is precisely the one that cannot be seen.
+
+               It is a mark until it is wanted: an open field takes width this
+               bar has least of, and searching is occasional rather than what
+               the screen is about. It opens on the mark, and stays open while
+               it holds words. -->
+          <div class="library-search">
+            <button class="button button-icon search-open" data-str-title="tipSearchAlbums"><svg class="search-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+            <input id="library-search" type="search" class="search-field" autocomplete="off"
+                   data-str-title="tipSearchAlbums" />
+            <button id="library-search-clear" class="button button-icon search-clear"
+                    data-str-title="tipSearchClear" hidden>✕</button>
+          </div>
+          <!-- One button, wearing the view it would switch to: hiding the
+               active half is what makes the pair read as a single control. -->
+          <div class="view-toggle" role="group">
+            <button id="view-grid" class="button button-icon is-active" data-str-title="tipGridView">▦</button>
+            <button id="view-list" class="button button-icon" data-str-title="tipListView">☰</button>
+          </div>
+        </div>
+        <div class="screen-actions">
+          <!-- The Library's own gestures, out of the window's frame and into
+               the bar that is about this shelf. The path answers "what is Scan
+               about to read?" and leaves once the scan has read it. -->
+          <span id="root-path" class="root-path" title=""></span>
+          <!-- An icon, not a sentence: albums are loaded onto a full shelf
+               often, so the gesture stays in reach — small, because Scan is
+               the wide one — and the tooltip carries the words.
+
+               **The + is on this button and is not a second one.** Choosing a
+               folder and adding an album are one gesture: both end in the same
+               read, and the only difference is which path is remembered as
+               the root that Scan will read. Choosing a folder always *adds*
+               its albums; nothing on the shelf is ever replaced, and the mark
+               says so. -->
+          <button id="choose-folder" class="button button-icon" data-str-title="tipChooseFolder">
+            &#x1F4C1;&#xFE0E;<span class="icon-plus" aria-hidden="true">+</span>
+          </button>
+          <button id="scan" class="button button-primary" data-str="scan" data-str-title="tipScan" disabled>Scan</button>
+          <button id="apply-automatic" class="button button-primary" data-str-title="tipApplyAutomatic" hidden></button>
+          <!-- The rare gestures, one press away instead of one control each:
+               opening the downloads folder (Transfers offers it on every row),
+               and the ✕ that says about a shelf instead of a row — tidying up
+               must never look like the primary gesture. -->
+          <button id="library-more" class="button button-icon" data-str-title="tipLibraryMore">⋯</button>
+        </div>
+      </div>
+      <div id="apply-result" class="apply-result" hidden>
+        <div>
+          <b id="apply-result-title"></b>
+          <ul id="apply-result-failures" class="apply-failures"></ul>
+        </div>
+        <button id="revert-run" class="button button-danger" data-str="revertRun" data-str-title="tipRevertRun" hidden>Revert this run</button>
+        <!-- The undo of the undo, in the place the undo was. It takes the
+             reverted run's turn: a run is either applied or reverted, so only
+             one of the two is ever the thing to offer. -->
+        <button id="redo-run" class="button" data-str="redoRun" data-str-title="tipRedoRun" hidden>Do this run again</button>
+        <button id="export-report" class="button" data-str="exportReport" data-str-title="tipExportReport">Export from/to report</button>
+        <button id="open-folder" class="button" data-str="openFolder" data-str-title="tipOpenFolder">Open folder</button>
+        <button class="button button-icon" id="apply-result-close" title="Dismiss">✕</button>
+      </div>
+
+      <p id="empty-library" class="empty" data-str="emptyLibrary">Drag your album folders here, or add one with &#x1F4C1;&#xFE0E;+ — then press Scan. DigLibrary reads them where they sit and looks each album up on Discogs and MusicBrainz. Nothing is renamed or retagged until you read a plan and approve it — and everything it writes can be undone from History.</p>
+      <div id="grid" class="grid"></div>
+      <table id="list" class="albums-list" hidden>
+        <thead>
+          <tr>
+            <!-- Marking, then the sleeve. Both headless: neither is a fact
+                 about the album — one is a gesture and one is a picture. -->
+            <th class="list-mark-cell"></th>
+            <th class="list-cover-cell"></th>
+            <th data-str="listArtist">Artist</th>
+            <th data-str="listAlbum">Album</th>
+            <th data-str="listYear">Year</th>
+            <th data-str="listFolder">Folder</th>
+            <th data-str="listTracks">Tracks</th>
+            <th data-str="listMatched">Matched</th>
+            <th data-str="listConfidence">Confidence</th>
+            <th data-str="listState">State</th>
+            <!-- Home for the ✕ the grid has always had. Headless, because the
+                 column is the gesture and not a fact about the album. -->
+            <th class="list-forget-cell"></th>
+          </tr>
+        </thead>
+        <tbody id="list-body"></tbody>
+      </table>
+    </section>
+
+
+    <section id="view-acquire" class="view" hidden>
+      <!-- The one bar every screen wears. The title stands in it rather than
+           above it, and the sentence explaining the screen is the title's
+           tooltip: it teaches once and would otherwise be read on every
+           visit. -->
+      <div class="screen-bar">
+        <h2 class="screen-title" data-str="acquireHeading"
+            data-str-title="acquireNote">Find music on Soulseek</h2>
+        <div class="screen-actions">
+          <!-- The same gesture the Transfers tree has, on the other screen that
+               has a tree. Settings owns the default; this moves the session. -->
+          <button id="acquire-keep-open" class="button button-quiet" data-str="closeTree">Collapse all</button>
+          <button id="acquire-organize" class="button" data-str="acquireOrganize" data-str-title="acquireOrganizeTip"></button>
+        </div>
+      </div>
+
+      <!-- One plain text box, the way Soulseek asks. No Album/Track selector:
+           the network does not distinguish them, and the words you type are
+           the whole question. -->
+      <div class="acquire-bar">
+        <input id="acquire-query" class="acquire-input" type="search" autocomplete="off" />
+        <button id="acquire-go" class="button button-primary" data-str="acquireSearch">Search</button>
+      </div>
+
+      <!-- One tab per search, the way a Soulseek client holds several at
+           once. Searching always opens a new one; the × closes it, which stops
+           the search at the server and drops it. -->
+      <div id="acquire-tabs" class="acquire-tabs" role="tablist" hidden></div>
+
+      <p id="acquire-status" class="muted acquire-status"></p>
+
+      <div id="acquire-results" class="acquire-results" hidden>
+        <div class="acquire-head">
+          <span data-sort="user" role="button" tabindex="0" data-str="colUser">User</span>
+          <span data-sort="free" role="button" tabindex="0" data-str="colFree">Free</span>
+          <span data-sort="rate" role="button" tabindex="0" data-str="colRate">K/s</span>
+          <span data-sort="folder" role="button" tabindex="0" data-str="colFolder">Folder</span>
+          <span data-sort="files" role="button" tabindex="0" data-str="colFile">File</span>
+          <span data-sort="size" role="button" tabindex="0" data-str="colSize">Size</span>
+          <span data-str="colAttributes">Attributes</span>
+        </div>
+        <div id="acquire-rows"></div>
+      </div>
+    </section>
+
+    <section id="view-transfers" class="view" hidden>
+      <div class="screen-bar">
+        <h2 class="screen-title" data-str="transfersHeading"
+            data-str-title="transfersNote">What is coming in</h2>
+        <div class="screen-actions">
+          <!-- One tree holds both the folders and the list: the folder is a
+               row you open rather than a mode you switch to. -->
+          <button id="transfers-keep-open" class="button button-quiet" data-str="closeTree">Collapse all</button>
+          <button id="transfers-clear" class="button" data-str="transfersClear" data-str-title="transfersClearTip">Clear downloaded</button>
+          <button id="transfers-organize" class="button" data-str="acquireOrganize" data-str-title="acquireOrganizeTip"></button>
+        </div>
+      </div>
+
+      <p id="transfers-status" class="muted acquire-status"></p>
+      <div id="transfers-results" class="acquire-results">
+        <div id="transfers-head" class="transfer-head"></div>
+        <div id="transfers-rows"></div>
+      </div>
+    </section>
+
+    <section id="view-quality" class="view" hidden>
+      <div class="screen-bar">
+        <h2 class="screen-title" data-str="qualityHeading"
+            data-str-title="qualityNote">What is this audio, really?</h2>
+        <!-- Which albums are on the bench, asked the way the Library asks it:
+             one control, built from the same menu. Hidden while the bench is
+             empty, because a filter over nothing is a question about nothing. -->
+        <div id="quality-questions" class="screen-questions" hidden>
+          <button id="quality-status" class="button button-quiet status-menu"></button>
+          <!-- The Library's control, unchanged and in the same place: a
+               question about how to look does not belong among the actions
+               that do work. One button shows at a time, wearing the view a
+               press would switch to. -->
+          <div class="view-toggle" role="group">
+            <button id="bench-view-cards" class="button button-icon" data-str-title="tipBenchCardsView">▦</button>
+            <!-- `is-active` on the one the window opens in, as the shelf's
+                 markup does: without it both icons draw until the first render
+                 and the pair reads as two controls for the length of a frame. -->
+            <button id="bench-view-list" class="button button-icon is-active" data-str-title="tipBenchListView">☰</button>
+          </div>
+        </div>
+        <div class="screen-actions">
+          <!-- The one gesture on this screen that costs anything. Offered only
+               when something is marked, and it writes nothing by itself. -->
+          <button id="bench-analyze" class="button" data-str-title="tipBenchAnalyze" hidden></button>
+          <button id="bench-identify" class="button" data-str-title="tipBenchIdentify" hidden></button>
+          <button id="bench-add" class="button button-primary" data-str="benchAdd" data-str-title="tipBenchAdd">Add folder…</button>
+        </div>
+      </div>
+
+      <!-- A finished deep measurement waiting for approval, like a plan
+           waiting for `Approve & apply`. Nothing here has been written down. -->
+      <div id="bench-analysis" class="bench-analysis" hidden></div>
+
+      <div id="quality-progress" class="progress" hidden>
+        <div class="progress-track"><div id="quality-fill" class="progress-fill"></div></div>
+        <span id="quality-label" class="progress-label"></span>
+      </div>
+
+      <!-- Why the measuring button is not there. Hiding it for a missing
+           binary on the same line that hides it with nothing marked gives two
+           causes one appearance and no words. Shown whatever is marked,
+           because the absence is about the machine and not about the
+           selection. -->
+      <p id="quality-no-ffmpeg" class="missing-tool" data-str="qualityUnavailable" hidden></p>
+
+      <p id="empty-quality" class="empty" data-str="emptyQuality">Add a folder — the whole library if you like. Its albums stay here between sessions, showing what is already known about them, and nothing is decoded until you ask.</p>
+
+      <div id="bench-cards" class="bench-cards" hidden></div>
+      <table id="quality-table" class="albums-list" hidden>
+        <thead>
+          <tr>
+            <!-- Headless: the column is the gesture, not a fact about the
+                 album, exactly like the Library's mark box. -->
+            <th class="q-mark-cell"></th>
+            <th data-str="qColFolder">Folder</th>
+            <th data-str="qColVerdict">Verdict</th>
+            <th data-str="qColConfidence">How sure</th>
+            <th data-str="qColBitrate">Looks like</th>
+            <th data-str="qColMedian">Median fall</th>
+            <th data-str="qColTracks">Measured</th>
+            <th data-str="qColFindings">Findings</th>
+          </tr>
+        </thead>
+        <tbody id="quality-body"></tbody>
+      </table>
+    </section>
+
+    <section id="view-mixing" class="view" hidden>
+      <!-- The bar reads in one order on every screen: what orders the list, what
+           searches it, the one stretch of free space, then the gestures. The
+           questions hide together while there is nothing to ask them of — a
+           sort and a search over an empty wheel are questions about nothing. -->
+      <div class="screen-bar">
+        <h2 class="screen-title" data-str="mixingHeading"
+            data-str-title="mixingNote">What mixes with what</h2>
+        <div id="mixing-questions" class="screen-questions" hidden>
+          <label class="sort-picker">
+            <span class="sort-label" data-str="sortBy">Sort by</span>
+            <select id="mixing-sort" class="select">
+              <option value="camelot" data-str="mixSortKey">Key, around the wheel</option>
+              <option value="bpm" data-str="mixSortTempo">Tempo, slowest first</option>
+              <option value="artist" data-str="mixSortArtist">Artist A–Z</option>
+            </select>
+          </label>
+          <div class="library-search">
+            <button class="button button-icon search-open" data-str-title="tipMixSearch"><svg class="search-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+            <input id="mixing-search" type="search" class="search-field" autocomplete="off"
+                   data-str-title="tipMixSearch" />
+            <button id="mixing-search-clear" class="button button-icon search-clear"
+                    data-str-title="tipSearchClear" hidden>✕</button>
+          </div>
+        </div>
+        <div class="screen-actions">
+          <!-- The way in from this screen. The album's own dialog and the
+               Library's ⋯ are the other two, and all three reach the same
+               route. -->
+          <button id="mixing-measure" class="button button-primary"
+            data-str="measureAlbums" data-str-title="tipMeasureAlbums">Measure albums…</button>
+          <!-- No `data-str-title` here on purpose: `renderMixingMore` writes
+               this button's words and decides whether it can be pressed, and a
+               second writer for one tooltip lets the words promise what the
+               menu does not hold. -->
+          <button id="mixing-more" class="button button-icon">⋯</button>
+        </div>
+      </div>
+
+      <!-- The same sentence as the bench's, for the same absence: without it
+           the screen would report that no audio could be read, which blames
+           the files for what a missing binary did. -->
+      <p id="mixing-no-ffmpeg" class="missing-tool" data-str="qualityUnavailable" hidden></p>
+
+      <p id="empty-mixing" class="empty" data-str="emptyMixing"></p>
+
+      <!-- The wheel is built from the albums the restore has reached, so until
+           it finishes this list is a part of itself. -->
+      <p id="mixing-restoring" class="muted" data-str="mixingStillArriving" hidden></p>
+
+      <div id="mixing-board" class="mixing-board" hidden>
+        <!-- The wheel is the key filter: its segments are the twenty-four
+             codes, lit only where the library has tracks, and pressing one asks the
+             list for that key. Built by the script because it is twenty-four
+             identical shapes, and drawn in the palette this app already has. -->
+        <div class="mixing-wheel">
+          <!-- Named through `data-str-title`, which this window actually
+               applies: a `data-str-aria` would have been a fifth way for these
+               files to disagree in silence. -->
+          <svg id="camelot-wheel" viewBox="0 0 220 220" role="group"
+               data-str-title="ariaCamelot"></svg>
+          <p id="mixing-selected" class="mixing-selected muted"></p>
+        </div>
+        <div class="mixing-tracks">
+          <table id="mixing-table" class="albums-list">
+            <thead>
+              <tr>
+                <th data-str="mixColKey">Key</th>
+                <th data-str="mixColTrack">Track</th>
+                <th data-str="mixColArtist">Artist</th>
+                <th data-str="mixColTempo" data-str-title="tipMixColTempo">Tempo</th>
+                <!-- Named for what it measures: "How sure" alone reads as
+                     covering both columns, and the tempo has a confidence of
+                     its own. -->
+                <th data-str="mixColSure" data-str-title="tipMixColSure">Key confidence</th>
+              </tr>
+            </thead>
+            <tbody id="mixing-body"></tbody>
+          </table>
+          <!-- What mixes with the pressed track opens as a row directly under
+               it: the list answers about that track, so it belongs beside it
+               and not at the foot of the page, which on a long list is a
+               scroll away from the question. Built into the table by the
+               script. -->
+        </div>
+      </div>
+    </section>
+
+    <section id="view-history" class="view" hidden>
+      <!-- A record of every run this application ever made needs more than
+           scrolling to find one: a heading, a filter and a search. The
+           questions hide together while there is nothing to ask them of,
+           exactly as the Library's do. -->
+      <div class="screen-bar">
+        <h2 class="screen-title" data-str="historyHeading"
+            data-str-title="historyNote">What this app has done</h2>
+        <div id="history-questions" class="screen-questions" hidden>
+          <button id="history-status" class="button button-quiet status-menu"></button>
+          <div class="library-search">
+            <button class="button button-icon search-open" data-str-title="tipSearchHistory"><svg class="search-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+            <input id="history-search" type="search" class="search-field" autocomplete="off"
+                   data-str-title="tipSearchHistory" />
+            <button id="history-search-clear" class="button button-icon search-clear"
+                    data-str-title="tipSearchClear" hidden>✕</button>
+          </div>
+        </div>
+      </div>
+
+      <p id="empty-history" class="empty" data-str="emptyHistory">Nothing has been applied yet. Every change will appear here, reversible.</p>
+      <!-- Said when the filter and the search between them leave nothing on a
+           screen that does hold runs. Without it, a search that matches nothing
+           looks exactly like a History with nothing in it. -->
+      <p id="history-none" class="empty" data-str="historyNone" hidden></p>
+      <table id="history-table" class="history" hidden>
+        <thead>
+          <tr>
+            <!-- The sleeve, as in the Library's list view. Headless, because
+                 the column is a picture of the row and not a fact about it. -->
+            <th class="list-cover-cell"></th>
+            <th data-str="historyAlbum">Artist - Album</th>
+            <th data-str="historyWhen">Applied</th>
+            <th data-str="historyOperations">Changes</th>
+            <th data-str="historyState">State</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- Some shares call a whole music dump one folder: a search can match one
+       file in a folder of hundreds. A double click should not queue that
+       without saying so. -->
+  <dialog id="big-folder-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="acquireBigFolderHeading">That is a large folder</h2>
+        <p id="big-folder-message" class="muted"></p>
+      </div>
+      <!-- Named, and without data-close: the answer is read from these two
+           buttons rather than from the dialog's close event, which this webview
+           does not fire. -->
+      <button id="big-folder-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="big-folder-yes" class="button button-primary" type="button" data-str="acquireBigFolderYes">Download it all</button>
+    </footer>
+  </dialog>
+
+  <!-- A reversal of an album that has been filed away writes inside the music
+       library rather than inside the folder it was downloaded into, so it is
+       asked about first. The two buttons carry the answer, as above. -->
+  <!-- A second copy arriving, said where it cannot be missed: a toast at the
+       foot of the window is easy to miss. Several arrivals while it is open
+       each add a line, since it does not hold up the events behind it. -->
+  <dialog id="same-audio-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="sameAudioHeading">Already in your library</h2>
+        <div id="same-audio-message"></div>
+      </div>
+      <button id="same-audio-close" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="same-audio-ok" class="button button-primary" type="button" data-str="sameAudioOk">OK</button>
+    </footer>
+  </dialog>
+
+  <dialog id="second-copy-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="secondCopyHeading">This card is a second copy</h2>
+        <p id="second-copy-message" class="muted"></p>
+      </div>
+      <button id="second-copy-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="second-copy-yes" class="button button-primary" type="button" data-str="secondCopyYes">Let this card go</button>
+    </footer>
+  </dialog>
+
+  <dialog id="filed-away-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="revertFiledAwayHeading">This album has been filed away</h2>
+        <p id="filed-away-message" class="muted"></p>
+      </div>
+      <button id="filed-away-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="filed-away-yes" class="button button-primary" type="button" data-str="revertFiledAwayYes">Undo it there</button>
+    </footer>
+  </dialog>
+
+  <!-- Withdrawing every corrected title of one album undoes several decisions
+       at once, and the typed ones cannot be typed back from anything on
+       screen — so the number is said before anything is written. The per-line
+       way back asks nothing, because it restores the offer it came from and
+       pressing both in turn changes nothing. -->
+  <dialog id="drop-titles-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="planYoursDropAllHeading">Give these titles back to the catalogue</h2>
+        <p id="drop-titles-message" class="muted"></p>
+      </div>
+      <button id="drop-titles-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="drop-titles-yes" class="button button-primary" type="button" data-str="planYoursDropAllYes">Withdraw them</button>
+    </footer>
+  </dialog>
+
+  <!-- Leaving an album that has a proposal waiting. `Cancel`, the ✕ and a
+       click outside must not do three different things in silence, so the two
+       ways out are named here instead of guessed at, and this is asked only
+       where there is something to take back. Its own ✕ means *not yet*: it
+       closes this question and stays on the album. -->
+  <!-- The album whose folder is gone. The full dialog cannot be drawn without
+       the folder, and it is not what this album needs: what it needs is the
+       two repairs, which are otherwise reachable only through the card's
+       menu. -->
+  <dialog id="album-gone-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 id="album-gone-title"></h2>
+        <p id="album-gone-message" class="muted"></p>
+      </div>
+      <button id="album-gone-close" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="album-gone-forget" class="button button-way-back" type="button" data-str="albumGoneForget">Let this card go</button>
+      <button id="album-gone-relocate" class="button button-primary" type="button" data-str="albumGoneRelocate">Point it at its folder…</button>
+    </footer>
+  </dialog>
+
+  <dialog id="leave-album-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="leaveAlbumHeading">This album has a plan waiting</h2>
+        <p id="leave-album-message" class="muted" data-str="leaveAlbum"></p>
+      </div>
+      <button id="leave-album-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <!-- Neither answer is filled. A question with two right answers does not
+           have an invitation, and a highlight on `Take it back` would push the
+           one that undoes. Both are plain, and the question is only asked
+           where a gesture worth naming was made. -->
+      <button id="leave-album-keep" class="button" type="button" data-str="leaveAlbumKeep">Leave it waiting</button>
+      <button id="leave-album-undo" class="button" type="button" data-str="leaveAlbumUndo">Take it back</button>
+    </footer>
+  </dialog>
+
+  <!-- Asking a catalogue about an album it has already answered for. A scan
+       costs many catalogue calls and minutes of waiting, so where nothing on
+       record says the album needs asking again, the cost is stated and the
+       user decides. Where a source *was* missing, this is not shown at all
+       and the reason is said instead. -->
+  <dialog id="scan-again-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="scanAgainHeading">This album was already read</h2>
+        <p id="scan-again-message" class="muted" data-str="scanAgain"></p>
+      </div>
+      <button id="scan-again-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="scan-again-yes" class="button button-primary" type="button" data-str="scanAgainYes">Scan it again anyway</button>
+    </footer>
+  </dialog>
+
+  <!-- The two questions asked before an apply. A system `confirm()` cannot
+       hold markup, its buttons say OK and Cancel, and this webview is free
+       not to show it at all. Same shape as the dialogs above: the answer is
+       read from the two buttons. -->
+  <dialog id="apply-unscanned-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <!-- Both written by `confirmApplyWithoutScan`, because which of the two
+             sentences is true depends on the album being applied. -->
+        <h2 id="apply-unscanned-heading"></h2>
+        <p id="apply-unscanned-message" class="muted"></p>
+      </div>
+      <button id="apply-unscanned-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="apply-unscanned-yes" class="button button-primary" type="button" data-str="applyWithoutScanYes">Apply the tags</button>
+    </footer>
+  </dialog>
+
+  <dialog id="apply-doubtful-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="applyLeavesDoubtfulHeading">Not every track matched exactly</h2>
+        <!-- Filled at runtime: it names how many files are being left alone. -->
+        <p id="apply-doubtful-message" class="muted"></p>
+      </div>
+      <button id="apply-doubtful-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="apply-doubtful-yes" class="button button-primary" type="button" data-str="applyLeavesDoubtfulYes">Apply what is certain</button>
+    </footer>
+  </dialog>
+
+  <dialog id="album-dialog" class="dialog">
+    <div class="dialog-head">
+      <!-- The picture and the one gesture that changes it, together.
+           Under the picture rather than in the footer: the footer is where the
+           plan's decisions live, and a cover is not a step the plan needs — it
+           is an edit to the thing drawn right above it. Quiet on purpose, so it
+           reads as *you may*, never as *you still have to*. -->
+      <div class="dialog-cover-frame">
+        <img id="album-cover" class="dialog-cover" alt="" hidden />
+        <div id="album-cover-empty" class="dialog-cover dialog-cover-empty" hidden></div>
+        <button id="album-choose-cover" class="cover-edit" type="button" data-str-title="tipChooseCover" hidden></button>
+      </div>
+      <div>
+        <h2 id="album-title"></h2>
+        <!-- The essentials only: the year, how many tracks, and which
+             catalogue this match uses — as a link, so the source is the way to
+             the page rather than a second button saying so. The witnesses are
+             named beside it and are links too, whenever they published a page.
+             Everything else about the release is in `View details`. -->
+        <p id="album-essentials" class="album-essentials"></p>
+        <!-- The one fact here that no catalogue can supply and no measurement
+             can check. It sits with the album's own facts and not with the
+             buttons: rating a record decides nothing about the plan. This is
+             the only place a rating is *given* — the card shows it and never
+             writes it, so a stray press on the shelf cannot change one. -->
+        <div id="album-rating" class="album-rating"></div>
+        <!-- **The verdict, and what the record is, both out of the fold.**
+             The match percentage is the largest single thing this screen says
+             about the identification, and the label, the kind of record and
+             the pressing are what a person checks a match against. Everything
+             in this line is about the album and the release in use, which is
+             what this heading is for — the fold below keeps what is about the
+             *matching*. -->
+        <p id="album-standing" class="album-standing"></p>
+      </div>
+      <!-- The album's context gestures, beside the ✕ and out of the footer:
+           where it is on disk, and what its audio is. Neither decides the
+           plan, so neither sits with the buttons that do. Icons; the words
+           live in the tooltips. -->
+      <div class="dialog-head-actions">
+        <!-- Through the shelf without closing the dialog. They walk the albums
+             the Library is drawing — the filter, the search and the order in
+             force — because the app never operates the user's controls nor
+             walks a set the screen behind it does not show. The count between
+             them says the position, and both stop at the ends rather than
+             wrapping: a queue that loops has no end to reach. -->
+        <button id="album-previous" class="button button-icon" data-str-title="tipAlbumPrevious">‹</button>
+        <span id="album-position" class="album-position"></span>
+        <button id="album-next" class="button button-icon" data-str-title="tipAlbumNext">›</button>
+        <button id="album-open-folder" class="button button-icon" data-str-title="tipOpenAlbumFolder">&#x1F4C1;&#xFE0E;</button>
+        <button class="button button-icon dialog-close" data-str-title="tipCloseDialog" data-close>✕</button>
+      </div>
+    </div>
+
+    <div class="dialog-body">
+      <!-- Inside what scrolls, not above it. In the head, which does not
+           scroll and has no height of its own, opening this fold would push
+           the plan down and squeeze it against a body pinned at 52vh. -->
+        <details id="album-details" class="fold">
+          <summary id="album-details-summary" data-str="viewDetails">View details</summary>
+          <p id="album-reason" class="reason"></p>
+          <!-- The files that said something else, when the proposal is an
+               arrangement of the album's own tags. A majority is a choice,
+               and what it chose against is worth a line each. -->
+          <ul id="album-dissent" class="album-dissent" hidden></ul>
+          <!-- The catalogue's answer read against what the tags were saying —
+               one line, always, whether it agrees or differs. -->
+          <p id="album-tags-say" class="tags-say" hidden></p>
+          <p id="album-acoustic" class="muted" hidden></p>
+          <p id="album-proof" class="proof-line" hidden></p>
+        </details>
+      <section>
+        <!-- How much of the album's own names met the release's, said where it
+             is read first. Outside the fold on purpose: a notice inside
+             `album-details` is one the render may close. -->
+        <!-- The one notice of a record nothing matched. Two lines and two
+             registers: the fact in amber, because it is the only thing on
+             this screen that must be read; the ways out in grey, because they
+             are answers and not alarms. Everything else this screen says
+             about the same fact defers to this. -->
+        <div id="album-wrong-record" class="wrong-record" hidden>
+          <p class="wrong-record-fact" data-str="wrongRecordFact"></p>
+          <p class="wrong-record-ways" data-str="wrongRecordWays"></p>
+          <!-- The witness that does know the record, offered as a way out and
+               not as a second alarm. It stays grey with the other ways: the
+               amber above is the fact, and the fact is said once. Nothing
+               here writes — the tracklist is fetched when the fold is opened,
+               drawn beside the album's own files, and dropped with the
+               dialog, and the button hands its words to the licensed
+               catalogues to search. -->
+          <div id="album-witness-way" class="witness-way" hidden>
+            <p id="album-witness-said" class="witness-said"></p>
+            <p class="witness-controls">
+              <button
+                id="album-witness-read"
+                type="button"
+                class="link-button"
+                data-str="witnessRead"
+              ></button>
+              <button
+                id="album-witness-search"
+                type="button"
+                class="link-button"
+                data-str="witnessSearch"
+              ></button>
+            </p>
+            <p id="album-witness-head" class="witness-head" hidden></p>
+            <ol id="album-witness-tracks" class="witness-tracks" hidden></ol>
+          </div>
+        </div>
+        <p id="album-names-disagree" class="names-disagree" hidden></p>
+        <ul id="album-blockers" class="blockers"></ul>
+        <ul id="album-warnings" class="warnings"></ul>
+
+        <!-- An album nothing has been compared for has no before-and-after to
+             show, so the `What will change` fold is taken away entirely and
+             this stands where it was. The one gesture the album is waiting
+             for is here, in the middle of the notice, instead of being one
+             more button in the footer. -->
+        <!-- The album the app cannot settle by itself, and the one gesture
+             that settles it: the user looks at the pairings and says they are
+             right. The application still guesses nothing — the answer is
+             recorded as a manual pairing, which is what the per-row "not this
+             file" already writes one at a time. -->
+        <div id="album-contested" class="unscanned" hidden>
+          <p class="unscanned-heading" data-str="contestedHeading">This album could not be settled on its own</p>
+          <p class="unscanned-note" data-str="contestedNote"
+             data-str-title="tipContestedNote"></p>
+          <button id="album-confirm-pairings" class="button button-primary"
+            data-str="confirmPairings" data-str-title="tipConfirmPairings">These pairings are right</button>
+        </div>
+
+        <div id="album-unscanned" class="unscanned" hidden>
+          <p class="unscanned-heading" data-str="unscannedHeading">Album not scanned yet</p>
+          <p class="unscanned-note" data-str="unscannedNote"></p>
+          <button id="album-scan-here" class="button button-primary" data-str="scanThisAlbum"
+            data-str-title="tipScanThisAlbum">Scan this album</button>
+        </div>
+
+        <!-- Albums that hold some of the same audio as this one. Opened by the
+             badge on the shelf, so the case can be resolved rather than only
+             reported. **Nothing here touches a file**, and the note says so:
+             what to do with the audio is the user's decision. -->
+        <details id="shared-details" class="fold" hidden>
+          <summary id="shared-summary" data-str="sharedHeading">Also in another album</summary>
+          <p class="muted" id="shared-note" data-str="sharedNote"></p>
+          <div id="shared-pairs" class="shared-pairs"></div>
+        </details>
+
+        <details id="evidence-details" class="fold" hidden>
+          <summary id="evidence-summary" data-str="evidenceHeading">Evidence: your files against this release</summary>
+          <table class="evidence">
+            <thead>
+              <tr>
+                <th colspan="2" id="ev-head-files"></th>
+                <th></th>
+                <th colspan="2" id="ev-head-tracks" class="ev-head-right"></th>
+              </tr>
+            </thead>
+            <tbody id="evidence-body"></tbody>
+          </table>
+        </details>
+
+        <!-- A cover that was picked and has not been written yet. **Outside
+             the fold below**, which is closed whenever nothing would change —
+             and an album with nothing to change is exactly the one a cover is
+             chosen for, so inside the fold the notice would be drawn and
+             unreadable. A pending write of its own is not part of "what will
+             change" about the identification. -->
+        <div id="cover-choice" class="cover-choice" hidden>
+          <img id="cover-choice-preview" class="cover-choice-preview" alt="" hidden />
+          <span id="cover-choice-words"></span>
+          <button type="button" id="cover-choice-write" class="button button-primary"
+            data-str="coverWrite">Write this cover</button>
+          <button type="button" id="cover-choice-drop" class="button"
+            data-str="coverDiscard">Not this one</button>
+        </div>
+
+        <!-- One surface, not two: what will be written is what can be
+             edited, so there is no second form to forget to send. -->
+        <details id="plan-details" class="fold">
+          <summary id="plan-summary" data-str="planHeading">What will change</summary>
+          <p class="muted" id="plan-note" data-str="planNote">Every name below is editable — your word outranks the catalogue, and what you see here is what gets written.</p>
+          <!-- Pairings made by hand against a release this album no longer
+               carries: kept, named, and waiting on an answer. -->
+          <!-- Said only when a position set by hand has moved a track the
+               catalogue numbered. -->
+          <p id="plan-numbering" class="plan-numbering" hidden></p>
+          <div id="plan-held" class="plan-held" hidden></div>
+          <!-- The album's own way out of its corrected titles. It stands above
+               the table it speaks about, and only while there is something
+               standing for it to withdraw. -->
+          <p id="plan-yours-standing" class="plan-yours-standing" hidden>
+            <span id="plan-yours-standing-words"></span>
+            <button type="button" id="plan-yours-drop-all" class="link-button"
+              data-str="planYoursDropAll">Give them all back to the catalogue</button>
+          </p>
+          <table id="plan-editor" class="plan-table"></table>
+          <!-- The files nothing claimed, once. They live on the asking track's
+               own row while one track is asking, and here when several are,
+               because the same block drawn per track is one thing said many
+               times. -->
+          <div id="plan-unclaimed" class="plan-unclaimed" hidden></div>
+          <ul id="album-operations" class="operations"></ul>
+        </details>
+      </section>
+
+      <section>
+        <h3 data-str="candidatesHeading">Find this album</h3>
+        <form id="find-form" class="find-form">
+          <div class="find-mode" role="group">
+            <button type="button" id="find-mode-link" class="mode-button is-active" data-str-title="tipFindLink"
+              data-str="findByLink">By link</button>
+            <button type="button" id="find-mode-names" class="mode-button" data-str-title="tipFindNames"
+              data-str="findByNames">By artist &amp; album</button>
+          </div>
+          <div class="find-row" id="find-names-row" hidden>
+            <input id="search-artist" type="text" autocomplete="off" autocorrect="off"
+              autocapitalize="off" spellcheck="false" placeholder="Artist" />
+            <input id="search-album" type="text" autocomplete="off" autocorrect="off"
+              autocapitalize="off" spellcheck="false" placeholder="Album" />
+          </div>
+          <div class="find-row">
+            <!-- The placeholder is set from `strings.js` like every other one:
+                 written here it would name the sources a second time, and the
+                 two lists would drift apart. -->
+            <input id="paste-link-url" type="text" autocomplete="off" autocorrect="off"
+              autocapitalize="off" spellcheck="false" />
+            <button id="find-button" class="button button-primary" data-str="find" data-str-title="tipFind">Find</button>
+          </div>
+        </form>
+        <p id="find-status" class="find-status" hidden></p>
+        <ul id="album-candidates" class="candidates"></ul>
+      </section>
+    </div>
+
+    <footer class="dialog-actions">
+      <!-- The footer answers the dialog's question and nothing else: three
+           decisions about the plan. The ways back in — scanning, planning
+           again, arranging by tags — are one ⋯ away, built from the album on
+           screen, and the context gestures sit beside the ✕. There is no
+           partial apply: an album whose plan only partly matches shows its
+           blockers instead. -->
+      <!-- `⋯`, as the Library's bar, the Mixing bar and every card row draw
+           it. A `+` would mean *add something*, and none of the ways back in
+           adds anything. One idea, one mark. -->
+      <button id="album-more" class="button button-icon dialog-more" data-str-title="tipAlbumMore">⋯</button>
+      <!-- The gesture this screen is most often waiting for: an opened album
+           has not always been looked up, and asking for it is what makes a
+           plan exist to approve. Plain, never primary — two filled buttons
+           are two invitations at once. -->
+      <button id="album-scan-now" class="button" data-str="scanThisAlbumAgain"
+        data-str-title="tipScanThisAlbum" hidden>Scan this album again</button>
+      <!-- The same slot, for the album that is already done. `Scan this album`
+           and this one cover every state between them and overlap in none, so
+           they share one place in the row rather than crowding it: an organized
+           album has nothing to scan for, and an unorganized one has nothing to
+           plan again. It is out of the ⋯ because it is the gesture such an
+           album is most often waiting for. -->
+      <button id="album-plan-again" class="button" data-str="planAnyway"
+        data-str-title="tipPlanAnyway" hidden>Plan this album again</button>
+      <!-- The way out of an identification nobody believes, offered where the
+           doubt is said rather than only behind the ⋯. On an album in review
+           and nowhere else: `review` is this application's own word for
+           *look at this yourself*, so this needs no threshold of its own.
+           Without it, the row says what cannot be done and nothing about what
+           can. -->
+      <button id="album-arrange-tags" class="button" data-str="arrangeThis"
+        data-str-title="tipArrangeThis" hidden>Arrange by its own tags</button>
+      <!-- The gesture most often wanted about the album on screen, so it wears
+           words rather than an icon in the head. -->
+      <button id="album-to-bench" class="button" data-str="sendToQuality"
+        data-str-title="tipSendToQuality">Send to Quality</button>
+      <!-- The way back from the last gesture, and only while there is one to
+           take back. Without it, an album re-planned or re-scanned by mistake
+           has two doors and both are wrong: `Approve & apply` writes, and
+           `Reject` records the identification as wrong and drops the album to
+           `skipped`. Plain and to the left of the two decisions about the
+           plan, because it is not one of them: it takes the question away
+           rather than answering it. -->
+      <button id="album-cancel" class="button button-way-back" data-str="cancelLast"
+        data-str-title="tipCancelLast" hidden>Cancel</button>
+      <button id="album-reject" class="button button-danger" data-str="reject" data-str-title="tipReject">Reject</button>
+      <button id="album-approve" class="button button-primary" data-str="approve" data-str-title="tipApprove">Approve &amp; apply</button>
+    </footer>
+  </dialog>
+
+
+  <!-- A popover, not a plain div: only the top layer is above an open dialog,
+       and a notice under a dialog is a notice nobody sees. -->
+  <!-- A stack, not a slot: a second failure must not replace the first. Every
+       notice carries its own dismissal, and a failure stays until it gets
+       one. -->
+  <div id="toast" class="toast" popover="manual"></div>
+
+  <!-- The end of a run, said where the eye already is. A progress bar
+       disappearing is an absence and not an announcement, and the green line
+       that stays is read afterwards, not at the moment it happens. A popover
+       for the reason the toast is one — it has to be above
+       an open dialog. It carries no ✕ because it leaves on its own; a notice
+       that needs dismissing is a notice about a problem. -->
+  <div id="flash" class="flash" popover="manual"></div>
+
+  <!-- The right-click menu for a result. A popover for the same reason the
+       toast is one: it has to sit above everything, and it has to close when
+       you click away without every screen having to arrange that itself. -->
+  <!-- The first thing a new installation shows. A terminal step between
+       someone and a thing they just installed is the step that decides
+       whether they ever see it work, so the keys are asked for here. It
+       opens once, and Settings has the way back to it. -->
+  <dialog id="welcome-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="welcomeHeading">DigLibrary is ready</h2>
+        <p class="muted" data-str="welcomeReady"></p>
+      </div>
+      <!-- Reached from Settings, `Start using DigLibrary` does not read as a
+           way out of a screen opened to check a key, so there is a ✕.
+
+           Named, and deliberately without `data-close`: the plain closer would
+           shut the dialog without recording that it has been through, so a
+           first run dismissed by the ✕ would open again next launch. Every
+           exit here goes through `finishWelcome` — one rule, one function. -->
+      <button id="welcome-close" class="button button-icon dialog-close" type="button"
+        data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <div class="dialog-body">
+      <section class="connect">
+        <h3 data-str="welcomeDiscogs">Discogs</h3>
+        <!-- Stated plainly because it is not a nice-to-have: measured on a
+             real library, most identified albums were settled by a Discogs
+             release. -->
+        <p class="connect-why" data-str="welcomeDiscogsWhy"></p>
+        <div class="connect-row">
+          <input id="connect-discogs" type="password" autocomplete="off" spellcheck="false" />
+          <button type="button" class="button button-primary" id="connect-discogs-save" data-str="connectSave">Connect</button>
+        </div>
+        <p class="muted"><a id="connect-discogs-link" href="#" data-str="welcomeDiscogsHow"></a></p>
+      </section>
+      <section class="connect">
+        <h3 data-str="welcomeAcoustid">AcoustID</h3>
+        <p class="connect-why" data-str="welcomeAcoustidWhy"></p>
+        <div class="connect-row">
+          <input id="connect-acoustid" type="password" autocomplete="off" spellcheck="false" />
+          <button type="button" class="button" id="connect-acoustid-save" data-str="connectSave">Connect</button>
+        </div>
+        <p class="muted"><a id="connect-acoustid-link" href="#" data-str="welcomeAcoustidHow"></a></p>
+      </section>
+      <!-- slskd: the backend stores a key for it like the others, and Find
+           music is unusable without one, so it has a field here. -->
+      <section class="connect">
+        <h3 data-str="welcomeSlskd">Soulseek (slskd)</h3>
+        <p class="connect-why" data-str="welcomeSlskdWhy"></p>
+        <div class="connect-row">
+          <input id="connect-slskd" type="password" autocomplete="off" spellcheck="false" />
+          <button type="button" class="button" id="connect-slskd-save" data-str="connectSave">Connect</button>
+        </div>
+        <!-- No link, because there is no page: this key is written in the
+             user's own slskd configuration, on their own machine. -->
+        <p class="muted" data-str="welcomeSlskdHow"></p>
+      </section>
+      <section class="connect">
+        <h3 data-str="welcomeSpotify">Spotify</h3>
+        <!-- Two fields because Spotify's client-credentials flow is a pair, and
+             a single box would have to guess which half was pasted. -->
+        <p class="connect-why" data-str="welcomeSpotifyWhy"></p>
+        <div class="connect-row">
+          <input id="connect-spotify-id" type="password" autocomplete="off" spellcheck="false" />
+          <button type="button" class="button" id="connect-spotify-id-save" data-str="connectSave">Connect</button>
+        </div>
+        <div class="connect-row">
+          <input id="connect-spotify-secret" type="password" autocomplete="off" spellcheck="false" />
+          <button type="button" class="button" id="connect-spotify-secret-save" data-str="connectSave">Connect</button>
+        </div>
+        <p class="muted"><a id="connect-spotify-link" href="#" data-str="welcomeSpotifyHow"></a></p>
+      </section>
+      <p id="connect-status" class="muted"></p>
+    </div>
+    <!-- Ticked, and the only box on this screen that is: installing by name
+         leaves nothing to double-click, and the alternative for somebody who
+         has never opened Terminal is a typed command. It is fast, so nothing
+         here waits on it.
+
+         Inside the footer on purpose: as a bare child of the dialog it would
+         sit between a body capped at 52vh and a footer, in a dialog capped at
+         86vh with nothing to scroll, and be drawn over the section behind it
+         on transparent ground. The footer is already anchored, bordered and
+         padded. -->
+    <footer class="dialog-actions welcome-actions">
+      <label class="settings-check" id="welcome-icon-row">
+        <input id="welcome-icon" type="checkbox" checked />
+        <span data-str="welcomeIcon">Put DigLibrary in my Applications folder, so I can open it without the Terminal</span>
+      </label>
+      <button type="button" class="button button-primary" id="welcome-start" data-str="welcomeStart">Start using DigLibrary</button>
+    </footer>
+  </dialog>
+
+  <!-- Which albums to measure. A long shelf is past what the eye finds by
+       scrolling, so this asks the same three questions the Library's bar does —
+       and it never offers "all", because measuring is on demand and never a
+       sweep. -->
+  <dialog id="measure-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="measureHeading">Measure key and tempo</h2>
+        <p class="muted" data-str="measureNote"></p>
+      </div>
+      <button class="button button-icon dialog-close" data-str-title="tipCloseDialog" data-close>✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="library-search measure-search">
+        <input id="measure-search" type="search" class="search-field" autocomplete="off"
+               data-str-title="tipMeasureSearch" />
+      </div>
+      <ul id="measure-list" class="measure-list"></ul>
+    </div>
+    <footer class="dialog-actions">
+      <button id="measure-start" class="button button-primary" type="button"
+        data-str-title="tipMeasureStart"></button>
+    </footer>
+  </dialog>
+
+  <dialog id="settings-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <h2 data-str="settingsHeading">Settings</h2>
+      <button class="button button-icon dialog-close" data-str-title="tipCloseDialog" data-close>✕</button>
+    </div>
+    <form id="settings-form" class="settings-form">
+      <label>
+        <span data-str="settingDensity">How much room the lists take</span>
+        <select id="setting-density">
+          <option value="compact" data-str="densityCompact">Compact</option>
+          <option value="cosy" data-str="densityCosy">Cosy</option>
+          <option value="roomy" data-str="densityRoomy">Roomy</option>
+        </select>
+      </label>
+      <label>
+        <span data-str="settingNamingStyle">Folder naming style</span>
+        <select id="setting-style">
+          <option value="spotiflac">Artist - Album - Ed. 2006 (1974) [FLAC]</option>
+          <option value="bracketed_year">Artist - Album [1974]</option>
+          <option value="year_first">(1974) Artist - Album [FLAC]</option>
+          <option value="year_only">Artist - Album (1974)</option>
+          <option value="year_and_format">Artist - Album (1974) [FLAC]</option>
+          <option value="minimal">Artist - Album</option>
+        </select>
+      </label>
+      <!-- The composer. The engine takes a free template; this is the way to
+           say so on screen, instead of a list of six fixed arrangements.
+           Pieces rather than a template field, because the point is not to
+           learn a syntax. -->
+      <div class="composer" id="composer">
+        <div class="composer-head">
+          <span data-str="composerTitle">Or compose your own</span>
+          <button id="composer-reset" type="button" class="link-button" data-str="composerReset">
+            Use the style above
+          </button>
+        </div>
+        <div class="composer-line">
+          <span class="composer-what" data-str="composerFolder">Folder</span>
+          <div class="composer-row">
+            <div class="composer-parts" id="composer-folder-parts"></div>
+            <select id="composer-folder-add" class="composer-add"></select>
+          </div>
+        </div>
+        <div class="composer-line">
+          <span class="composer-what" data-str="composerTrack">Track</span>
+          <div class="composer-row">
+            <div class="composer-parts" id="composer-track-parts"></div>
+            <select id="composer-track-add" class="composer-add"></select>
+          </div>
+        </div>
+        <!-- Against an album from the library, never an invented one: only
+             real catalogue data shows what actually gets filled in. -->
+        <p class="composer-preview" id="composer-preview"></p>
+      </div>
+      <label class="settings-check">
+        <input id="setting-edition" type="checkbox" />
+        <span data-str="settingEdition">Name the pressing (Ed. 2006) when it differs from the album's year</span>
+      </label>
+      <label class="settings-check">
+        <input id="setting-artwork" type="checkbox" />
+        <span data-str="settingArtwork">Download cover art from the Cover Art Archive</span>
+      </label>
+      <label class="settings-check">
+        <input id="setting-keep-trees" type="checkbox" />
+        <span data-str="settingKeepTrees">Expand lists automatically in Transfers and Find music</span>
+      </label>
+      <!-- The second door to the icon, for whoever left the box on the welcome
+           screen unticked. It is a button and not a setting: it does something
+           once rather than storing a preference, so it does not belong to the
+           form's save. -->
+      <div class="settings-row">
+        <button type="button" class="button" id="settings-icon" data-str="settingsIcon">Put DigLibrary in my Applications folder</button>
+        <p class="muted" id="settings-icon-said"></p>
+      </div>
+      <label>
+        <span data-str="settingThreshold">Automatic threshold</span>
+        <input id="setting-threshold" type="number" min="0.5" max="1" step="0.01" />
+      </label>
+      <!-- The spectrograms are discardable, so they get a ceiling instead of
+           growing forever. Oldest discarded first, and the button says what is
+           held right now so the number is not abstract. -->
+      <label>
+        <span data-str="settingSpectrogramCache">Spectrogram cache limit (MB)</span>
+        <input id="setting-spectrogram-cache" type="number" min="50" max="20000" step="50" />
+      </label>
+      <button type="button" class="button" id="setting-clear-spectrograms" data-str="settingClearSpectrograms">Clear the spectrogram cache</button>
+      <!-- The other two discardable folders: the catalogue answers and the
+           staged sleeves. Same rule, same gesture: a limit in MB, least
+           recently used discarded first, and a button that says how much came
+           back. -->
+      <label>
+        <span data-str="settingMetadataCache">Catalogue answers cache limit (MB)</span>
+        <input id="setting-metadata-cache" type="number" min="50" max="20000" step="50" />
+      </label>
+      <button type="button" class="button" id="setting-clear-metadata" data-str="settingClearMetadata">Clear the catalogue cache</button>
+      <label>
+        <span data-str="settingArtworkCache">Cover picture cache limit (MB)</span>
+        <input id="setting-artwork-cache" type="number" min="50" max="20000" step="50" />
+      </label>
+      <button type="button" class="button" id="setting-clear-artwork" data-str="settingClearArtwork">Clear the cover cache</button>
+      <!-- The replaced images. A ceiling and no Clear button,
+           on purpose: everything above can be fetched or drawn again, and this
+           cannot — discarding one costs the ability to revert an old run. -->
+      <label>
+        <span data-str="settingBackupLimit">Replaced-image backup limit (MB)</span>
+        <input id="setting-backup" type="number" min="100" max="50000" step="100" />
+      </label>
+      <p class="muted" data-str="settingBackupNote">These are the pictures a write replaced. They are what a revert puts back, so there is no button to delete them — only a limit, and the oldest go first.</p>
+      <!-- The database itself, copied as the window opens whenever it has
+           changed. Same shape as the limit above and for the same reason: no
+           Clear button, because these cannot be made again. The newest copy is
+           never discarded, whatever this number says. -->
+      <label>
+        <span data-str="settingDatabaseCopies">Database copy limit (MB)</span>
+        <input id="setting-database-copies" type="number" min="100" max="50000" step="100" />
+      </label>
+      <p class="muted" data-str="settingDatabaseCopiesNote"
+         data-str-title="tipSettingDatabaseCopiesNote"></p>
+      <p id="setting-cache-held" class="muted"></p>
+      <button type="button" class="button" id="setting-connections" data-str="settingConnections">Connected services…</button>
+      <p class="muted" data-str="settingsNote">Everything else is configured in config.toml.</p>
+      <footer class="dialog-actions">
+        <button type="submit" class="button button-primary" data-str="save">Save</button>
+      </footer>
+    </form>
+  
+  </dialog>
+
+  <!-- Shown while something is being dragged over the window. The page cannot
+       see where a dropped folder is — only the native side can — so this says
+       the window will take it, and Python reads the path. -->
+  <div class="drop-veil">
+    <b data-str="dropHere">Drop album folders here to add them</b>
+    <span data-str="dropNote">They are read where they are. Nothing is copied or moved.</span>
+  </div>
+
+  <div id="acquire-menu" class="context-menu" popover="manual"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

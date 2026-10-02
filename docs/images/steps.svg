@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 210" width="900" height="210"
+     role="img" aria-label="Three stages: install the tools, get DigLibrary, open it">
+  <title>The three stages of getting DigLibrary running</title>
+  <rect width="900" height="210" rx="14" fill="#16181d"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+
+    <g transform="translate(28,30)">
+      <rect width="256" height="150" rx="12" fill="#1e2128" stroke="#2a2f39"/>
+      <circle cx="30" cy="34" r="15" fill="#F2C230"/>
+      <text x="30" y="40" text-anchor="middle" font-size="16" font-weight="700" fill="#131313">1</text>
+      <text x="58" y="40" font-size="16" font-weight="600" fill="#eceff4">Install the tools</text>
+      <text x="22" y="74" font-size="13" fill="#9aa3b2">Homebrew, Python and ffmpeg.</text>
+      <text x="22" y="95" font-size="13" fill="#9aa3b2">Two commands, once, and</text>
+      <text x="22" y="116" font-size="13" fill="#9aa3b2">never again.</text>
+      <text x="22" y="138" font-size="12" fill="#6f7891">~ 10 minutes</text>
+    </g>
+
+    <path d="M296 105 h28" stroke="#3a4050" stroke-width="2"/>
+    <path d="M318 99 l10 6 -10 6 z" fill="#3a4050"/>
+
+    <g transform="translate(336,30)">
+      <rect width="256" height="150" rx="12" fill="#1e2128" stroke="#2a2f39"/>
+      <circle cx="30" cy="34" r="15" fill="#F2C230"/>
+      <text x="30" y="40" text-anchor="middle" font-size="16" font-weight="700" fill="#131313">2</text>
+      <text x="58" y="40" font-size="16" font-weight="600" fill="#eceff4">Get DigLibrary</text>
+      <text x="22" y="74" font-size="13" fill="#9aa3b2">Download the ZIP, unpack it,</text>
+      <text x="22" y="95" font-size="13" fill="#9aa3b2">and let Python install what</text>
+      <text x="22" y="116" font-size="13" fill="#9aa3b2">is inside it.</text>
+      <text x="22" y="138" font-size="12" fill="#6f7891">~ 2 minutes</text>
+    </g>
+
+    <path d="M604 105 h28" stroke="#3a4050" stroke-width="2"/>
+    <path d="M626 99 l10 6 -10 6 z" fill="#3a4050"/>
+
+    <g transform="translate(644,30)">
+      <rect width="228" height="150" rx="12" fill="#1e2128" stroke="#2a2f39"/>
+      <circle cx="30" cy="34" r="15" fill="#F2C230"/>
+      <text x="30" y="40" text-anchor="middle" font-size="16" font-weight="700" fill="#131313">3</text>
+      <text x="58" y="40" font-size="16" font-weight="600" fill="#eceff4">Open it</text>
+      <text x="22" y="74" font-size="13" fill="#9aa3b2">One command opens the</text>
+      <text x="22" y="95" font-size="13" fill="#9aa3b2">window. An icon in the Dock</text>
+      <text x="22" y="116" font-size="13" fill="#9aa3b2">is optional.</text>
+      <text x="22" y="138" font-size="12" fill="#6f7891">~ 1 minute</text>
+    </g>
+  </g>
+</svg>

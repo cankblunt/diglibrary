@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to tell whether a FLAC is really lossless</title>
+<meta name="description" content="An MP3 re-encoded as FLAC has the same size, the same tags and the same container. The tell is where the spectrum stops. Here is how to read it, what each bitrate looks like, and the one thing that gets mistaken for a transcode.">
+<link rel="icon" href="brand/diglibrary-icon-1024.png">
+<meta property="og:title" content="How to tell whether a FLAC is really lossless">
+<meta property="og:description" content="The tell is where the spectrum stops — and the one thing that gets mistaken for it is an honest dark master. Measured numbers, not rules of thumb.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="./">
+      <img src="brand/diglibrary-icon-1024.png" alt="">
+      <b>DigLibrary</b>
+    </a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="verify.html">How to verify it</a>
+      <a href="https://github.com/cankblunt/diglibrary">Source</a>
+      <a class="cta" href="./#install">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<div class="wrap hero">
+  <p class="kicker">A guide — you do not need this application for it</p>
+  <h1>How to tell whether a FLAC is <em>really</em> lossless</h1>
+  <p class="lede">
+    A FLAC container says nothing about what is inside it. Take an MP3, decode it,
+    re-encode the result as FLAC, and you get a file that is <strong>the same
+    size as a real one</strong>, carries the same tags, passes every integrity
+    check, and plays. What it does not carry is the audio the MP3 threw away, and
+    that absence is visible.
+  </p>
+  <p class="lede" style="margin-top:-14px">
+    This page is how to see it, what each bitrate looks like, and — the part most
+    guides get wrong — the one honest thing that gets mistaken for a transcode.
+  </p>
+</div>
+
+<section>
+  <div class="wrap">
+    <h2>Every lossy encoder stops writing somewhere</h2>
+    <p class="sub">
+      To save space, an encoder discards the top of the spectrum first, because
+      that is where hearing is worst. Where it stops depends on the bitrate — and
+      it stops <em>completely</em>, which is what makes it readable.
+    </p>
+
+    <figure class="scope">
+      <svg viewBox="0 0 900 300" role="img" aria-label="Five spectrograms side by side. A lossless file has energy to the top of the scale. A 320 kbps MP3 stops at 20.1 kHz, 256 at 19.4, 192 at 18.6 and 128 at 16.6 — measured on white noise with LAME.">
+        <defs>
+          <linearGradient id="e" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stop-color="#ffd9a0"/><stop offset="40%" stop-color="#ffb454"/>
+            <stop offset="100%" stop-color="#8a4a15"/>
+          </linearGradient>
+        </defs>
+        <g font-family="SF Mono, Menlo, monospace" font-size="10" fill="#8b8f98">
+          <text x="4" y="44">22k</text>
+          <text x="4" y="71">20k</text>
+          <text x="4" y="85">19k</text>
+          <text x="4" y="98">18k</text>
+          <text x="4" y="125">16k</text>
+          <text x="4" y="232">0</text>
+        </g>
+        <!-- scale: 22 kHz over 200px, top of plot at y=40 -->
+        <g>
+          <!-- lossless -->
+          <g transform="translate(44 40)">
+            <rect x="-1" y="-1" width="150" height="202" fill="#08090b" stroke="#262a33"/>
+            <rect x="0" y="4" width="148" height="196" fill="url(#e)"/>
+            <text x="0" y="220" fill="#e8e6e1" font-family="SF Mono, Menlo, monospace" font-size="11">lossless</text>
+            <text x="0" y="236" fill="#8b8f98" font-family="SF Mono, Menlo, monospace" font-size="10">runs to the top</text>
+          </g>
+          <!-- 320 : 20.1 kHz -> 200 - 200*20.1/22 = 17.3 -->
+          <g transform="translate(206 40)">
+            <rect x="-1" y="-1" width="150" height="202" fill="#08090b" stroke="#262a33"/>
+            <rect x="0" y="17.3" width="148" height="182.7" fill="url(#e)"/>
+            <line x1="0" y1="17.3" x2="148" y2="17.3" stroke="#ff6b6b" stroke-width="1.5"/>
+            <text x="0" y="220" fill="#e8e6e1" font-family="SF Mono, Menlo, monospace" font-size="11">320 kbps</text>
+            <text x="0" y="236" fill="#8b8f98" font-family="SF Mono, Menlo, monospace" font-size="10">20.1 kHz</text>
+          </g>
+          <!-- 256 : 19.4 kHz -> 23.6 -->
+          <g transform="translate(368 40)">
+            <rect x="-1" y="-1" width="150" height="202" fill="#08090b" stroke="#262a33"/>
+            <rect x="0" y="23.6" width="148" height="176.4" fill="url(#e)"/>
+            <line x1="0" y1="23.6" x2="148" y2="23.6" stroke="#ff6b6b" stroke-width="1.5"/>
+            <text x="0" y="220" fill="#e8e6e1" font-family="SF Mono, Menlo, monospace" font-size="11">256 kbps</text>
+            <text x="0" y="236" fill="#8b8f98" font-family="SF Mono, Menlo, monospace" font-size="10">19.4 kHz</text>
+          </g>
+          <!-- 192 : 18.7 kHz -> 30.0 -->
+          <g transform="translate(530 40)">
+            <rect x="-1" y="-1" width="150" height="202" fill="#08090b" stroke="#262a33"/>
+            <rect x="0" y="30.0" width="148" height="170.0" fill="url(#e)"/>
+            <line x1="0" y1="30.0" x2="148" y2="30.0" stroke="#ff6b6b" stroke-width="1.5"/>
+            <text x="0" y="220" fill="#e8e6e1" font-family="SF Mono, Menlo, monospace" font-size="11">192 kbps</text>
+            <text x="0" y="236" fill="#8b8f98" font-family="SF Mono, Menlo, monospace" font-size="10">18.7 kHz</text>
+          </g>
+          <!-- 128 : 16.5 kHz -> 50.0 -->
+          <g transform="translate(692 40)">
+            <rect x="-1" y="-1" width="150" height="202" fill="#08090b" stroke="#262a33"/>
+            <rect x="0" y="50.0" width="148" height="150.0" fill="url(#e)"/>
+            <line x1="0" y1="50.0" x2="148" y2="50.0" stroke="#ff6b6b" stroke-width="1.5"/>
+            <text x="0" y="220" fill="#e8e6e1" font-family="SF Mono, Menlo, monospace" font-size="11">128 kbps</text>
+            <text x="0" y="236" fill="#8b8f98" font-family="SF Mono, Menlo, monospace" font-size="10">16.5 kHz</text>
+          </g>
+        </g>
+      </svg>
+      <figcaption>
+        <span>Frequency runs up the side. Time runs across. Colour is energy.</span>
+        <span>A file that was ever an MP3 has a ceiling, and it is flat.</span>
+      </figcaption>
+    </figure>
+
+    <p class="sub" style="margin-top:32px; margin-bottom:12px">
+      Those heights are not folklore. LAME says where its low-pass begins at
+      each rate, and a measurement agrees with it. Encode white noise — which has
+      energy at every frequency up to the 22.05 kHz limit of a CD, so an
+      encoder's ceiling is unambiguous — and read it on 250 Hz rungs: the energy
+      is still there on the rung below each of these figures, and more than
+      60 dB down two rungs above it.
+    </p>
+    <div class="figures" style="margin-bottom:14px">
+      <div class="fig"><b>none</b><span>lossless<br>still there at 21.5 kHz</span></div>
+      <div class="fig"><b>20.1</b><span>320 kbps<br>kHz</span></div>
+      <div class="fig"><b>19.4</b><span>256 kbps<br>kHz</span></div>
+      <div class="fig"><b>18.7</b><span>192 kbps<br>kHz</span></div>
+      <div class="fig"><b>16.5</b><span>128 kbps<br>kHz</span></div>
+    </div>
+    <p class="sub" style="margin-bottom:0">
+      Real music moves the exact rung — where the recording itself has nothing
+      left, the encoder has nothing to cut, so a dark master encoded at 320 walls
+      lower than this. The <em>order</em> does not move, and neither does the gap:
+      <strong>256 and 320 are about 700 Hz apart</strong>, which is nearly
+      three rungs.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>The one thing that is not a transcode, and looks like one</h2>
+    <p class="sub">
+      This is where most advice goes wrong, and where an honest record gets thrown
+      away. <strong>Plenty of genuine masters have no energy up top either.</strong>
+      A 1970s tape transfer, a dark mastering, an old recording — all of them can
+      end well below 20 kHz having never been near an encoder.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">The wrong test</span>
+        <h3>"It ends at 17 kHz, so it's fake"</h3>
+        <p>Height alone convicts real records. The music simply stops being loud up
+        there on a lot of good material, and on a tape transfer the top of the
+        spectrum is hiss, not silence.</p>
+      </div>
+      <div class="card">
+        <span class="tag">The right test</span>
+        <h3>Does it fall, or does it end?</h3>
+        <p>An encoder's ceiling is a <em>cliff</em>: energy is there, and then, within
+        a kilohertz, it is gone — down to a floor that is identical from track to
+        track. A dark master fades. Look at the shape, not the height.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Measured</span>
+        <h3>The gap is wide</h3>
+        <p>Among files that end at or below 16 kHz, a genuine master loses a few
+        decibels across that edge and a transcoded file loses several times as
+        much. Measured on real music, the two groups did not overlap: there was
+        a gap of several decibels with nothing in it.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Why it matters</span>
+        <h3>One album, twelve tracks</h3>
+        <p>A transcode's floor is nearly the same number on every track of the
+        album, within a few decibels. That is not music. Music does not agree
+        with itself to the decibel.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>The edge of what a picture can prove</h2>
+    <p class="sub">
+      Everything above is what a spectrum can tell you, and a spectrum has an
+      edge. Knowing where it lies is the difference between reading a
+      spectrogram and trusting one — and it is also why this application does
+      not stop at the picture: <a class="inline" href="#framing">the measurement
+      in the next section</a> reaches the files this one cannot.
+    </p>
+
+    <div class="promise">
+      <p><strong>320 is visible, but it shares a neighbourhood with honest CDs.</strong>
+      It walls at about 20.1 kHz, and lossless audio is still going at 21.5 — so
+      the loss is real and it is on the picture. The difficulty is not resolution:
+      it is that <em>a genuine CD master can also end near 20 kHz</em>. Up there the
+      two populations overlap, so a ceiling is evidence of something rather than
+      proof of anything, and you need the shape of the fall to say more.</p>
+      <p><strong>A ceiling rule cannot convict above 19 kHz without condemning
+      genuine records.</strong> Real
+      converters put their own wall up there: on hand-vouched honest masters,
+      the anti-aliasing filter floors between 19.5 and 21 kHz, having never
+      been near an encoder. And the same line that spares them spares every
+      encoder that stops beyond it — a 320 walls at 20.1 kHz and clears this
+      ceiling, and a 256, walling at 19.4, clears it too. <strong>Both are
+      caught here anyway, nearly always, by the measurement in the next
+      section</strong>; what no ceiling can do is catch them <em>by where they
+      end</em>.</p>
+      <p><strong>That is not caution where more effort would do.</strong> It
+      was tested the only way it can be: by filtering known-lossless masters at
+      20 kHz — an honest converter's own anti-aliasing curve — and asking where
+      each file's floor begins. On the paired benchmark every filtered master
+      floors at 20 kHz, and so does every 256 and every 320. A line raised far
+      enough to take in those transcodes takes in the honest masters with
+      them, <em>at the same rate</em>. By where they end, the two are not
+      close. They are the same shape.</p>
+      <p><strong>So a ceiling has to choose which way to be wrong, and this
+      one chooses deliberately.</strong> A tool that calls your genuine record a
+      fake has done you more harm than one that stays quiet — and against
+      known-lossless audio this rule convicts none of it. Anyone claiming to
+      catch a 320 <em>from the spectrum alone</em> is guessing; there are also
+      encoders that apply no low-pass at all, and no ceiling of any height
+      finds those. That is the honest limit of the picture, and it is where
+      this application stops looking at pictures and starts looking at
+      something else.</p>
+      <p><strong>256 and 320 <em>are</em> distinguishable, by about 700 Hz.</strong>
+      The application's own measuring grid is coarse — it asks at 19 and at
+      20 kHz and nothing in between — and that is a fact about the ruler, not
+      about encoders. Measured on 250 Hz rungs they separate cleanly.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 id="framing">What catches the ones the picture cannot</h2>
+    <p class="sub">
+      A spectrum reads <em>where the audio ends</em>. This application asks a
+      second question that no spectrogram can answer, and it is the one that
+      catches a 320 laundered into FLAC — the file every ceiling-based test in
+      circulation lets walk: <strong>where was the audio cut into frames?</strong>
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">The idea</span>
+        <h3>An encoder works on a grid</h3>
+        <p>MP3 compresses in fixed blocks of 576 samples — a ruler stamped
+        invisibly onto the sound. Decoding it back into FLAC copies the audio,
+        and the ruler comes along with it.</p>
+      </div>
+      <div class="card">
+        <span class="tag">The test</span>
+        <h3>Try all 576 alignments</h3>
+        <p>Re-run the encoder's own analysis at every possible position of that
+        ruler and score each one. A file that was an MP3 has one position that
+        stands far above the rest. A file that never met an encoder has no
+        ruler, so every position scores alike.</p>
+      </div>
+      <div class="card">
+        <span class="tag">The corroboration</span>
+        <h3>Six readings, one answer</h3>
+        <p>Each file is read six ways — two channel views by three
+        thresholds. On a transcode the six nearly always name the same
+        alignment out of 576. On honest audio they scatter, and no more than
+        two ever agree. It is six witnesses who did not confer pointing at the
+        same suspect.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Measured</span>
+        <h3>No overlap at all</h3>
+        <p>Over the paired benchmark, honest files peak low and never get more
+        than two readings to agree. Every laundered file from 128 to 320 peaks
+        well above the highest honest one, and nearly all of them agree six
+        times of six — <strong>including the 320 encoded with no
+        low-pass</strong>, which no spectral rule reaches at any threshold.</p>
+      </div>
+    </div>
+
+    <div class="promise" style="margin-top:22px">
+      <p><strong>This is what the application runs, and it is why the section
+      above is not the last word.</strong> The two questions are asked of every
+      lossless file: where the audio ends, and where it was framed. The first
+      spares an honest dark master and lets a 320 walk. The second does not
+      care where the audio ends — so the 320 that walks past the ceiling, and
+      the one with no ceiling at all, are caught by their framing instead. A
+      file is called a transcode when one alignment out of 576 stands eight
+      deviations above the rest <em>and</em> at least four of the six readings
+      agree on it. Four, and not six, because the finest reading sometimes
+      lands elsewhere on a file that is a transcode all the same, and no honest
+      file measured reached three. It is not perfect: on the benchmark a rare
+      320 gets only three readings to agree, and goes free.</p>
+      <p><strong>What it does not reach, said out loud.</strong> The grid is a
+      trace in the samples, so what moves the samples off it erases it: a
+      resample, a change of pitch, and so a DJ edit rendered out of a session
+      at another rate. Measured on a handful of laundered 320s: a tempo change
+      took the trace from some and left it on others; a heavy EQ wore it down
+      to the edge of the line without erasing it; a change of gain, or of
+      container — WAV, AIFF and FLAC alike — did not touch it. When the trace
+      is gone this measurement stays silent rather than guessing, and the
+      spectral rules above are what remains. It is also, today, an
+      <em>MP3</em> grid: audio that came from AAC or Opus is framed on a
+      different one, and reading those is not built yet.</p>
+      <p><strong>Nothing about this is guesswork you have to take on
+      trust.</strong> The analysis chain is the one in the MPEG-1 standard, its
+      window table ships with the application and names its source, and the
+      recipe of the paired benchmark is in the repository, to be rebuilt from
+      your own files.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>How to actually check yours</h2>
+    <p class="sub">Two ways, and the first one is free and is not this project.</p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">By eye, one file at a time</span>
+        <h3>Spek, or any spectrogram</h3>
+        <p><a class="inline" href="https://www.spek.cc/">Spek</a> is free, open
+        source, and draws exactly the picture at the top of this page. Open a track,
+        look at the top of the image: a flat line with black above it is a
+        transcode. This is the right tool when you have one album to settle.</p>
+        <p>Reading it is the skill this page is about — and now you have it.</p>
+      </div>
+      <div class="card">
+        <span class="tag">By the library</span>
+        <h3>DigLibrary</h3>
+        <p>Spek answers one album. DigLibrary answers <strong>the shelf</strong>:
+        the same measurement over every track you own, with the cliff test applied
+        so dark masters are not condemned, and it says where it could not tell
+        rather than guessing.</p>
+        <p>But the check is a side effect of what it is actually for — working out
+        what every album is against MusicBrainz and Discogs, and renaming, tagging
+        and filing the whole library to your standard in one plan you approve and
+        can undo. The quality verdict simply rides along in the name.</p>
+      </div>
+    </div>
+
+    <ol class="lines" style="margin-top:34px">
+      <li><code>brew install python ffmpeg pipx &amp;&amp; pipx ensurepath</code></li>
+      <li><code>pipx install diglibrary</code></li>
+      <li><code>diglibrary</code></li>
+    </ol>
+    <p style="color:var(--muted); font-size:16px; margin:0">
+      macOS 12 or later, free and open source.
+      <a class="inline" href="./">What else it does →</a>
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <a href="./">Home</a>
+      <a href="verify.html">How to verify this project</a>
+      <a href="https://github.com/cankblunt/diglibrary">GitHub</a>
+      <a href="https://pypi.org/project/diglibrary/">PyPI</a>
+    </div>
+    <p style="margin:0; max-width:72ch">
+      Every number on this page was measured rather than repeated, and the
+      recipe of the benchmark behind the ones about transcodes is in the
+      repository, under <code>benchmark/</code>. MIT licensed.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

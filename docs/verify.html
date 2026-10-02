@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DigLibrary — built with AI, and here is how to check it</title>
+<meta name="description" content="DigLibrary organizes music libraries and is written with heavy AI assistance under a person's direction. Here is how to verify the claims on this site yourself, on your own machine.">
+<link rel="icon" href="brand/diglibrary-icon-1024.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="./">
+      <img src="brand/diglibrary-icon-1024.png" alt="">
+      <b>DigLibrary</b>
+    </a>
+    <nav>
+      <a href="./">Home</a>
+      <a href="lossless.html">Is my FLAC real?</a>
+      <a href="https://github.com/cankblunt/diglibrary">Source</a>
+      <a class="cta" href="./#install">Install</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<div class="wrap hero">
+  <p class="kicker">Provenance</p>
+  <h1>Built with AI. <em>Check it.</em></h1>
+  <p class="lede">
+    DigLibrary is written with heavy AI assistance. That is said here, at the top,
+    because you would rather know it from the project than work it out later — and
+    because the interesting part is not the admission, it is
+    <strong>how much of this you can verify without taking anybody's word.</strong>
+  </p>
+</div>
+
+<section>
+  <div class="wrap">
+    <h2>Who decides what</h2>
+    <p class="sub">
+      The division of labour is the reason there is anything to check.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">A person</span>
+        <h3>Decides</h3>
+        <p>Every product and architecture decision is made by a person, before the
+        thing is built, and a rule is judged against real music libraries rather
+        than against a fixture written to agree with it.</p>
+      </div>
+      <div class="card">
+        <span class="tag">The AI</span>
+        <h3>Writes, measures, and reports</h3>
+        <p>It writes the code and the tests and measures what a change does. What it
+        is not allowed to do is decide, or claim something it did not measure.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Both</span>
+        <h3>Audit, before each release</h3>
+        <p>A release is preceded by an audit of the code and by a script that checks
+        what a machine can check: that the changelog accounts for every change, that
+        every link names this version, and that the package holds what it should.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Four claims, and the command that settles each</h2>
+    <p class="sub">
+      Nothing below asks you to believe anything. Clone the repository and run them.
+    </p>
+
+    <ol class="lines" style="counter-reset:step">
+      <li><code>git clone https://github.com/cankblunt/diglibrary &amp;&amp; cd diglibrary</code></li>
+      <li><code>python3 -m venv .venv &amp;&amp; .venv/bin/pip install -e ".[dev]"</code></li>
+      <li><code>.venv/bin/python -m pytest -q          # 1,997 tests, offline</code></li>
+      <li><code>grep -rniE "telemetry|analytics" src/diglibrary/   # what it sends, which is nothing</code></li>
+    </ol>
+
+    <div class="cards" style="margin-top:34px">
+      <div class="card">
+        <span class="tag">Claim</span>
+        <h3>"The tests are real"</h3>
+        <p>They run with no network and no clock of their own — transports, sleeps and
+        clocks are injected. Unplug your network and run the suite; it passes.</p>
+        <p>They also read the window's own HTML, CSS and JavaScript for the ways
+        those files can disagree without any of them raising an error.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Claim</span>
+        <h3>"Nothing is counted about you"</h3>
+        <p>There is no telemetry, no analytics and no update ping to switch off,
+        because none is present. The only hosts the application reaches are the
+        music catalogues, and the clients that reach them are a short list of files
+        under <code>src/diglibrary/metadata/</code>. If you use Find music, it also
+        reaches the slskd you run yourself, and that client is under
+        <code>src/diglibrary/connectors/slskd/</code>.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Claim</span>
+        <h3>"The quality verdicts are measured"</h3>
+        <p><code>benchmark/</code> holds the recipe for a paired benchmark — the same
+        excerpt untouched, filtered, and passed through an encoder at five settings —
+        and the script that scores the shipped rule on it, misses included. Build
+        it from lossless files of your own and read the table.</p>
+      </div>
+      <div class="card">
+        <span class="tag">Claim</span>
+        <h3>"The package is what the repository says"</h3>
+        <p>Releases are published from a tagged commit by a workflow that holds no
+        key at all — the index verifies a short-lived signed identity instead. Every
+        file on PyPI carries an attestation you can fetch and check.</p>
+        <p>The upload is manual and gated on a human approval, on purpose: a version
+        number can never be reused.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>What it is honest about</h2>
+    <p class="sub">
+      A project that only publishes its wins is a project you cannot calibrate.
+    </p>
+
+    <div class="promise">
+      <p><strong>It has been exercised on few machines and few libraries.</strong> The
+      test suite proves the code agrees with itself; it does not prove that your
+      library behaves like the ones it was measured on. That is why nothing is
+      written before you approve a plan, and why every write can be reverted.</p>
+      <p><strong>A 320 kbps transcode passes the spectral rule.</strong> The benchmark
+      says so in its own page. The frame-grid measurement reaches nearly every
+      such file; AAC and Opus sources are not detected by it.</p>
+      <p><strong>It is Beta, and says so in its own metadata.</strong> Windows and Linux are
+      intended, with no date; installing on either succeeds and the application then
+      refuses to open and explains why.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Why this is the argument</h2>
+    <p class="sub" style="max-width:66ch">
+      The fair objection to AI-written software is not that a machine typed it. It is
+      that nobody can tell whether anyone understood it, whether it was checked, or
+      what will happen the first time it meets a case its author never considered.
+    </p>
+    <p style="max-width:66ch; margin:0 0 26px">
+      Those are answerable questions: a suite that runs offline on your machine in
+      about a minute, architecture boundaries asserted by tests rather than promised
+      in a readme, a benchmark you can rebuild, and a plan you read before anything
+      is written.
+    </p>
+    <p style="max-width:66ch; margin:0">
+      Judge it on that. If any of it does not hold up,
+      <a class="inline" href="https://github.com/cankblunt/diglibrary/issues">open an issue</a>
+      — a reproducible defect is the most useful thing anybody can send this project.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <a href="./">Home</a>
+      <a href="https://github.com/cankblunt/diglibrary">GitHub</a>
+      <a href="https://pypi.org/project/diglibrary/">PyPI</a>
+      <a href="https://github.com/cankblunt/diglibrary/issues">Issues</a>
+    </div>
+    <p style="margin:0; max-width:70ch">
+      MIT licensed. The figure on this page is counted by the command above, not
+      by hand.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

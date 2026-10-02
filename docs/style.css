@@ -1,0 +1,272 @@
+/* DigLibrary's pages wear the application's own palette. One stylesheet,
+   because a rule kept in two copies is corrected in one of them. */
+
+:root {
+  /* The application's own palette. A page that does not look like the window
+     it is advertising is a page describing something else. */
+  --bg: #0e0f12;
+  --panel: #16181d;
+  --raised: #1c1f26;
+  --line: #262a33;
+  --text: #e8e6e1;
+  --muted: #8b8f98;
+  --accent: #ffb454;
+  --accent-ink: #241a05;
+  --good: #8aa88c;
+  --bad: #ff6b6b;
+  --grain: 0.035;
+
+  --display: "Avenir Next Condensed", "Haettenschweiler", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --body: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", monospace;
+
+  /* The masthead is sticky, so it covers the top of whatever an anchor lands
+     on. Measured at 375 and 1280 px wide: 30 px logo + 28 px padding + 1 px
+     border, and it does not change with the viewport. Declared here because
+     `scroll-margin-top` below has to agree with it — the two are one number. */
+  --header-h: 69px;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f6f2e9;
+    --panel: #efe9dc;
+    --raised: #e7e0d0;
+    --line: #d6cdb9;
+    --text: #1b1a17;
+    --muted: #6d6659;
+    --accent: #b96f00;
+    --accent-ink: #fff6e6;
+    --good: #4a6b4f;
+    --bad: #b4322f;
+    --grain: 0.05;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+/* Every anchor target clears the sticky masthead. Without this, `#install`
+   lands with its first line — the one that installs pipx — behind the header,
+   and the page appears to begin at step 2. The three pages all point their
+   Install button at this one target. */
+[id] { scroll-margin-top: calc(var(--header-h) + 15px); }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 18px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+/* Grain, so the page has a surface rather than a flat fill. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>");
+}
+
+.wrap { width: min(1080px, 92vw); margin: 0 auto; }
+
+/* ---------- masthead ---------- */
+header.top {
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+.top .wrap { display: flex; align-items: center; gap: 18px; padding: 14px 0; }
+.mark { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
+.mark img { width: 30px; height: 30px; border-radius: 7px; display: block; }
+.mark b {
+  font-family: var(--display);
+  font-size: 25px; font-weight: 600; letter-spacing: 0.02em;
+}
+.top nav { margin-left: auto; display: flex; gap: 22px; align-items: center; }
+.top nav a {
+  color: var(--muted); text-decoration: none;
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.top nav a:hover { color: var(--text); }
+.top nav a.cta {
+  color: var(--accent-ink); background: var(--accent);
+  padding: 7px 14px; border-radius: 999px;
+}
+.top nav a.cta:hover { color: var(--accent-ink); filter: brightness(1.08); }
+
+/* ---------- hero ---------- */
+.hero { padding: 70px 0 40px; position: relative; }
+.kicker {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--accent); margin: 0 0 22px;
+}
+h1 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(52px, 9.5vw, 118px);
+  line-height: 0.92;
+  letter-spacing: -0.005em;
+  margin: 0 0 26px;
+  max-width: 15ch;
+  text-wrap: balance;
+}
+h1 em { font-style: normal; color: var(--accent); }
+.lede { font-size: clamp(19px, 2.2vw, 23px); max-width: 60ch; margin: 0 0 34px; color: var(--text); }
+.lede strong { font-weight: 600; }
+
+/* the spectrogram: the product's own mechanism, drawn */
+.scope {
+  margin: 44px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.scope figcaption {
+  display: flex; flex-wrap: wrap; gap: 6px 18px;
+  padding: 13px 18px; border-top: 1px solid var(--line);
+  font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+}
+.scope figcaption b { color: var(--text); font-weight: 500; }
+.scope svg { display: block; width: 100%; height: auto; }
+
+/* ---------- install ---------- */
+.install { padding: 20px 0 70px; }
+.lines {
+  display: grid; gap: 10px; margin: 0 0 16px; padding: 0; list-style: none;
+  counter-reset: step;
+}
+.lines li {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 13px 16px;
+  font-family: var(--mono); font-size: 14px;
+  overflow-x: auto;
+}
+.lines li::before {
+  counter-increment: step; content: counter(step);
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--raised); color: var(--muted);
+  display: grid; place-items: center; font-size: 11px;
+}
+.lines code { white-space: pre; }
+.lines .out { color: var(--muted); }
+
+/* ---------- sections ---------- */
+section { padding: 66px 0; border-top: 1px solid var(--line); }
+h2 {
+  font-family: var(--display); font-weight: 600;
+  font-size: clamp(32px, 4.6vw, 52px); line-height: 1.02;
+  letter-spacing: 0.005em; margin: 0 0 10px; max-width: 20ch;
+}
+.sub { color: var(--muted); max-width: 62ch; margin: 0 0 40px; }
+
+.cards { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 24px;
+}
+.card h3 {
+  font-family: var(--display); font-weight: 600; font-size: 25px;
+  margin: 0 0 8px; letter-spacing: 0.01em;
+}
+.card p { margin: 0; color: var(--muted); font-size: 16.5px; }
+.card p + p { margin-top: 12px; }
+.card .tag {
+  display: inline-block; font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 12px;
+}
+
+.shots { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+figure.shot { margin: 0; }
+figure.shot img {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--line); border-radius: 12px;
+}
+figure.shot figcaption {
+  font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+  margin-top: 11px;
+}
+
+/* The recording of the install is a `shot` like the two screenshots — same
+   frame, same caption — and differs only in where it sits and how wide it may
+   grow. Written after them because both selectors weigh the same, so the later
+   one is what decides. Capped at the picture's own 836px: a drawn terminal
+   blown up on a wide screen is a 5x7 font blown up with it, and
+   `image-rendering` is left alone so the browser keeps smoothing it down. */
+figure.typing { margin: 0 0 16px; max-width: 836px; }
+
+/* ---------- the promise ---------- */
+.promise {
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px; padding: 26px 28px; margin-top: 30px;
+}
+.promise p { margin: 0; font-size: 19px; }
+.promise p + p { margin-top: 14px; color: var(--muted); font-size: 16.5px; }
+
+/* ---------- evidence ---------- */
+.figures { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0 0 34px; }
+.fig { border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: var(--panel); }
+.fig b {
+  display: block; font-family: var(--display); font-weight: 600;
+  font-size: 42px; line-height: 1; letter-spacing: 0.01em; color: var(--accent);
+}
+.fig span { display: block; margin-top: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+
+/* ---------- footer ---------- */
+footer { border-top: 1px solid var(--line); padding: 44px 0 70px; color: var(--muted); font-size: 15.5px; }
+footer a { color: var(--text); }
+footer .row { display: flex; flex-wrap: wrap; gap: 12px 26px; margin-bottom: 20px; font-family: var(--mono); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.07em; }
+footer .row a { color: var(--muted); text-decoration: none; }
+footer .row a:hover { color: var(--text); }
+
+a.inline { color: var(--accent); text-underline-offset: 3px; }
+
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  .hero { padding: 46px 0 26px; }
+  .top nav a:not(.cta) { display: none; }
+}
+
+/* ---------- the plan: the product's actual moment ---------- */
+/* Two listings side by side, because the thing DigLibrary does that nothing
+   else does is show you the whole batch before it touches any of it. */
+.plan {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0 20px;
+  align-items: center;
+  padding: 24px 22px;
+}
+.plan-side { min-width: 0; }
+.plan-head {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 14px;
+}
+.plan-side ul { list-style: none; margin: 0; padding: 0; }
+.plan-side li {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plan-gap { margin-top: 14px; }
+.plan-dim { opacity: 0.45; }
+.plan-new { color: var(--text); }
+.plan-warn { color: var(--accent); }
+.plan-arrow {
+  font-family: var(--mono); font-size: 22px; color: var(--accent);
+  align-self: center;
+}
+@media (max-width: 720px) {
+  .plan { grid-template-columns: 1fr; gap: 22px; }
+  .plan-arrow { transform: rotate(90deg); justify-self: start; }
+}

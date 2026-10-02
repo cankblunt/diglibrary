@@ -1,0 +1,114 @@
+# DigLibrary's settings. Written here the first time the application runs,
+# and yours to edit afterwards — nothing rewrites it.
+#
+# Every relative path below is resolved against this file, so the database,
+# the logs, the caches and the backups all live in this folder.
+#
+# Credentials are NOT here and never will be: they are read from the
+# environment, and from ~/.diglibrary/env at every launch, however you started
+# DigLibrary — from your Applications folder, from Launchpad, from the Dock,
+# from a terminal. A name your own shell exports wins. See the README.
+
+[database]
+path = "diglibrary.sqlite3"
+# A compressed copy of the database is taken as the window opens, whenever the
+# database has changed since the last one. Oldest copies are discarded to stay
+# under the ceiling in Settings — never the newest, whatever the ceiling says.
+# This is not the `backup` folder below: that one holds the images a write
+# replaced, which is what a revert puts back.
+copies_directory = "database-copies"
+
+[logging]
+level = "INFO"
+directory = "logs"
+filename = "diglibrary.jsonl"
+
+[providers]
+# Acquisition providers, by identifier. The list is open: any identifier a
+# registered provider declares is valid. This project ships only the
+# slskd-backed Soulseek provider, which needs the connector below switched on
+# and a running slskd to reach.
+enabled = ["soulseek"]
+priority = ["soulseek"]
+
+[providers.settings]
+
+[metadata]
+cache_directory = "cache/metadata"
+cache_ttl_seconds = 86400
+request_timeout_seconds = 10.0
+max_attempts = 3
+backoff_seconds = 0.5
+
+[metadata.discogs]
+token_environment_variable = "DIGLIBRARY_DISCOGS_TOKEN"
+requests_per_minute = 60
+
+[metadata.musicbrainz]
+contact_environment_variable = "DIGLIBRARY_MUSICBRAINZ_CONTACT"
+access_token_environment_variable = "DIGLIBRARY_MUSICBRAINZ_ACCESS_TOKEN"
+requests_per_second = 1.0
+
+[naming]
+# A shipped arrangement, by name. Available:
+#   spotiflac        Artist - Album Ed. 2006 (1974) [FLAC]
+#   bracketed_year   Artist - Album [1974]
+#   year_first       (1974) Artist - Album [FLAC]
+#   year_only        Artist - Album (1974)
+#   year_and_format  Artist - Album (1974) [FLAC]
+#   minimal          Artist - Album
+style = "spotiflac"
+# The word appended to a format the audio proved was a transcode:
+# `[FLAC Fake]`. It lands in your own folder names, so it is yours to word.
+transcoded_label = "Lossy"
+# Name *every* pressing whose year differs from the album's own. Off, because
+# which pressing a catalogue publishes durations for is not which pressing you
+# hold: the year would be an invented claim on your folder name. Left off, a
+# marker still appears where it is earned — an edition whose content differs
+# (Deluxe, bonus tracks), or a name already taken by another album.
+include_edition = false
+# Any of these overrides the chosen style. Placeholders:
+#   folder: %albumartist% %album% %year% %edition% %format%
+#   track:  %disc% %track% %artist% %title% %album% %albumartist% %year%
+# A segment in braces disappears whole when a placeholder inside it is empty.
+# %format% is FLAC, WAV, AIFF, ALAC, M4A, or MP3 followed by its bitrate.
+# folder_template = "%albumartist% - %album%{ Ed. %edition%}{ (%year%)}{ [%format%]}"
+# track_template = "{%disc%-}%track%. {%artist% - }%title%"
+# disc_folder_template = "CD%disc%"
+# various_artists_label = "VA"
+# front_image_name = "cover"
+# back_image_name = "back"
+
+[artwork]
+# Cover art from the Cover Art Archive. All images there are copyrighted by
+# their respective rights holders and provided for archival purposes, to be
+# used at your own risk.
+enabled = true
+include_back_cover = true
+# The archive renders 250, 500 and 1200 pixel thumbnails; a larger request is
+# served by the original scan.
+file_pixels = 1200
+embed_pixels = 500
+parallel_downloads = 4
+# Use the album's representative art when the matched pressing has none.
+release_group_fallback = true
+staging_directory = "cache/artwork"
+# Replaced images are moved here, never deleted.
+backup_directory = "backup"
+
+[connectors.slskd]
+# The Soulseek provider reaches the network through this. It needs a running
+# slskd and an API key with the `readwrite` role — `readonly` searches but
+# cannot queue a download.
+enabled = true
+base_url = "http://127.0.0.1:5030"
+timeout = 30.0
+retry_limit = 3
+authentication_mode = "api_key"
+api_key_environment_variable = "DIGLIBRARY_SLSKD_API_KEY"
+api_base_path = "/api/v0"
+response_limit = 100
+# Peers answer a Soulseek search one at a time over seconds. These say how long
+# to let the answers gather, and how often to ask whether they stopped.
+search_settle = 90.0
+search_poll = 1.0

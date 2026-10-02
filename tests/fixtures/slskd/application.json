@@ -1,0 +1,85 @@
+{
+  "version": {
+    "full": "0.26.0.0 (0.26.0.0+e42a525d)",
+    "current": "0.26.0.0",
+    "latest": "0.26.0.0",
+    "isUpdateAvailable": false,
+    "isCanary": false,
+    "isDevelopment": false
+  },
+  "pendingReconnect": false,
+  "pendingRestart": false,
+  "server": {
+    "address": "vps.slsknet.org",
+    "ipEndPoint": "208.76.170.59:2271",
+    "state": "Connected, LoggedIn",
+    "isConnected": true,
+    "isConnecting": false,
+    "isLoggedIn": true,
+    "isLoggingIn": false,
+    "isTransitioning": false
+  },
+  "connectionWatchdog": {
+    "isEnabled": false,
+    "isAttemptingConnection": false,
+    "isAwaitingVpn": false
+  },
+  "vpn": {
+    "isReady": false,
+    "isConnected": false
+  },
+  "relay": {
+    "mode": "Controller",
+    "controller": {
+      "state": "Disconnected"
+    },
+    "agents": []
+  },
+  "health": {
+    "search": {
+      "incoming": {
+        "latency": 1.4761485095295985,
+        "queueDepth": 0,
+        "dropRate": 0
+      }
+    }
+  },
+  "user": {
+    "username": "peer-1",
+    "privileges": {
+      "isPrivileged": false,
+      "privilegesRemaining": 0
+    },
+    "statistics": {
+      "averageSpeed": 0,
+      "directoryCount": 0,
+      "fileCount": 0,
+      "uploadCount": 0
+    }
+  },
+  "distributedNetwork": {
+    "branchLevel": 5,
+    "branchRoot": "peer-2",
+    "canAcceptChildren": true,
+    "childLimit": 25,
+    "children": [],
+    "hasParent": true,
+    "isBranchRoot": false,
+    "parent": "peer-3"
+  },
+  "shares": {
+    "scanPending": false,
+    "scanning": false,
+    "ready": true,
+    "faulted": false,
+    "cancelled": false,
+    "scanProgress": 1,
+    "hosts": [
+      "local"
+    ],
+    "directories": 0,
+    "files": 0
+  },
+  "rooms": [],
+  "users": []
+}
