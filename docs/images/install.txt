@@ -1,0 +1,24 @@
+This is what docs/images/install.gif shows, written by the same run of
+tools/record_install.py. The picture is pixels and no test can read one;
+this is what a test reads. Do not edit it by hand — record it again.
+
+The install took 3.6 seconds, and the picture plays at that speed.
+
+Presented rather than recorded, and nothing else is:
+  - the prompt reads ~, while the run used a throwaway PIPX_HOME;
+  - pipx's note that the throwaway bin is not on PATH is dropped;
+  - the two emoji are drawn as a sparkle, because a 5x7 font has none.
+
+--- the screen ---
+~ % pipx install diglibrary
+creating virtual environment...
+creating shared libraries...
+upgrading shared libraries...
+WARNING: Skipping setuptools as it is not installed.
+installing diglibrary...
+done! ✨ 🌟 ✨
+  installed package diglibrary 1.7.0, installed using Python 3.14.6
+  These apps are now available
+    - diglibrary
+~ % diglibrary
+

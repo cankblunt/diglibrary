@@ -79,6 +79,7 @@ REVIEWED_BINARIES: dict[str, str] = {
     "docs/brand/diglibrary-icon-1024.png": "ed33c283184fe5a8c70b6c1aab191122c0524bd53fdaad9e324bdc63d2ebe8ec",  # noqa: E501
     "docs/brand/diglibrary-lockup.png": "0d40f89cb9c49f9a12bf424183e1d3c200251c1d4ba4544745bb18554153d947",  # noqa: E501
     "docs/brand/diglibrary-stacked-1024.png": "96f693ecfe88812c624f1f31b23eba3d6b75ccdfa0605e9c3141748b84c0354b",  # noqa: E501
+    "docs/images/install.gif": "760e6881a264c50e188f30ae42277948ec854e2e5718cd07e4719473517019f6",
     "docs/images/screen-library.png": "9520f9dd709acd44cde9b5c2fb6e60d989059edaea4da3029ac3899344b5ff6c",  # noqa: E501
     "docs/images/screen-mixing.png": "8dd49cfb6240baa0481fcee53be25393398bf8296a6999e273c4d6fe9603a3f7",  # noqa: E501
     "src/diglibrary/desktop/DigLibrary.icns": "ff6053bf880589a9242de81fada1877e697b1fcede34d8170891ba802513394e",  # noqa: E501

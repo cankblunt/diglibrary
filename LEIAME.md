@@ -136,6 +136,11 @@ sabendo disso. Depois, para abrir o aplicativo, digite:
 diglibrary
 ```
 
+É isso que o segundo comando mostra no Terminal — uma instalação de verdade,
+feita a partir do índice de pacotes, na velocidade que ela levou:
+
+![A instalação, digitando sozinha](docs/images/install.gif)
+
 **Deixe essa janela do Terminal aberta enquanto usa o aplicativo nesta primeira
 vez** — ele está rodando dentro dela, então fechar a janela fecha o aplicativo.
 Isso dura exatamente uma sessão: a caixa da próxima tela é o que acaba com isso.
