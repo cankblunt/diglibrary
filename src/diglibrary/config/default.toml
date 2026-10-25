@@ -71,7 +71,7 @@ include_edition = false
 #   folder: %albumartist% %album% %year% %edition% %format%
 #   track:  %disc% %track% %artist% %title% %album% %albumartist% %year%
 # A segment in braces disappears whole when a placeholder inside it is empty.
-# %format% is FLAC, WAV, AIFF, ALAC, M4A, or MP3 followed by its bitrate.
+# %format% is FLAC, WAV, AIFF or ALAC, or a lossy codec followed by its bitrate (MP3 320).
 # folder_template = "%albumartist% - %album%{ Ed. %edition%}{ (%year%)}{ [%format%]}"
 # track_template = "{%disc%-}%track%. {%artist% - }%title%"
 # disc_folder_template = "CD%disc%"

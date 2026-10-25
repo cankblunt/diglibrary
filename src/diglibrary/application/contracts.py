@@ -195,12 +195,33 @@ class ReleaseMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class AlbumBehindPressings:
+    """What a catalogue says about the album its pressings are pressings of.
+
+    Discogs calls it a master. It is the work rather than any copy of it: it
+    carries the year the album first came out, and names the one pressing the
+    catalogue takes for the principal edition.
+    """
+
+    source: MetadataSourceId
+    group_id: str
+    title: str
+    artists: tuple[ArtistMetadata, ...] = ()
+    first_released: int | None = None
+    main_release_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MetadataQuery:
     """Provider-independent criteria for release metadata discovery.
 
     ``text`` is a free-text query used when the structured fields found nothing:
     each client maps it onto its own general-search parameter, unconstrained by
     field, which is the widest net a catalogue offers.
+
+    ``label`` and ``catalog_number`` name one pressing on its sleeve, and are
+    asked only by the physical collection: a folder of audio has no sleeve to
+    read them from.
     """
 
     artist: str | None = None
@@ -208,6 +229,8 @@ class MetadataQuery:
     track: str | None = None
     barcode: str | None = None
     text: str | None = None
+    label: str | None = None
+    catalog_number: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

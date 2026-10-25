@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
-from diglibrary.application.contracts import ReleaseMetadata, written_credit
+from diglibrary.application.contracts import MetadataSources, ReleaseMetadata, written_credit
 from diglibrary.library.artwork import (
     Artwork,
     ArtworkStore,
@@ -37,7 +37,12 @@ from diglibrary.library.spelling import (
     preserve_existing_spelling,
     resolve_spelling,
 )
-from diglibrary.library.tags import TagStore, as_the_container_writes, desired_tags
+from diglibrary.library.tags import (
+    CATALOGUE_FIELDS,
+    TagStore,
+    as_the_container_writes,
+    desired_tags,
+)
 from diglibrary.metadata.normalization import fold_accents
 
 
@@ -269,6 +274,8 @@ class ChangePlanner:
             tags = preserve_existing_spelling(
                 current, tags, settled=frozenset({"genre"}), cased=NAMED_TAGS
             )
+            if str(release.source) == str(MetadataSources.TAGS):
+                tags = _keeping_what_the_file_says(current, tags)
             # Compared in the form writing to THIS file produces: an ID3 file
             # reads `tracknumber` back as `7/11`, and comparing it against the
             # pre-fold `7` makes every already-correct MP3 album plan a rewrite
@@ -1110,6 +1117,26 @@ _PARENTHETICAL = re.compile(r"\(([^()]+)\)")
 """One bracketed aside in a name: `(feat. Some Artist)`, `(Somebody remix)`."""
 
 
+def _keeping_what_the_file_says(
+    current: dict[str, tuple[str, ...]], tags: dict[str, tuple[str, ...]]
+) -> dict[str, tuple[str, ...]]:
+    """Keep each catalogue field the file holds and a release read from its tags does not.
+
+    A write replaces every field it manages and removes the ones it is not
+    given, which is right for a catalogue's answer: a field the catalogue does
+    not publish is not known. A release read from the files carries only what
+    names the album — artist, title, year, numbers — so a genre, a label or an
+    ISRC the file holds would be removed for no reason but that the reading did
+    not need it. `compilation` is the exception, because this release decides
+    it.
+    """
+    kept = dict(tags)
+    for name in CATALOGUE_FIELDS:
+        if name != "compilation" and name not in kept and current.get(name):
+            kept[name] = current[name]
+    return kept
+
+
 def _with_kept_decorations(title: str, local_stem: str) -> str:
     """Keep the asides the file's own name carries and the catalogue leaves out.
 
@@ -1173,7 +1200,7 @@ def _relocated(path: Path, album_folder: Path, final_folder: Path) -> Path:
 
 def _image_state(image: StagedImage) -> dict[str, object]:
     """Describe a staged image as the JSON a change operation can carry."""
-    return {
+    state: dict[str, object] = {
         "source": str(image.path),
         "kind": str(image.kind),
         "digest": image.facts.digest,
@@ -1181,6 +1208,9 @@ def _image_state(image: StagedImage) -> dict[str, object]:
         "width": image.facts.width,
         "height": image.facts.height,
     }
+    if image.picked_by:
+        state["picked_by"] = image.picked_by
+    return state
 
 
 def _repair_state(facts: ImageFacts) -> dict[str, object]:

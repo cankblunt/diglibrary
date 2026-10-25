@@ -6,6 +6,8 @@ from enum import StrEnum
 from itertools import pairwise
 from pathlib import Path
 
+from diglibrary.library.audio import is_lossless_codec
+from diglibrary.quality.edges import FilterEdge
 from diglibrary.quality.framing import FrameGrid
 
 FLOOR_FLAT_DB = 6.0
@@ -388,6 +390,9 @@ class TrackAnalysis:
     # a pass that did not run it — and never *measured and clean*, which is why
     # the rule asks for a reading rather than for a number.
     frame_grid: FrameGrid | None = None
+    # How much of the file stops at one frequency, frame by frame, when that
+    # was measured. `None` is *not measured*, for the same reasons as above.
+    filter_edge: FilterEdge | None = None
 
     @property
     def is_lossless_container(self) -> bool:
@@ -401,10 +406,7 @@ class TrackAnalysis:
         samples, whatever their width, endianness or signedness — so that a
         flavour ffmpeg has not shipped yet still gets the right answer.
         """
-        return self.declared_codec.startswith("pcm_") or self.declared_codec in _LOSSLESS_CODECS
-
-
-_LOSSLESS_CODECS = frozenset({"flac", "alac", "wav", "aiff", "ape", "wavpack", "tta", "shorten"})
+        return is_lossless_codec(self.declared_codec)
 
 
 def _linear(decibels: float) -> float:

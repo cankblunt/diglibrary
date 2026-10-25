@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
+from diglibrary.quality.edges import FilterEdgeProbe
 from diglibrary.quality.framing import FrameGridProbe
 from diglibrary.quality.models import (
     BandEnergy,
@@ -169,6 +170,7 @@ class FfmpegQualityAnalyzer:
         frequencies: Sequence[int] = PROBE_FREQUENCIES,
         seconds: int | None = ANALYSIS_SECONDS,
         frame_grid: FrameGridProbe | None = None,
+        filter_edge: FilterEdgeProbe | None = None,
     ) -> None:
         """Create an analyzer for one set of probe frequencies.
 
@@ -181,12 +183,16 @@ class FfmpegQualityAnalyzer:
         lost nothing, and only when one is given: it decodes audio rather than
         reading ffmpeg's report, so it is the expensive half of this pass and
         the fake runners of a hundred tests know nothing about it.
+
+        ``filter_edge`` is asked of the same files for the same reason, and
+        decodes the same minute the spectral probes read.
         """
         self._runner = runner
         self._logger = logger
         self._frequencies = tuple(sorted(frequencies))
         self._seconds = seconds
         self._frame_grid = frame_grid
+        self._filter_edge = filter_edge
 
     def pass_bands(
         self, path: Path, sample_rate: int, edges: Sequence[tuple[int, int]] = BAND_EDGES
@@ -261,9 +267,13 @@ class FfmpegQualityAnalyzer:
         # per file to learn that an MP3 is an MP3. A silent stream is skipped
         # for the reason the verdict skips it: near-zero everywhere flatters
         # every alignment equally.
-        if self._frame_grid is None or not analysis.is_lossless_container or time_domain.is_silent:
+        if not analysis.is_lossless_container or time_domain.is_silent:
             return analysis
-        return replace(analysis, frame_grid=self._frame_grid.measure(path))
+        if self._frame_grid is not None:
+            analysis = replace(analysis, frame_grid=self._frame_grid.measure(path))
+        if self._filter_edge is not None:
+            analysis = replace(analysis, filter_edge=self._filter_edge.measure(path, sample_rate))
+        return analysis
 
     def _spectrum(self, path: Path, sample_rate: int) -> SpectralProfile:
         nyquist = sample_rate / 2

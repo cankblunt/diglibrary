@@ -80,12 +80,18 @@ def enforce_folder_limit(
     suffixes: Iterable[str],
     logger: logging.Logger,
     operation: str,
+    keep: frozenset[str] = frozenset(),
 ) -> int:
     """Discard the least recently used files until the folder fits, and say what is left.
 
     Ordered by modification time, which ``touch`` keeps meaning *last used*. A
     file that vanishes underneath this — two windows, or a job writing while
     this runs — is simply skipped: it is already not taking up room.
+
+    ``keep`` holds the names of files something still needs, and they are never discarded:
+    a cover staged for a plan that has not been applied is work waiting, not a
+    cache entry, however long it has waited. What they weigh still counts, so
+    the folder may stay over its ceiling while they are held.
     """
     entries = []
     for entry in _entries(directories, suffixes):
@@ -101,6 +107,8 @@ def enforce_folder_limit(
     for _, size, entry in entries:
         if held <= limit_bytes:
             break
+        if entry.name in keep:
+            continue
         try:
             entry.unlink()
         except OSError:

@@ -137,9 +137,19 @@ def test_the_release_is_written_one_way_and_the_users_words_are_not() -> None:
     assert added.tracks[1].title == "Zunto Plimba Com Vorca"
 
 
-def test_a_release_read_from_the_users_own_tags_is_their_words() -> None:
+def test_a_release_read_from_the_albums_own_tags_takes_the_same_case() -> None:
+    """Arranging by the tags normalizes to the pattern, case included.
+
+    A title the user corrected stays as typed: that is a word written for this
+    album, not one a file happened to carry.
+    """
     mine = _release(source=MetadataSources.TAGS)
-    assert normalize_release(mine) is mine
+    named = normalize_release(mine)
+    assert named.title == normalize_release(_release()).title
+    assert named.title != mine.title, "the fixture must have something to normalize"
+    assert normalize_release(mine, user_titles=frozenset({1})).tracks[0].title == (
+        mine.tracks[0].title
+    )
 
 
 def test_no_word_being_decided_is_counted_as_evidence_of_a_language() -> None:
@@ -162,3 +172,25 @@ def test_the_words_between_two_credited_names_answer_to_the_rule() -> None:
         ),
     )
     assert written_credit(normalize_release(release).artists) == "Lia e Lara Feat. Tina"
+
+
+@pytest.mark.parametrize(
+    ("typed", "written"),
+    [
+        # A second capital held down at the start is a slip of the shift key.
+        ("ZOrvelim Na Rua", "Zorvelim na Rua"),
+        # A capital beside an accented letter mid-word is a broken earlier casing.
+        ("PlimbÃO Da Serra", "Plimbão da Serra"),
+        ("InfluêNcia Do Zorvo", "Influência do Zorvo"),
+        ("ZunÍCia", "Zunícia"),
+        # A capital inside a name is deliberate, and so is a plural initialism.
+        ("McZorvo Na Rua", "McZorvo na Rua"),
+        ("ZunZun", "ZunZun"),
+        ("iZorvo", "iZorvo"),
+        ("Três LPs", "Três LPs"),
+        # Ordinary accented words are untouched.
+        ("Ação Na Praça", "Ação na Praça"),
+    ],
+)
+def test_a_capital_no_name_is_spelled_with_is_lowered(typed, written) -> None:
+    assert normalize_title(typed) == written

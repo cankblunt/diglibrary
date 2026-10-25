@@ -79,7 +79,7 @@ nenhuma.
 confiança fica intocado e vai para revisão, com o motivo. Ele nunca toca num
 banco de dados do Rekordbox.
 
-### As seis telas
+### As sete telas
 
 | | |
 |---|---|
@@ -89,6 +89,7 @@ banco de dados do Rekordbox.
 | **Quality** | A bancada: o que um arquivo é de verdade, com espectrograma e veredito. |
 | **Mixing** | Tom, andamento e a roda Camelot sobre as faixas que você mediu. |
 | **History** | Toda execução que gravou nos seus arquivos, cada uma com um `Revert`. |
+| **Collection** | Os discos da sua estante, um a um ou importados de uma lista sua: identificados por link, código de barras ou busca, com estado, lugar e categorias. Nunca com preço. |
 
 ---
 
@@ -234,7 +235,7 @@ brew install chromaprint
 Baixe o ZIP da
 [versão mais recente](https://github.com/cankblunt/diglibrary/releases/latest) e
 dê dois cliques nele. Você fica com uma pasta chamada algo como
-`diglibrary-1.7.0`, normalmente em **Downloads**. Deixe-a lá ou mova para onde
+`diglibrary-1.8.0`, normalmente em **Downloads**. Deixe-a lá ou mova para onde
 você guarda as suas coisas — só lembre onde.
 
 ### 4. Apontar o Terminal para essa pasta
@@ -244,7 +245,7 @@ janela do Terminal** — ele escreve o caminho por você — e aperte Return
 (Enter).
 
 ```bash
-cd ~/Downloads/diglibrary-1.7.0
+cd ~/Downloads/diglibrary-1.8.0
 ```
 
 ### 5. Criar um lugar para ele morar

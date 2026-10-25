@@ -106,6 +106,66 @@ def test_a_discogs_search_answer_carries_the_label_and_catalogue_number(tmp_path
     assert (second.labels, second.catalog_numbers) == ((), ())
 
 
+def test_a_discogs_search_answer_says_which_album_each_pressing_belongs_to(tmp_path) -> None:
+    """The service writes a master as a number, and zero for a pressing that has none."""
+    transport = FakeTransport(
+        [
+            _json_bytes(
+                {
+                    "results": [
+                        {"type": "release", "id": 7, "title": "A - B", "master_id": 900},
+                        {"type": "release", "id": 8, "title": "A - C", "master_id": 0},
+                        {"type": "release", "id": 9, "title": "A - D"},
+                    ]
+                }
+            )
+        ]
+    )
+    client = DiscogsClient(
+        _json_client(tmp_path, "discogs", transport),
+        EnvironmentCredentials({"TOKEN": "token"}.get),
+        "TOKEN",
+    )
+
+    found = client.search_releases(MetadataQuery(artist="A"))
+
+    assert [release.release_group_id for release in found] == ["900", None, None]
+
+
+def test_discogs_describes_the_album_behind_its_pressings(tmp_path) -> None:
+    transport = FakeTransport(
+        [
+            _json_bytes(
+                {
+                    "id": 900,
+                    "title": " Some Album ",
+                    "year": 1981,
+                    "main_release": 101,
+                    "artists": [{"name": "Some Artist (2)", "join": ""}],
+                }
+            ),
+            _json_bytes({"id": 901, "title": "Undated", "year": 0}),
+        ]
+    )
+    client = DiscogsClient(
+        _json_client(tmp_path, "discogs", transport),
+        EnvironmentCredentials({"TOKEN": "token"}.get),
+        "TOKEN",
+    )
+
+    album = client.describe_group("900")
+    undated = client.describe_group("901")
+
+    assert transport.urls[0].endswith("/masters/900")
+    assert (album.group_id, album.title, album.first_released) == ("900", "Some Album", 1981)
+    assert album.main_release_id == "101"
+    assert written_credit(album.artists) == "Some Artist"
+    assert (undated.first_released, undated.main_release_id) == (
+        None,
+        None,
+    ), "a year the catalogue writes as zero is no year"
+
+
 def test_discogs_keeps_how_the_sleeve_credited_and_joined_its_artists(tmp_path) -> None:
     """`anv` and `join` are read, not dropped.
 

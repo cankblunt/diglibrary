@@ -16,6 +16,7 @@ from diglibrary.database.library_store import LibraryStore, StoredQuality
 from diglibrary.library.audio import AudioProperties
 from diglibrary.library.models import AlbumUnit, AudioFileFacts
 from diglibrary.library.scanner import LibraryScanner
+from diglibrary.quality.edges import FilterEdge
 from diglibrary.quality.framing import FrameGrid
 from diglibrary.quality.models import (
     BandEnergy,
@@ -51,7 +52,8 @@ class FakeProbe:
 class ScriptedAnalyzer:
     """Return a chosen wall drop per file name, and count what it measured.
 
-    It produces a frame grid reading, because the real analyzer does. The
+    It produces a frame grid reading and an edge reading, because the real
+    analyzer does. The
     survey remembers a file only when its row carries everything the rules
     read, so a fake without a grid reading writes rows no survey calls
     complete, and a test asserting that a second survey decodes nothing would
@@ -74,6 +76,7 @@ class ScriptedAnalyzer:
             return None
         return TrackAnalysis(
             frame_grid=self._grid,
+            filter_edge=FilterEdge(share=0.0, hertz=None),
             path=path,
             declared_codec="flac",
             sample_rate=44_100,
@@ -1055,6 +1058,8 @@ def test_a_complete_row_is_still_remembered() -> None:
         ceiling_db=-102.4,
         frame_grid_z=101.5,
         frame_grid_agreeing=6,
+        edge_share=0.71,
+        edge_hertz=16_050,
     )
 
     assert complete.answers_the_rules_in_force

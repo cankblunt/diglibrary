@@ -138,6 +138,19 @@ class StoredQuality:
     not tell them apart afterwards.
     """
 
+    edge_share: float | None = None
+    """How much of the file stops at one frequency, frame by frame.
+
+    Recorded for the same reason as the frame grid: the probes' spectrum of a
+    file caught by its edge can read lossless, and the row is re-judged from
+    its numbers every time it is read. ``0.0`` with no ``edge_hertz`` is a
+    file measured and found to have no edge; ``None`` is a row measured
+    before the question existed.
+    """
+
+    edge_hertz: int | None = None
+    """The commonest frequency the file stops at, when it stops anywhere."""
+
     floor_hertz: int | None = None
     """Where the audio stops changing — the frequency the floor begins at.
 
@@ -194,7 +207,11 @@ class StoredQuality:
         # falls on the side that expects a reading.
         if self.encoding == "lossy":
             return True
-        return self.frame_grid_z is not None and self.frame_grid_agreeing is not None
+        return (
+            self.frame_grid_z is not None
+            and self.frame_grid_agreeing is not None
+            and self.edge_share is not None
+        )
 
     @property
     def is_this_file(self) -> bool:
@@ -529,6 +546,24 @@ class LibraryStore:
             StoredUnit(row[0], row[1], Path(row[2]), row[3], row[4], row[5]) for row in rows
         )
 
+    def streams_held(self, unit_id: int) -> int:
+        """Count the distinct audio this album's folder holds now, by audio key.
+
+        The other half of `albums_holding_all_of`: an album that holds every
+        stream of another is either the same album again or a larger one that
+        contains it — a reissue with bonus tracks, a two-in-one, a compilation —
+        and only the two counts tell those apart.
+        """
+        with self._database.connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(DISTINCT f.audio_key) FROM album_units u "
+                "JOIN audio_files f ON f.album_unit_id = u.id "
+                "WHERE u.id = ? AND f.audio_key IS NOT NULL "
+                "AND substr(f.path, 1, length(u.folder_path) + 1) = u.folder_path || '/'",
+                (unit_id,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def units_by_signature(self, unit_signature: str) -> tuple[StoredUnit, ...]:
         """Return every album row carrying this audio, oldest first.
 
@@ -607,6 +642,23 @@ class LibraryStore:
         nothing — never a different album, because the folder that fits is still
         read and kept only when its signature is this album's.
         """
+        return tuple(sorted(size for _, size in self._last_sighting(unit_id, folder)))
+
+    def paths_last_seen(self, unit_id: int, folder: Path) -> frozenset[str]:
+        """Return the files this album held the last time it was seen there.
+
+        The same sighting `audio_sizes` weighs, read as names: what a folder
+        dropped again is compared against, so that files which joined it since
+        or left it are said rather than taken in silence.
+        """
+        return frozenset(path for path, _ in self._last_sighting(unit_id, folder))
+
+    def _last_sighting(self, unit_id: int, folder: Path) -> list[tuple[str, int]]:
+        """The rows of an album's last walk under one folder, as (path, size).
+
+        One reading for both questions asked of it, so *the last sighting* means
+        the same thing whether it is weighed or listed.
+        """
         prefixes = tuple(
             str(Path(spelling)).rstrip("/") + "/" for spelling in _both_spellings(folder)
         )
@@ -618,9 +670,9 @@ class LibraryStore:
             ).fetchall()
         inside = [row for row in rows if str(Path(row[0])).startswith(prefixes)]
         if not inside:
-            return ()
+            return []
         latest = max(row[2] or "" for row in inside)
-        return tuple(sorted(int(row[1]) for row in inside if (row[2] or "") == latest))
+        return [(str(row[0]), int(row[1])) for row in inside if (row[2] or "") == latest]
 
     def record_audio_sizes(self, weighed: Mapping[Path, tuple[int, datetime]]) -> int:
         """Write down what these files weigh now, and return how many rows took it.
@@ -1115,8 +1167,9 @@ class LibraryStore:
                 "INSERT INTO track_quality "
                 "(content_signature, audio_key, encoding, effective_bitrate_kbps, cutoff_hertz, "
                 " wall_low_hertz, steepest_drop_db, findings, reason, decay_db, ceiling_db, "
-                " floor_hertz, frame_grid_z, frame_grid_agrees, frame_grid_agreeing) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                " floor_hertz, frame_grid_z, frame_grid_agrees, frame_grid_agreeing, "
+                " edge_share, edge_hertz) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 # The conflict target is spelled exactly as the unique index of
                 # migration 13, because that is how SQLite matches one: a row
                 # carrying an audio key never overwrites the legacy row of the
@@ -1135,6 +1188,8 @@ class LibraryStore:
                 "  frame_grid_z = excluded.frame_grid_z, "
                 "  frame_grid_agrees = excluded.frame_grid_agrees, "
                 "  frame_grid_agreeing = excluded.frame_grid_agreeing, "
+                "  edge_share = excluded.edge_share, "
+                "  edge_hertz = excluded.edge_hertz, "
                 "  measured_at = CURRENT_TIMESTAMP",
                 [
                     (
@@ -1153,6 +1208,8 @@ class LibraryStore:
                         quality.frame_grid_z,
                         _as_integer(quality.frame_grid_agrees),
                         quality.frame_grid_agreeing,
+                        quality.edge_share,
+                        quality.edge_hertz,
                     )
                     for signature, quality in measurements
                 ],
@@ -1389,7 +1446,7 @@ class LibraryStore:
                     "SELECT content_signature, encoding, effective_bitrate_kbps, cutoff_hertz, "
                     "       steepest_drop_db, findings, reason, decay_db, ceiling_db, audio_key, "
                     "       wall_low_hertz, floor_hertz, frame_grid_z, frame_grid_agrees, "
-                    "       frame_grid_agreeing "
+                    "       frame_grid_agreeing, edge_share, edge_hertz "
                     f"FROM track_quality WHERE content_signature IN ({placeholders}) "
                     "ORDER BY measured_at DESC, id DESC",
                     chunk,
@@ -1411,6 +1468,8 @@ class LibraryStore:
                             frame_grid_z=row[12],
                             frame_grid_agrees=None if row[13] is None else bool(row[13]),
                             frame_grid_agreeing=row[14],
+                            edge_share=row[15],
+                            edge_hertz=row[16],
                         )
                     )
         return found
@@ -2656,6 +2715,40 @@ class LibraryStore:
                 (plan_id,),
             ).fetchone()
         return int(row[0]) if row and row[0] is not None else None
+
+    def written_fronts(self, unit_id: int) -> tuple[str, ...]:
+        """The digests of the front pictures decided for this album, newest first.
+
+        Only operations that took effect and were not taken back, and only a
+        picture the user chose or the Cover Art Archive answered with
+        (``picked_by``). A picture this application chose among those already on
+        the disk is a guess, and the rule that guessed has been wrong — reading
+        what it wrote back as a decision would keep the side of a disc on the
+        card for good. Operations written before ``picked_by`` existed carry
+        none, so they are guesses here too.
+        """
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT operations.after_state FROM change_operations AS operations "
+                "JOIN change_plans AS plans ON plans.id = operations.change_plan_id "
+                "WHERE plans.album_unit_id = ? "
+                "AND operations.kind IN ('write_image', 'embed_image') "
+                "AND operations.applied_at IS NOT NULL AND operations.reverted_at IS NULL "
+                "ORDER BY operations.applied_at DESC, plans.id DESC, operations.sequence",
+                (unit_id,),
+            ).fetchall()
+        digests: list[str] = []
+        for (after_json,) in rows:
+            after = json.loads(after_json)
+            digest = after.get("digest")
+            if (
+                after.get("kind") == "front"
+                and after.get("picked_by") in ("user", "archive")
+                and isinstance(digest, str)
+                and digest not in digests
+            ):
+                digests.append(digest)
+        return tuple(digests)
 
     def record_verification(self, identification_id: int, verification: dict[str, object]) -> None:
         """Store the comparison results the witnesses produced: the verdicts, not their data."""

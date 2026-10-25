@@ -46,8 +46,16 @@ def replacing(path: Path, write: Callable[[Path], None]) -> None:
 
     The suffix is kept: ``mutagen`` decides what a file *is* partly by its name,
     and a copy called `.foo.tmp` would be opened as an unknown container.
+
+    The stem is cut to what fits, because the copy's name is ten bytes longer
+    than the file's — a dot, a dash and eight random characters — and a track
+    named right up to the filesystem's line has no room for them. Uncut, the
+    copy cannot be created at all, and the write fails on a file nothing is
+    wrong with.
     """
-    handle, made = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem}-", suffix=path.suffix)
+    handle, made = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{_stem_that_fits(path)}-", suffix=path.suffix
+    )
     os.close(handle)
     temporary = Path(made)
     try:
@@ -73,6 +81,26 @@ def replacing(path: Path, write: Callable[[Path], None]) -> None:
         # exactly when a stray half-written copy must not be left in the folder.
         temporary.unlink(missing_ok=True)
         raise
+
+
+_RANDOM_NAME_BYTES = 8
+"""What ``tempfile.mkstemp`` puts between the prefix and the suffix."""
+
+
+def _stem_that_fits(path: Path) -> str:
+    """Return the file's stem, cut so that the temporary copy's name is storable.
+
+    The limit is asked of the folder's own filesystem rather than assumed, and
+    counted in bytes: an accented letter spends two in UTF-8. The cut lands on a
+    character boundary, so the name stays readable — it is what identifies a
+    copy left behind by a crash.
+    """
+    try:
+        limit = os.pathconf(path.parent, "PC_NAME_MAX")
+    except (OSError, ValueError):
+        limit = 255
+    room = limit - len(f".-{path.suffix}".encode()) - _RANDOM_NAME_BYTES
+    return path.stem.encode("utf-8")[: max(room, 0)].decode("utf-8", "ignore")
 
 
 def _flush(path: Path) -> None:

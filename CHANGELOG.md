@@ -4,6 +4,42 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.8.0
+
+### Added
+
+- Collection, a screen for the records on your shelf. A record is added from a
+  Discogs link, a barcode or a search, or imported from a list you already keep,
+  column by column and rehearsed before anything is written; each one keeps its
+  pressing, its condition, and the places and categories you define. Nothing in
+  it is priced.
+- A search for a record lists each album first with its pressings under it, and every line gives both the album's first year and the pressing's year.
+- The collection's columns can be resized by dragging.
+- Clicking the cover in an album's dialog opens it at full size, bounded by the window and never past the picture's own pixels.
+
+### Changed
+
+- A folder's bracket gives every lossy format the rate it declares, as it did for MP3: an AAC album reads `[M4A 256]`.
+- An MP3 whose audio is coarser than its header says is named by the rate measured, and a folder holding two qualities names the better first: `[MP3 320, MP3 128]`.
+- A lossless file that stops at one frequency in a large share of its moments is called a transcode.
+- Arranging an album by its own tags also writes its tags and cover, takes a missing year from the folder's name, and credits a compilation as one: two artists as `A & B`, more as `Various Artists`.
+- Names arranged from an album's own tags are written in one case too, and a capital slipped inside a word is lowered while a deliberate one is kept.
+- An album dropped or opened again while already on the shelf moves to the top with the arrivals and is highlighted.
+- A verdict that would rename an album already organized offers to plan it again.
+- Reading a folder again says which files joined the album or left it.
+- A card shows the album's front cover before any larger picture in its folder.
+- The cover cache keeps only the pictures a plan can still write.
+
+### Fixed
+
+- Dropping folders onto a large shelf no longer leaves the window waiting with no answer.
+- An album taken off the shelf and dropped again arrives, instead of being called already here.
+- A card taken off with the ✕, or a star rating, is no longer undone by a slow read of the shelf.
+- A scanned album dropped or opened again keeps its identification instead of reading `Not scanned`.
+- An album whose tracks all sit inside a larger one is no longer announced as a second copy.
+- A cover waiting to be written is no longer discarded by the cache.
+- A track named up to the filesystem's length limit can have its tags and cover written.
+
 ## 1.7.0
 
 ### Removed

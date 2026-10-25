@@ -251,6 +251,22 @@ def test_a_name_from_the_library_is_refused_however_it_is_spelled(invented_libra
     assert [finding.category for finding in found] == ["library-name"], text
 
 
+def test_a_name_the_owner_reviewed_as_ordinary_is_set_aside(invented_library) -> None:
+    """A name listed beside the database as an ordinary word stops being looked for.
+
+    Only that name: the list is read from beside the library, so a name nobody
+    reviewed is refused exactly as before, and the count of what was set aside
+    is carried so the run can say it.
+    """
+    invented_library.with_name(export_public.REVIEWED_AS_ORDINARY).write_text(
+        "# looked at, and an ordinary word\nVidro Fosco\n", encoding="utf-8"
+    )
+
+    assert _library_findings(invented_library, 'title = "Vidro Fosco"') == []
+    assert _library_findings(invented_library, 'track = "Velvet Turbine"') != []
+    assert export_public.read_library_names(invented_library).reviewed == 1
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -310,6 +326,149 @@ def test_a_table_nobody_has_classified_is_reported(invented_library) -> None:
     assert library.unread_tables == ("something_new",)
 
 
+def _library_of(tmp_path: Path, *statements: str | tuple[str, tuple]) -> Path:
+    database = tmp_path / "library.sqlite3"
+    connection = sqlite3.connect(database)
+    for statement in statements:
+        if isinstance(statement, str):
+            connection.execute(statement)
+        else:
+            connection.execute(*statement)
+    connection.commit()
+    connection.close()
+    return database
+
+
+def test_a_column_nobody_has_classified_is_reported(tmp_path: Path) -> None:
+    """A column added to a table already classified is the same question again.
+
+    The table being known says nothing about a column it was given later, and
+    a column that is not read contributes no name — which is the answer a
+    column holding none would give.
+    """
+    database = _library_of(
+        tmp_path,
+        "CREATE TABLE album_units (folder_path TEXT, state TEXT, nickname TEXT, untyped)",
+        "CREATE TABLE track_quality (reason TEXT, remark TEXT)",
+    )
+
+    library = export_public.read_library_names(database)
+
+    assert library.unread_tables == ()
+    assert library.unread_columns == (
+        "album_units.nickname",
+        "album_units.untyped",
+        "track_quality.remark",
+    )
+
+
+def test_a_column_declared_for_numbers_is_asked_what_it_holds(tmp_path: Path) -> None:
+    """A declared type is an affinity: a string that is no number is stored as text."""
+    database = _library_of(
+        tmp_path,
+        "CREATE TABLE album_units (folder_path TEXT, plays INTEGER, weight REAL, rank INTEGER)",
+        ("INSERT INTO album_units VALUES (?, ?, ?, ?)", ("/music/a", 3, 1.5, "Noite de Âmbar")),
+    )
+
+    assert export_public.read_library_names(database).unread_columns == ("album_units.rank",)
+
+
+def test_every_column_the_migrations_create_is_classified(tmp_path: Path) -> None:
+    """The schema this revision builds, so a migration is refused on the day it is written."""
+    import logging
+
+    from diglibrary.database.connection import Database
+
+    database = tmp_path / "library.sqlite3"
+    Database(database, logging.getLogger("test")).initialize()
+
+    library = export_public.read_library_names(database)
+
+    assert library.unread_tables == ()
+    assert library.unread_columns == ()
+
+
+def test_no_table_is_classified_twice_over_one_column() -> None:
+    for table, columns in export_public.NAME_COLUMNS.items():
+        both = set(columns) & set(export_public.NAMELESS_COLUMNS.get(table, ()))
+        assert not both, f"{table}: {sorted(both)} are said to hold a name and to hold none"
+
+
+@pytest.mark.parametrize(
+    ("statements", "text"),
+    [
+        (
+            (
+                "CREATE TABLE apply_proofs (kind TEXT, payload TEXT)",
+                (
+                    "INSERT INTO apply_proofs VALUES (?, ?)",
+                    ("audio", '{"files": {"Quartzo Lunar - Vidro Fosco.flac": "intact"}}'),
+                ),
+            ),
+            'title = "Vidro Fosco"',
+        ),
+        (
+            (
+                "CREATE TABLE downloads (source TEXT)",
+                ("INSERT INTO downloads VALUES (?)", ("zanzibarino74",)),
+            ),
+            "shared by zanzibarino74",
+        ),
+        (
+            (
+                "CREATE TABLE identifications (explanation TEXT, verification TEXT)",
+                (
+                    "INSERT INTO identifications VALUES (?, ?)",
+                    (
+                        "From the tags \u2014 Quartzo Lunar \u00b7 Marés \u00b7 1981; all agree",
+                        "",
+                    ),
+                ),
+            ),
+            'artist = "Quartzo Lunar"',
+        ),
+        (
+            (
+                "CREATE TABLE identifications (explanation TEXT, verification TEXT)",
+                (
+                    "INSERT INTO identifications VALUES (?, ?)",
+                    ("", '{"sources": [{"source": "x", "title": "Velvet Turbine"}]}'),
+                ),
+            ),
+            'album = "Velvet Turbine"',
+        ),
+        (
+            (
+                "CREATE TABLE settings (key TEXT, value TEXT)",
+                (
+                    "INSERT INTO settings VALUES (?, ?)",
+                    ("exclusions./Users/someone/Music/Orquestra Zanzibá", "True"),
+                ),
+            ),
+            'folder = "Orquestra Zanziba"',
+        ),
+    ],
+)
+def test_a_name_kept_beside_a_verdict_is_read(tmp_path: Path, statements, text) -> None:
+    """Columns of tables that were classified whole as holding no name, and hold one."""
+    database = _library_of(tmp_path, *statements)
+
+    found = _library_findings(database, text)
+
+    assert [finding.category for finding in found] == ["library-name"], text
+
+
+def test_a_key_of_this_application_is_not_a_name(tmp_path: Path) -> None:
+    """A setting is filed under a key every source file writes; only a path in it is read."""
+    database = _library_of(
+        tmp_path,
+        "CREATE TABLE settings (key TEXT, value TEXT)",
+        ("INSERT INTO settings VALUES (?, ?)", ("zq.plimba_zunto", "True")),
+    )
+
+    assert _library_findings(database, 'setting("zq.plimba_zunto")') == []
+
+
 def test_a_finding_never_says_what_matched(invented_library) -> None:
     found = _library_findings(invented_library, 'album = "Noite de Ambar"')
 
@@ -363,6 +522,9 @@ def test_no_published_file_names_something_from_the_local_library() -> None:
     assert (
         library.unread_tables == ()
     ), f"tables nobody has classified as holding names or not: {library.unread_tables}"
+    assert (
+        library.unread_columns == ()
+    ), f"columns nobody has classified as holding names or not: {library.unread_columns}"
 
     found = export_public.findings_against_library(_published(), library)
 

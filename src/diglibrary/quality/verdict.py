@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from statistics import median, median_low
 
+from diglibrary.quality.edges import FilterEdge
 from diglibrary.quality.framing import READINGS, FrameGrid, rate_could_carry_a_grid
 from diglibrary.quality.models import CLIFF_DB, Encoding, Proof, SpectralProfile, TrackAnalysis
 
@@ -260,6 +261,26 @@ def judge(analysis: TrackAnalysis) -> TrackVerdict:
                 cutoff_hertz=cutoff,
                 proved_by=Proof.GRID,
             )
+        # **Then the encoder's low-pass, read frame by frame.** The probes
+        # below read the energy left above eight frequencies across a minute,
+        # and both halves of that lose a wall: dither rising towards Nyquist
+        # lifts every probe to one level, and a passage with content past the
+        # wall fills the average in. Where one frequency stops the audio in a
+        # large share of its frames, the file stops there.
+        if convicted_by_filter_edge(analysis.filter_edge):
+            assert analysis.filter_edge is not None and analysis.filter_edge.hertz is not None
+            edge = analysis.filter_edge.hertz
+            findings.insert(0, Finding.TRANSCODED)
+            return TrackVerdict(
+                encoding=Encoding.TRANSCODED,
+                reason=_edge_reason(analysis),
+                findings=tuple(findings),
+                # No bitrate: `_bitrate_for` reads the rung below a wall the
+                # probes found, and this edge was not found on their ruler. A
+                # verdict with no bitrate says less and claims nothing false.
+                cutoff_hertz=edge,
+                proved_by=Proof.WALL,
+            )
         if (
             not walled
             and cut_low is None
@@ -453,6 +474,56 @@ def convicted_by_frame_grid(grid: FrameGrid | None) -> bool:
     if grid is None:
         return False
     return grid.peak_z >= PEAK_Z_TRUST and grid.agreeing_readings >= AGREEING_TRUST
+
+
+EDGE_SHARE_TRUST = 0.15
+"""How much of a file must stop at one frequency for the stop to be a filter.
+
+A share of all the frames read, edges counted at ``EDGE_FALL_DB`` within
+``EDGE_TOLERANCE_HZ`` of the commonest one, searched no higher than
+``CUTOFF_TRUST_HZ``. Priced with this application's own analyzer against
+paired ground truth — 56 lossless sources, each also filtered at 20 kHz and
+also encoded with LAME CBR and decoded back into FLAC — and against the same
+56 files read whole, from their own first minute:
+
+| arm | n | share |
+| --- | --- | --- |
+| the sources, untouched | 56 | at most 0.08 |
+| the sources, filtered at 20 kHz | 56 | at most 0.07 |
+| the sources, their own first minute | 56 | at most 0.08 |
+| LAME 128 -> FLAC | 56 | at least 0.25 |
+| LAME 192 -> FLAC | 56 | at least 0.25 |
+
+No honest file changes verdict under this rule, and the line sits near the
+middle of the gap. 256 and 320 wall above ``CUTOFF_TRUST_HZ`` and are left to
+the frame grid, exactly as before this rule existed.
+"""
+
+
+def convicted_by_filter_edge(edge: FilterEdge | None) -> bool:
+    """Report whether a file stops at one frequency often enough to be a filter.
+
+    ``None`` is *not measured* and convicts nothing. Neither does an edge above
+    ``CUTOFF_TRUST_HZ``: the probe does not look there, and a row measured with
+    a wider search must not convict on what an honest converter does.
+    """
+    if edge is None or edge.hertz is None:
+        return False
+    return edge.hertz <= CUTOFF_TRUST_HZ and edge.share >= EDGE_SHARE_TRUST
+
+
+def _edge_reason(analysis: TrackAnalysis) -> str:
+    """Say where the file stops, and how much of it stops there."""
+    edge = analysis.filter_edge
+    assert edge is not None
+    codec = analysis.declared_codec.upper()
+    percent = round(edge.share * 100)
+    return (
+        f"This {codec} stops dead at {edge.hertz} Hz in {percent}% of its moments, "
+        "always at that one frequency. Music has no such place; an encoder's "
+        f"low-pass does, so it was lossy before it was made lossless."
+        f"{_the_grid_could_not_be_read(analysis)}"
+    )
 
 
 def _frame_grid_reason(analysis: TrackAnalysis) -> str:

@@ -97,3 +97,23 @@ def test_a_folder_that_is_not_there_is_not_an_error(tmp_path: Path) -> None:
     assert folder_bytes([missing], SUFFIXES) == 0
     assert enforce_folder_limit([missing], 1000, SUFFIXES, LOGGER, "test.evicted") == 0
     assert clear_folder([missing], SUFFIXES) == 0
+
+
+def test_a_file_something_still_needs_is_never_discarded(tmp_path: Path) -> None:
+    """The oldest file in the folder is kept when a plan still means to write it.
+
+    A cover staged for a plan not yet applied is work waiting, and the ceiling
+    took it for being the least recently used — which is exactly what a plan
+    left waiting for a week looks like.
+    """
+    waiting = _picture(tmp_path / "waiting.jpg", 1000, 1)
+    for index in range(4):
+        _picture(tmp_path / f"{index}.jpg", 1000, 1000 + index)
+
+    held = enforce_folder_limit(
+        [tmp_path], 0, SUFFIXES, LOGGER, "test.evicted", keep=frozenset({waiting.name})
+    )
+
+    assert waiting.exists()
+    assert held == 1000, "what it weighs is still counted, so the number stays true"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["waiting.jpg"]

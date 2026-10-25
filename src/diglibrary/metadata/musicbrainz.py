@@ -74,6 +74,8 @@ class MusicBrainzClient:
                 f'artist:"{query.artist}"' if query.artist else None,
                 f'release:"{query.album}"' if query.album else None,
                 f'barcode:"{query.barcode}"' if query.barcode else None,
+                f'label:"{query.label}"' if query.label else None,
+                f'catno:"{query.catalog_number}"' if query.catalog_number else None,
             ]
             lucene = " AND ".join(term for term in terms if term)
         payload = self._get("/release", {"query": lucene, "limit": "100"})

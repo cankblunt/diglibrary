@@ -22,6 +22,7 @@ a catalogue is for, and a name colliding with another album's is the honest
 signal that this album wants a scan.
 """
 
+import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -77,6 +78,12 @@ class TagReading:
     album: str = ""
     album_agree: int = 0
     year: int | None = None
+    # Where the year was read: `tags`, or `folder` when no file carries one and
+    # the folder's own name states a single year. Empty when there is none.
+    year_from: str = ""
+    # Whether the credit is a compilation's: no credit runs through every file,
+    # and more than two different ones do.
+    compilation: bool = False
     titled: int = 0
     numbered: bool = False
     # One sentence per dissenting file: which file, which field, what it says
@@ -112,10 +119,16 @@ def read_tags(unit: AlbumUnit, tag_store: TagStore) -> TagReading:
     # only the first would name a folder after the first artist and take the
     # co-artist off it, and an album this application tagged would read back
     # differently from the release that tagged it.
-    written = _agreed_credit(value for _, value in credits)
+    split = _credit_of_many(value for _, value in credits)
+    written = split if split is not None else _agreed_credit(value for _, value in credits)
+    compilation = written == (VARIOUS_ARTISTS,)
     artist = " & ".join(written)
     title = _agreed(value for _, value in albums)
     year = min({value for _, value in years if value is not None}, default=None)
+    year_from = "tags" if year is not None else ""
+    if year is None:
+        year = year_in_folder_name(unit.folder_path.name)
+        year_from = "folder" if year is not None else ""
     titles = [_first(values, "title") for _, values in read]
     # A title every file repeats is not a title per track: it is one value
     # standing where the names should be, and this path renders a file name out
@@ -127,7 +140,9 @@ def read_tags(unit: AlbumUnit, tag_store: TagStore) -> TagReading:
 
     dissent: list[str] = []
     for file, value in credits:
-        if value and value != written:
+        # A file of a compilation or of a split credits what is its own, so it
+        # dissents from nothing.
+        if value and value != written and split is None:
             dissent.append(f"{file.path.name}: artist “{' & '.join(value)}”")
     for file, value in albums:
         if value and value != title:
@@ -152,10 +167,16 @@ def read_tags(unit: AlbumUnit, tag_store: TagStore) -> TagReading:
     provenance = {
         "files": len(read),
         "artist": artist,
-        "artist_agree": sum(1 for _, value in credits if value == written) if written else 0,
+        "artist_agree": (
+            len(read)
+            if split is not None
+            else sum(1 for _, value in credits if value == written) if written else 0
+        ),
         "album": title,
         "album_agree": sum(1 for _, value in albums if value == title) if title else 0,
         "year": year,
+        "year_from": year_from,
+        "compilation": compilation,
         "titled": titled,
         "numbered": numbers is not None,
         "dissent": tuple(dissent),
@@ -281,6 +302,54 @@ def _credit(values: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     everyone after it.
     """
     return _all(values, "albumartist") or _all(values, "artist")
+
+
+VARIOUS_ARTISTS = "Various Artists"
+"""How a compilation is credited when its own files do not say."""
+
+
+def _credit_of_many(credits: Iterable[tuple[str, ...]]) -> tuple[str, ...] | None:
+    """The credit of an album whose files are by different people, or ``None``.
+
+    Asked only of what the files credit, after ``albumartist`` — a file that
+    names its album's artist has already answered this. An album is by many
+    when **no name runs through every file**: a guest credited beside the
+    album's artist on one track leaves the artist on all of them, so that album
+    keeps its artist.
+
+    Counted in credits, not in names, because one credit is often several
+    people — `A, B & C` written once, or three values on one file. Two different
+    credits are a split and are both credited, in the order the files give them;
+    more than two are a compilation.
+    """
+    given = [credit for credit in credits if credit]
+    if not given:
+        return None
+    shared = set.intersection(*({name.casefold() for name in credit} for credit in given))
+    if shared:
+        return None
+    distinct = list(dict.fromkeys(given))
+    if len(distinct) > 2:
+        return (VARIOUS_ARTISTS,)
+    return tuple(dict.fromkeys(name for credit in distinct for name in credit))
+
+
+_STATED_YEAR = re.compile(r"[(\[]\s*(\d{4})\s*[)\]]|(?:^|\s)(\d{4})\s*$")
+"""A year standing alone: `(1979)`, `[1979]`, or the last word of the name."""
+
+
+def year_in_folder_name(name: str) -> int | None:
+    """The year a folder's name states, when it states exactly one.
+
+    The user's own word, as it is when two pressings are settled by the year
+    the folder carries. Only a year standing alone counts: one inside a title,
+    `2001 Odyssey`, or inside a designator, `(Ed. 1993)`, is not the album's
+    year. Two different years answer nothing, because choosing between them
+    would be a guess.
+    """
+    found = {int(match.group(1) or match.group(2)) for match in _STATED_YEAR.finditer(name)}
+    plausible = {year for year in found if year in PLAUSIBLE_YEARS}
+    return plausible.pop() if len(plausible) == 1 else None
 
 
 def _agreed_credit(credits: Iterable[tuple[str, ...]]) -> tuple[str, ...]:

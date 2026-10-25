@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 from diglibrary.application.artwork import ArtworkService
 from diglibrary.application.bench import BenchFinding, DeepAlbum, DeepAnalysis, QualityBench
+from diglibrary.application.collection import CollectionService
 from diglibrary.application.contracts import (
     ArtistMetadata,
     MetadataSourceId,
@@ -47,6 +48,21 @@ from diglibrary.application.quality import (
     verdict_from_stored,
 )
 from diglibrary.cachedir import MEGABYTE, clear_folder, enforce_folder_limit, folder_bytes
+from diglibrary.collection.importing import (
+    FIELDS,
+    REPEATABLE,
+    ImportPlan,
+    Table,
+    read_table,
+    suggest_mapping,
+)
+from diglibrary.collection.model import (
+    IDENTIFIED_BY,
+    MEDIA_GRADES,
+    SLEEVE_GRADES,
+    Candidate,
+    PhysicalRecord,
+)
 from diglibrary.config import credentials
 from diglibrary.connectors.models import SearchProgress, TransferFile, TransferState
 from diglibrary.database.copies import (
@@ -69,7 +85,12 @@ from diglibrary.database.library_store import (
 from diglibrary.harmonic.analyzer import HarmonicAnalyzer
 from diglibrary.harmonic.keys import camelot_for
 from diglibrary.library.artwork import CACHE_SUFFIXES as ARTWORK_SUFFIXES
-from diglibrary.library.artwork import DEFAULT_BACKUP_LIMIT_BYTES, ArtworkStore, extension_for
+from diglibrary.library.artwork import (
+    DEFAULT_BACKUP_LIMIT_BYTES,
+    ArtworkStore,
+    ImageFacts,
+    extension_for,
+)
 from diglibrary.library.artwork import DEFAULT_CACHE_LIMIT_BYTES as DEFAULT_ARTWORK_CACHE_BYTES
 from diglibrary.library.audio import AUDIO_EXTENSIONS
 from diglibrary.library.audio_key import audio_key
@@ -132,6 +153,9 @@ from diglibrary.quality.verdict import REFERENCE_WALLS, is_borderline
 FolderPicker = Callable[[], str | None]
 ImagePicker = Callable[[], str | None]
 """Ask the platform for one image file, the way it is asked for a folder."""
+ListPicker = Callable[[], str | None]
+DroppedFolders = Callable[[], tuple[str, ...]]
+"""Ask the platform for one list file, the way it is asked for a folder."""
 PathOpener = Callable[[str], None]
 # Where the window fetches a cover's bytes. Declared as a shape rather than
 # imported, because the thing that serves them belongs to the interface and
@@ -570,13 +594,26 @@ class LibraryApi:
         harmonic_analyzer: HarmonicAnalyzer | None = None,
         images: ImageUrls | None = None,
         ffmpeg: bool = False,
+        collection: CollectionService | None = None,
+        list_picker: ListPicker | None = None,
+        dropped_folders: DroppedFolders | None = None,
     ) -> None:
         """Create the API from an assembled engine and the store that remembers."""
         self._pipeline_factory = pipeline_factory
+        # The physical collection. Optional, so the module comes out
+        # whole: without it every collection gesture answers that it is absent.
+        self._collection = collection
+        # A list the user chose to import, as read, kept between the
+        # rehearsal and the import so both read the same bytes; and the one
+        # worker that asks the catalogue for candidates afterwards.
+        self._list_picker = list_picker
+        self._collection_list: Table | None = None
+        self._collection_asker: threading.Thread | None = None
         self._store = store
         self._artwork_store = artwork_store
         self._logger = logger
         self._folder_picker = folder_picker
+        self._dropped_folders = dropped_folders
         self._image_picker = image_picker
         self._cover_cache = cover_cache
         # Absent when this machine has no ffmpeg, and the window is told so
@@ -2084,14 +2121,34 @@ class LibraryApi:
         # word about it, and every bitrate that is provably its own. This is a
         # read of the store — no ffmpeg, no network.
         self._facts_from_store([unit])
-        organized = stored.state == "organized"
+        state = self._state_on_record(unit, unit_id, stored.state)
+        # Checked again, at the moment of writing. The guard at the top of this
+        # method is the right rule in the wrong place: between it and here a whole
+        # folder is read off the disk, and the scan can put that album in during
+        # the read.
+        if not self._remember_if_absent(unit_id, state):
+            return False
+        with self._albums_lock:
+            if stored.origin == "downloaded":
+                self._downloaded.add(unit_id)
+        return True
+
+    def _state_on_record(self, unit: AlbumUnit, unit_id: int, row_state: str) -> "_AlbumState":
+        """Rebuild an album as it was last decided, from its row and its record, asking nobody.
+
+        **One function for every way back to an album the shelf already holds**:
+        a restart, and a folder dropped or opened again. A drop that built its
+        own reading put a scanned album back to *not scanned* on screen, while
+        its identification still stood in the database.
+        """
+        organized = row_state == "organized"
         # An organized album restored with a full outcome would come back as
         # `automatic` with a plan, and one press of "Apply N automatic" would
         # then reach albums this app had already finished with.
         outcome = (
             self._organized_outcome(unit, unit_id)
             if organized
-            else self._restored_outcome(unit, unit_id, stored)
+            else self._restored_outcome(unit, unit_id)
         )
         # The row says this album was not automatic, so it does not come back as
         # one. `hold` writes `needs_review` when an album is pulled back to be
@@ -2102,7 +2159,7 @@ class LibraryApi:
         # the threshold later does not release these until they are touched,
         # which is the safe direction for a gesture whose whole point was to
         # stop something being renamed.
-        if stored.state == "needs_review" and outcome.decision is Decision.AUTOMATIC:
+        if row_state == "needs_review" and outcome.decision is Decision.AUTOMATIC:
             outcome = replace(
                 outcome,
                 decision=Decision.REVIEW,
@@ -2124,22 +2181,11 @@ class LibraryApi:
             # as long as the window stays open: the album returns as an
             # ordinary automatic one, and `Apply N automatic` is a single
             # click.
-            rejected=stored.state == "skipped",
+            rejected=row_state == "skipped",
         )
-        # Checked again, at the moment of writing. The guard at the top of this
-        # method is the right rule in the wrong place: between it and here a whole
-        # folder is read off the disk, and the scan can put that album in during
-        # the read.
-        if not self._remember_if_absent(unit_id, state):
-            return False
-        with self._albums_lock:
-            if stored.origin == "downloaded":
-                self._downloaded.add(unit_id)
-        return True
+        return state
 
-    def _restored_outcome(
-        self, unit: AlbumUnit, unit_id: int, stored: StoredUnit
-    ) -> IdentificationOutcome:
+    def _restored_outcome(self, unit: AlbumUnit, unit_id: int) -> IdentificationOutcome:
         """Rebuild an album's outcome from what was decided, without the network."""
         on_record = self._outcome_on_record(unit, unit_id)
         if on_record is not None:
@@ -2540,13 +2586,15 @@ class LibraryApi:
         opened: list[int] = []
         came: list[int] = []
         known: list[str] = []
+        known_ids: list[int] = []
         same_audio: list[dict[str, object]] = []
+        changed: list[dict[str, object]] = []
         try:
             arrived: list[int] = []
             moved: list[dict[str, object]] = []
-            opened = self._read_into_library(root, moved, arrived, same_audio)
+            opened = self._read_into_library(root, moved, arrived, same_audio, changed)
             # The same rule as the drop, because it is the same gesture.
-            came, known = self._what_came(opened, arrived, moved)
+            came, known, known_ids = self._what_came(opened, arrived, moved)
         except Exception as error:
             # `reading`, so the window lets a scan beside it keep its bar: this
             # error is about the folder, not about the run.
@@ -2561,6 +2609,8 @@ class LibraryApi:
                     "folder": str(root),
                     "same_audio": same_audio,
                     "known_albums": known,
+                    "known_ids": known_ids,
+                    "known_changes": [entry for entry in changed if entry["album"] in known],
                 },
             )
 
@@ -2570,6 +2620,7 @@ class LibraryApi:
         moved: list[dict[str, object]] | None = None,
         arrived: list[int] | None = None,
         same_audio: list[dict[str, object]] | None = None,
+        changed: list[dict[str, object]] | None = None,
     ) -> list[int]:
         """Put a folder's albums on screen, each proposed by its own tags.
 
@@ -2592,11 +2643,21 @@ class LibraryApi:
         **Nothing that arrives here is marked**, whichever way it arrived.
         Marking is the user's gesture, and this method has no opinion about it.
 
-        ``arrived`` collects the albums that are **new to the library**, decided
-        by the database and not by watching a map. Diffing ``self._albums``
-        around this call would count every album the restore reads back from
-        another thread while the read is in flight, and a drop of one folder
-        shortly after launch would report many.
+        ``arrived`` collects the albums that were **not on the shelf** before
+        this read, decided by the database and not by watching a map. Diffing
+        ``self._albums`` around this call would count every album the restore
+        reads back from another thread while the read is in flight, and a drop
+        of one folder shortly after launch would report many.
+
+        *Not on the shelf*, and not *new to the database*: an album taken off
+        with the ✕ keeps its row, so reading its folder again reuses
+        that row and brings it back. Asked as *had a row* it was told it was
+        already in the library — about an album that was on no screen.
+
+        ``changed`` collects the albums already on the shelf, read again from
+        the folder they live in, whose files are not the ones that folder held
+        the last time it was seen: how many joined and how many left. Asked
+        before the units are recorded, for the reason ``moved`` is.
         """
         opened: list[int] = []
         units = list(self._pipeline.scanner.scan(root))
@@ -2606,6 +2667,7 @@ class LibraryApi:
         # as the album already here, and would announce a copy whose twin is
         # still on the disk as that twin having *moved*.
         newer_than = self._store.highest_unit_id()
+        shelved = {stored.unit_id for stored in self._store.library_units()}
         if moved is not None:
             for unit in units:
                 stored = self._store.unit_by_signature(unit.unit_signature)
@@ -2623,6 +2685,8 @@ class LibraryApi:
                             "now": str(unit.folder_path),
                         }
                     )
+        if changed is not None:
+            changed.extend(self._what_changed_inside(units, shelved))
         recorded = self._store.record_units(units)
         if moved is not None:
             for entry in moved:
@@ -2632,7 +2696,7 @@ class LibraryApi:
             arrived.extend(
                 recorded[str(unit.folder_path)]
                 for unit in units
-                if recorded[str(unit.folder_path)] > newer_than
+                if recorded[str(unit.folder_path)] not in shelved
             )
         if same_audio is not None:
             same_audio.extend(self._same_audio_on_shelf(recorded, newer_than))
@@ -2657,6 +2721,16 @@ class LibraryApi:
                     applied=True,
                 )
                 claimed.add(unit.folder_path.name)
+                self._remember_unless_identifying(unit_id, state)
+                opened.append(unit_id)
+                continue
+            # A scan has already answered for this album: it comes back as that
+            # answer, exactly as a restart brings it back, and not as an album
+            # nobody has looked up.
+            if self._store.identification_for(unit_id) is not None:
+                row = self._store.unit_by_id(unit_id)
+                state = self._state_on_record(unit, unit_id, row.state if row else "")
+                claimed.add(_planned_folder_name(unit, state.outcome.plan))
                 self._remember_unless_identifying(unit_id, state)
                 opened.append(unit_id)
                 continue
@@ -2928,6 +3002,18 @@ class LibraryApi:
         self._quality_job.start()
         return {"ok": True}
 
+    def adopt_dropped(self) -> dict[str, object]:
+        """Add whatever was just dropped onto the window.
+
+        The window knows that a drop happened and never where from, so it says
+        so and the paths are read here, from the platform, through the injected
+        reader. A drop that carried no folder still goes through
+        ``adopt_folders``, because the window is already waiting and that is
+        what releases it.
+        """
+        folders = self._dropped_folders() if self._dropped_folders is not None else ()
+        return self.adopt_folders(list(folders))
+
     def adopt_folders(self, folders: list[str]) -> dict[str, object]:
         """Add dropped album folders to the library, keeping what is already there.
 
@@ -2940,9 +3026,9 @@ class LibraryApi:
         on one worker thread, and the screen is told when they have all landed.
 
         **Every way out of here announces itself**, including the refusals. The
-        window begins waiting the instant something lands on it, and the native
-        handler that calls this throws the answer away — so a value returned to
-        nobody is a screen that waits forever. A refusal that emits nothing
+        window begins waiting the instant something lands on it, and what
+        releases it is the event, not the value returned — so a way out that
+        emits nothing is a screen that waits forever. A refusal that emits nothing
         leaves `Reading what you dropped…` spinning until the window is
         restarted.
         """
@@ -2988,7 +3074,9 @@ class LibraryApi:
         joined: list[int] = []
         moved: list[dict[str, object]] = []
         same_audio: list[dict[str, object]] = []
+        changed: list[dict[str, object]] = []
         known_names: list[str] = []
+        known_ids: list[int] = []
         # How long the reading itself took. Everything between this returning
         # and the album being drawn is the window's, and none of that is timed
         # here; so the part that *is* measurable is logged, and a difference
@@ -3007,7 +3095,7 @@ class LibraryApi:
                     # the albums arrive and Scan is what spends a catalogue's
                     # rate limit on them. Identifying here would also leave the
                     # Scan button with nothing to do.
-                    opened = self._read_into_library(folder, moved, arrived, same_audio)
+                    opened = self._read_into_library(folder, moved, arrived, same_audio, changed)
                 except Exception as error:
                     self._logger.exception(
                         "A dropped folder could not be read.",
@@ -3022,9 +3110,10 @@ class LibraryApi:
                     )
                     continue
                 adopted += len(arrived)
-                came, here = self._what_came(opened, arrived, moved)
+                came, here, here_ids = self._what_came(opened, arrived, moved)
                 known += len(here)
                 known_names.extend(here)
+                known_ids.extend(here_ids)
                 joined.extend(came)
                 self._root = str(folder)
             # A dropped album belongs where it will be seen. One that was
@@ -3067,9 +3156,14 @@ class LibraryApi:
                     # New albums whose every stream is already on the shelf in
                     # another folder, each with the one that holds it.
                     "same_audio": same_audio,
-                    # The albums that were already here, where they are: named,
-                    # because they are no longer marked or floated to say which.
+                    # The albums that were already here: named for the sentence,
+                    # and by id so the window can bring them into view. Never
+                    # marked, so they do not join the next Scan.
                     "known_albums": known_names,
+                    "known_ids": known_ids,
+                    # Of those, the ones whose folder holds other files than
+                    # when it was last seen, and how many joined or left.
+                    "known_changes": [entry for entry in changed if entry["album"] in known_names],
                 },
             )
 
@@ -3185,6 +3279,345 @@ class LibraryApi:
             self._emit("bench_error", {"message": f"{name} could not be read: {error}"})
             return
         self._emit("bench_finished", {"folder": name, "albums": found})
+
+    # --- the physical collection ----------------------------------
+
+    def collection(self) -> dict[str, object]:
+        """Every record on the shelf, with the user's lists and the grading scales."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        return {
+            "ok": True,
+            "records": [
+                _record_payload(record, service.release_of(record)) for record in service.records()
+            ],
+            "locations": [
+                {"id": location.location_id, "name": location.name}
+                for location in service.locations()
+            ],
+            "categories": [
+                {"id": category.category_id, "name": category.name}
+                for category in service.categories()
+            ],
+            "media_grades": list(MEDIA_GRADES),
+            "sleeve_grades": list(SLEEVE_GRADES),
+        }
+
+    def collection_find(
+        self, barcode: str = "", artist: str = "", album: str = "", year: object = None
+    ) -> dict[str, object]:
+        """Candidates for a record, by its barcode or by the words on it.
+
+        Candidates only: the user chooses, and nothing is put on the shelf here.
+        """
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        if str(barcode or "").strip():
+            found = service.search_barcode(str(barcode))
+            via = "barcode"
+        else:
+            wanted_year = _typed_year(year)
+            if isinstance(wanted_year, str):
+                return {"ok": False, "error": wanted_year, "candidates": []}
+            found = service.search(str(artist or ""), str(album or ""), wanted_year)
+            via = "search"
+        return {
+            "ok": found.error is None,
+            "error": found.error,
+            "via": via,
+            "candidates": [_stored_candidate_payload(offer) for offer in found.offers],
+        }
+
+    def collection_add(
+        self,
+        link: str = "",
+        source: str = "",
+        release_id: str = "",
+        via: str = "",
+        record_id: int | None = None,
+        group_id: str = "",
+    ) -> dict[str, object]:
+        """Put a record of a release on the shelf, or tie one already there to it.
+
+        The release comes from a pasted link — a pressing, or a master, which is
+        resolved to the pressing it stands for — or from a candidate
+        the user chose, which carries how it was found. A candidate that is the
+        album itself names its ``group_id`` and no release, and is resolved the
+        way a pasted master is.
+        """
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        if str(link or "").strip():
+            chosen = self._release_from_link(str(link))
+            if isinstance(chosen, str):
+                return {"ok": False, "error": chosen}
+            wanted_source, wanted_id, how = chosen[0], chosen[1], "link"
+        elif not str(release_id or "").strip() and str(group_id or "").strip():
+            if via not in IDENTIFIED_BY or not source:
+                return {"ok": False, "error": "Choose a release to add."}
+            resolved = self._release_of_group(MetadataSourceId(source), str(group_id).strip())
+            if resolved[1] is None:
+                return {"ok": False, "error": resolved[0]}
+            wanted_source, wanted_id, how = MetadataSourceId(source), resolved[1], via
+        else:
+            if via not in IDENTIFIED_BY or not source or not release_id:
+                return {"ok": False, "error": "Choose a release to add."}
+            wanted_source, wanted_id, how = MetadataSourceId(source), str(release_id), via
+        added = (
+            service.add_release(wanted_source, wanted_id, how)
+            if record_id is None
+            else service.identify(int(record_id), wanted_source, wanted_id, how)
+        )
+        return {"ok": added.error is None, "error": added.error, "record_id": added.record_id}
+
+    def _release_from_link(self, link: str) -> tuple[MetadataSourceId, str] | str:
+        """The release a pasted link names, or the reason it names none."""
+        direct = _parse_release_link(link)
+        if direct is not None:
+            return direct
+        group = _parse_group_link(link)
+        if group is None or self._collection is None:
+            return "That link is not a release page this app can read."
+        refusal, resolved = self._release_of_group(*group)
+        return refusal if resolved is None else (group[0], resolved)
+
+    def _release_of_group(self, source: MetadataSourceId, group_id: str) -> tuple[str, str | None]:
+        """The pressing an album stands for, or the reason none was named, never both."""
+        if self._collection is None:
+            return "That link is not a release page this app can read.", None
+        try:
+            resolved = self._collection.release_of_group(source, group_id)
+        except Exception as error:
+            return str(error) or type(error).__name__, None
+        if not resolved:
+            return "That album page does not name a pressing to add.", None
+        return "", resolved
+
+    def collection_add_unidentified(
+        self, artist: str = "", album: str = "", year: object = None
+    ) -> dict[str, object]:
+        """Put a record on the shelf in the user's own words, with no release."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        wanted_year = _typed_year(year)
+        if isinstance(wanted_year, str):
+            return {"ok": False, "error": wanted_year}
+        added = service.add_unidentified(str(artist or ""), str(album or ""), wanted_year)
+        return {"ok": added.error is None, "error": added.error, "record_id": added.record_id}
+
+    def collection_describe(
+        self,
+        record_id: int,
+        media_grade: object = None,
+        sleeve_grade: object = None,
+        location_id: int | None = None,
+        notes: str = "",
+        category_ids: list[int] | None = None,
+    ) -> dict[str, object]:
+        """Write what the user says about one record: condition, place, notes, categories."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        refused = service.describe(
+            int(record_id),
+            media_grade,
+            sleeve_grade,
+            None if location_id in (None, "") else int(location_id),
+            str(notes or ""),
+            [int(category) for category in (category_ids or [])],
+        )
+        return {"ok": refused is None, "error": refused}
+
+    def collection_remove(self, record_id: int) -> dict[str, object]:
+        """Take one record off the shelf."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        if not service.remove(int(record_id)):
+            return {"ok": False, "error": "That record is not on the shelf."}
+        return {"ok": True}
+
+    def collection_list_add(self, kind: str, name: str) -> dict[str, object]:
+        """Add a location or a category to the user's own list."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        adders = {"location": service.add_location, "category": service.add_category}
+        if kind not in adders:
+            return {"ok": False, "error": f"Not a list: {kind!r}."}
+        refused = adders[kind](str(name or ""))
+        return {"ok": refused is None, "error": refused}
+
+    def collection_list_rename(self, kind: str, row_id: int, name: str) -> dict[str, object]:
+        """Rename a location or a category on the user's own list."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        renamers = {"location": service.rename_location, "category": service.rename_category}
+        if kind not in renamers:
+            return {"ok": False, "error": f"Not a list: {kind!r}."}
+        refused = renamers[kind](int(row_id), str(name or ""))
+        return {"ok": refused is None, "error": refused}
+
+    def collection_list_remove(
+        self, kind: str, row_id: int, confirmed: bool = False
+    ) -> dict[str, object]:
+        """Remove a location or a category, asking first when records use it.
+
+        Without ``confirmed``, an entry that records use is not removed: the
+        answer carries how many, so the window can say what removing it does.
+        """
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        lists = {
+            "location": (service.location_uses, service.remove_location),
+            "category": (service.category_uses, service.remove_category),
+        }
+        if kind not in lists:
+            return {"ok": False, "error": f"Not a list: {kind!r}."}
+        uses, remove = lists[kind]
+        used = uses(int(row_id))
+        if used and not confirmed:
+            return {"ok": False, "confirm": True, "uses": used}
+        if not remove(int(row_id)):
+            return {"ok": False, "error": "That entry is not on your list."}
+        return {"ok": True}
+
+    def collection_import_open(self) -> dict[str, object]:
+        """Choose a list to import and read it, suggesting a field for each column.
+
+        Nothing is written: this answers the columns, a few lines to recognise
+        them by, and a suggestion the user confirms or changes.
+        """
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        if self._list_picker is None:
+            return {"ok": False, "error": "No file panel is available."}
+        chosen = self._list_picker()
+        if not chosen:
+            return {"ok": False, "cancelled": True}
+        path = Path(chosen)
+        try:
+            if path.stat().st_size > _LIST_LIMIT_BYTES:
+                return {
+                    "ok": False,
+                    "error": f"“{path.name}” is too large to be a list of records.",
+                }
+            table = read_table(path.read_bytes())
+        except (OSError, UnicodeDecodeError) as error:
+            return {"ok": False, "error": str(error)}
+        if not table.headers or not table.rows:
+            return {"ok": False, "error": f"“{path.name}” has no lines to import."}
+        self._collection_list = table
+        return {
+            "ok": True,
+            "file": path.name,
+            "headers": list(table.headers),
+            "sample": [list(row) for row in table.rows[:3]],
+            "lines": len(table.rows),
+            "fields": list(FIELDS),
+            "repeatable": sorted(REPEATABLE),
+            "suggested": {
+                str(index): name for index, name in suggest_mapping(table.headers).items()
+            },
+        }
+
+    def collection_import_preview(self, mapping: dict[str, str]) -> dict[str, object]:
+        """Rehearse the import: what would be added, skipped and created."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        if self._collection_list is None:
+            return {"ok": False, "error": "Choose a list to import first."}
+        plan = service.plan_import(self._collection_list, _read_mapping(mapping))
+        return _import_plan_payload(plan)
+
+    def collection_import_apply(self, mapping: dict[str, str]) -> dict[str, object]:
+        """Import the rehearsed list, then ask the catalogue for candidates behind it."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        if self._collection_list is None:
+            return {"ok": False, "error": "Choose a list to import first."}
+        plan, added = service.apply_import(self._collection_list, _read_mapping(mapping))
+        if plan.problems:
+            return _import_plan_payload(plan)
+        self._collection_list = None
+        asking = self._ask_collection_candidates_later(added)
+        return {"ok": True, "added": len(added), "asking": asking}
+
+    def _ask_collection_candidates_later(self, record_ids: Sequence[int]) -> bool:
+        """Ask for candidates on a worker of its own, and say whether it started.
+
+        One worker at a time: the catalogue's limit is shared, and two walks
+        over it would only halve each other.
+        """
+        if not record_ids or (self._collection_asker and self._collection_asker.is_alive()):
+            return False
+        wanted = tuple(record_ids)
+
+        def ask() -> None:
+            refused = 0
+            try:
+                for done, record_id in enumerate(wanted, start=1):
+                    try:
+                        if self._collection is not None and self._collection.ask_candidates(
+                            record_id
+                        ):
+                            refused += 1
+                    except Exception:
+                        refused += 1
+                        self._logger.exception(
+                            "Candidates for a record could not be asked for.",
+                            extra={"operation": "collection.candidates.failure"},
+                        )
+                    self._emit("collection-asking", {"done": done, "total": len(wanted)})
+            finally:
+                # Always, so the window lets go of its bar however this ended.
+                self._emit("collection-asked", {"total": len(wanted), "refused": refused})
+
+        self._collection_asker = threading.Thread(
+            target=ask, name="collection-candidates", daemon=True
+        )
+        self._collection_asker.start()
+        return True
+
+    def collection_candidates(self, record_id: int) -> dict[str, object]:
+        """The pressings a search offered for one record, waiting for the user."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        return {
+            "ok": True,
+            "candidates": [
+                _stored_candidate_payload(candidate)
+                for candidate in service.candidates(int(record_id))
+            ],
+        }
+
+    def collection_ask_candidates(self, record_id: int) -> dict[str, object]:
+        """Ask the catalogue again for one record, now, and answer what it offered."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        refused = service.ask_candidates(int(record_id))
+        if refused:
+            return {"ok": False, "error": refused}
+        return self.collection_candidates(int(record_id))
+
+    def collection_dismiss_candidates(self, record_id: int) -> dict[str, object]:
+        """None of the offers is the user's record."""
+        service = self._collection
+        if service is None:
+            return dict(_NO_COLLECTION)
+        service.dismiss_candidates(int(record_id))
+        return {"ok": True}
 
     def harmonics(self) -> dict[str, object]:
         """Every recording whose key and tempo are known, for the mixing screen.
@@ -3704,6 +4137,7 @@ class LibraryApi:
         unit = next((entry for entry in units if entry.folder_path == path.resolve()), None)
         if unit is None:
             return {"ok": False, "error": "That folder no longer holds one album."}
+        named_before = self._names_on_organized(unit.unit_signature)
         for file in unit.audio_files:
             if verdict == "clear":
                 self._store.clear_quality_override(
@@ -3727,6 +4161,7 @@ class LibraryApi:
             "tracks": len(unit.audio_files),
             "overrides": self._store.quality_overrides(unit.unit_signature),
             "replanned": replanned,
+            "renaming_waits": self._renaming_that_waits(unit.unit_signature, named_before),
         }
 
     def track_spectrogram(self, folder: str, file_name: str) -> dict[str, object]:
@@ -3966,6 +4401,34 @@ class LibraryApi:
         """
         return {"ok": True, "freed": clear_folder(self._artwork_cache, ARTWORK_SUFFIXES)}
 
+    def _images_still_waiting(self) -> frozenset[str]:
+        """The names of the staged pictures a plan on the shelf still means to write.
+
+        Only the plans the window can still apply: each album's own plan until
+        it is applied, and its cover plan until that is. Older plans of the same
+        album stay in the history as `simulated` and are never applied — counted
+        here, they held 474 files on one shelf that nothing would ever write.
+
+        Names rather than paths, because a staged file is named by its digest:
+        comparing names costs nothing per file, where resolving every path in
+        the folder does.
+        """
+        waiting: set[str] = set()
+        for state in self._album_snapshot():
+            plans = (
+                None if state.applied else state.outcome.plan,
+                None if state.cover_applied else state.cover_plan,
+            )
+            for plan in plans:
+                for operation in plan.operations if plan is not None else ():
+                    source = operation.after_state.get("source")
+                    if operation.kind in (
+                        OperationKind.WRITE_IMAGE,
+                        OperationKind.EMBED_IMAGE,
+                    ) and isinstance(source, str):
+                        waiting.add(Path(source).name)
+        return frozenset(waiting)
+
     def _enforce_cache_limits(self) -> None:
         """Bring the discardable folders under their ceilings.
 
@@ -3973,6 +4436,12 @@ class LibraryApi:
         restored, and again whenever Settings is saved — rather than during a
         run. A scan that evicted its own staged picture between staging it and
         writing it would be this module reaching into work in progress.
+
+        **And a plan waiting to be applied is work in progress too**, however
+        long it has waited: its staged cover is the only copy of what it will
+        write. Discarded as the oldest file in the folder, it made `Approve`
+        refuse with *the cover image staged for this album is gone*, for an
+        album nobody had touched since it was planned.
         """
         try:
             if self._metadata_cache is not None:
@@ -3987,6 +4456,7 @@ class LibraryApi:
                     ARTWORK_SUFFIXES,
                     self._logger,
                     "artwork.cache.evicted",
+                    keep=self._images_still_waiting(),
                 )
             if self._backups:
                 enforce_folder_limit(
@@ -4026,6 +4496,7 @@ class LibraryApi:
         speak again. Nothing is renamed here: this changes what the next plan
         would write, and the plan is still approved by hand.
         """
+        named_before = self._names_on_organized(unit_signature)
         if verdict == "clear":
             self._store.clear_quality_override(unit_signature, content_signature, audio_key or None)
         elif verdict in {"honest", "transcoded"}:
@@ -4051,6 +4522,7 @@ class LibraryApi:
             "ok": True,
             "overrides": self._store.quality_overrides(unit_signature),
             "replanned": replanned,
+            "renaming_waits": self._renaming_that_waits(unit_signature, named_before),
         }
 
     def _run_quality(self, root: Path, excluded: tuple[Path, ...]) -> None:
@@ -5840,7 +6312,7 @@ class LibraryApi:
         """
         if self._path_opener is None:
             return {"ok": False, "error": "No opener is available."}
-        if url in HELP_PAGES:
+        if url in HELP_PAGES or url in ATTRIBUTION_PAGES:
             # The two pages this application itself offers, by exact address.
             # They are where a key is created, they are not release pages, and
             # the checks below would rightly refuse them — so they are named
@@ -6572,7 +7044,7 @@ class LibraryApi:
         staged = self._staged_cover(state.outcome.plan)
         if staged is not None:
             return _data_uri(staged)
-        return self._embedded_cover(state.unit)
+        return self._embedded_cover(state.unit, state.unit_id)
 
     # --- settings ----------------------------------------------------------
 
@@ -7120,24 +7592,57 @@ class LibraryApi:
 
     def _what_came(
         self, opened: Sequence[int], arrived: Sequence[int], moved: Sequence[Mapping[str, object]]
-    ) -> tuple[list[int], list[str]]:
+    ) -> tuple[list[int], list[str], list[int]]:
         """Split what a folder read put on screen into arrivals and albums already here.
 
         Arrivals are what was new and what was already here but has moved: both
         are marked and brought to the front. **An album read again from the
-        folder it already lives in is only said**, neither marked nor floated,
-        so it comes back as a name for the sentence, not an id.
+        folder it already lives in is never marked**: it comes back by name, for
+        the sentence, and by id, so the window can bring it into view and point
+        at it without adding it to the next Scan.
         One place for the drop and for opening a folder, which are one gesture.
         """
         followed = {int(str(entry["unit_id"])) for entry in moved if "unit_id" in entry}
         came = set(arrived) | (set(opened) & followed)
         here = sorted(set(opened) - came)
-        names = [
-            stored.folder_path.name
+        found = [
+            stored
             for stored in (self._store.unit_by_id(unit_id) for unit_id in here)
             if stored is not None
         ]
-        return sorted(came), names
+        return (
+            sorted(came),
+            [stored.folder_path.name for stored in found],
+            [stored.unit_id for stored in found],
+        )
+
+    def _what_changed_inside(
+        self, units: Sequence[AlbumUnit], shelved: set[int]
+    ) -> list[dict[str, object]]:
+        """Which albums on the shelf hold other files than when last seen, and how many.
+
+        **A folder dropped again is not always the album it was.** A download
+        still landing, a bonus disc added by hand, a track deleted: read again,
+        the album is the one on the shelf and the files join it, and saying
+        only *already in your library* leaves the change to be found by
+        accident. Compared by path against the last sighting of that folder,
+        so a file renamed counts as one leaving and one joining, which is what
+        happened on the disk.
+        """
+        folders = self._store.units_by_folder()
+        changes: list[dict[str, object]] = []
+        for unit in units:
+            unit_id = folders.get(unit.folder_path)
+            if unit_id is None or unit_id not in shelved:
+                continue
+            before = self._store.paths_last_seen(unit_id, unit.folder_path)
+            if not before:
+                continue
+            now = {str(file.path) for file in unit.audio_files}
+            joined, left = len(now - before), len(before - now)
+            if joined or left:
+                changes.append({"album": unit.folder_path.name, "joined": joined, "left": left})
+        return changes
 
     def _same_audio_on_shelf(
         self, recorded: Mapping[str, int], newer_than: int
@@ -7155,16 +7660,25 @@ class LibraryApi:
         for folder, unit_id in recorded.items():
             if unit_id <= newer_than:
                 continue
-            twin = next(
-                (
-                    other
-                    for other in self._store.albums_holding_all_of(unit_id)
-                    if other.folder_path.is_dir()
-                ),
-                None,
-            )
-            if twin is None:
+            holding = [
+                other
+                for other in self._store.albums_holding_all_of(unit_id)
+                if other.folder_path.is_dir()
+            ]
+            if not holding:
                 continue
+            # **Holding every stream is not being the same album.** A reissue
+            # with bonus tracks, a two-in-one or a compilation holds every
+            # stream of the record it contains, and a sentence calling that the
+            # same audio reads as a second copy of an album there is one of.
+            # So the counts are compared here, where they are known, and the
+            # answer travels named: an identical copy is preferred as the twin,
+            # and otherwise the smallest album that holds this one.
+            tracks = self._store.streams_held(unit_id)
+            twin_tracks, twin = min(
+                ((self._store.streams_held(other.unit_id), other) for other in holding),
+                key=lambda pair: (pair[0] != tracks, pair[0], pair[1].unit_id),
+            )
             found.append(
                 {
                     "unit_id": unit_id,
@@ -7172,6 +7686,9 @@ class LibraryApi:
                     "twin_id": twin.unit_id,
                     "twin": twin.folder_path.name,
                     "twin_folder": str(twin.folder_path),
+                    "tracks": tracks,
+                    "twin_tracks": twin_tracks,
+                    "identical": twin_tracks == tracks,
                 }
             )
             self._logger.info(
@@ -7456,6 +7973,48 @@ class LibraryApi:
         )
         state.identification_id, state.plan_id = self._persist_outcome(state)
         return True
+
+    def _names_on_organized(self, unit_signature: str) -> dict[int, frozenset[str]]:
+        """What the names of the organized albums a verdict speaks about would carry.
+
+        Per album row, the files a plan would name lossy: the measurement the
+        names are built from, with the user's words on top, exactly as a re-plan
+        reads them (`_with_overrides`). Nothing is decoded — an album this
+        session has not measured is read back from the store first. Taken
+        before a verdict is written so it can be compared with the same reading
+        after.
+        """
+        named: dict[int, frozenset[str]] = {}
+        for state in self._album_snapshot():
+            if state.unit.unit_signature != unit_signature:
+                continue
+            if not (state.applied or state.organized):
+                continue
+            if unit_signature not in self._measured:
+                self._facts_from_store([state.unit])
+            measured = self._measured.get(unit_signature, frozenset())
+            named[state.unit_id] = self._with_overrides(unit_signature, measured, [state.unit])
+        return named
+
+    def _renaming_that_waits(
+        self, unit_signature: str, before: Mapping[int, frozenset[str]]
+    ) -> list[dict[str, object]]:
+        """The organized albums whose names this verdict changed, which nothing re-planned.
+
+        **A verdict re-plans every album except the ones already organized**,
+        and those are exactly the ones whose names are on the disk. Without
+        this the word was recorded, the screen said so, and the folder went on
+        reading `[FLAC]` with nothing to say why or what to do. Only an album
+        whose names the word would actually change is returned, so marking
+        track after track of an album already named for it offers nothing.
+        """
+        after = self._names_on_organized(unit_signature)
+        waiting = []
+        for state in self._album_snapshot():
+            unit_id = state.unit_id
+            if unit_id in before and unit_id in after and before[unit_id] != after[unit_id]:
+                waiting.append({"unit_id": unit_id, "album": state.unit.folder_path.name})
+        return waiting
 
     def _replan_everything_named_by(self, unit_signature: str) -> int:
         """Re-plan every Library album a verdict just spoke about, and count them.
@@ -7799,7 +8358,13 @@ class LibraryApi:
     def _remember_rates(
         self, units: Sequence[AlbumUnit], known: Mapping[tuple[str, str | None], StoredQuality]
     ) -> None:
-        """Keep the bitrate of every file whose measurement is provably its own.
+        """Keep the bitrate a lossy stream measured below what it declares, when provably its own.
+
+        Only an ``overstated`` verdict's: that rate names the stream in its
+        folder and file names in place of the declared one. An honest stream's
+        measured rate is an approximation of what it declares and would rename
+        it for nothing, and a transcode's is never written (its word stands
+        alone), so neither is kept.
 
         Written as a filter rather than as a check at the moment of naming, so
         that a number that cannot be attributed never enters the application at
@@ -7808,18 +8373,27 @@ class LibraryApi:
         the signature.
 
         A row written before `audio_key` existed whose signature is ambiguous
-        is therefore withheld, and the name keeps the word `[Lossy]` without a
-        number. Analyzing an album in depth is what earns it back.
+        is therefore withheld, and the name keeps the declared rate. Analyzing
+        an album in depth is what earns it back.
+
+        **A rate this reading does not support is taken away**, not only left
+        unadded: a stream once measured overstated and measured honest since
+        would otherwise keep naming itself by the old number.
         """
         audio_files = [file for unit in units for file in unit.audio_files]
         signatures = [file.content_signature for file in audio_files]
         ambiguous = self._store.ambiguous_signatures(signatures, _is_on_disk)
         for file in audio_files:
             quality = known.get((file.content_signature, file.audio_key))
-            if quality is None or not quality.effective_bitrate_kbps:
-                continue
-            if quality.is_this_file or file.content_signature not in ambiguous:
+            if (
+                quality is not None
+                and quality.encoding == "overstated"
+                and quality.effective_bitrate_kbps
+                and (quality.is_this_file or file.content_signature not in ambiguous)
+            ):
                 self._rates[file.content_signature] = quality.effective_bitrate_kbps
+            elif quality is not None:
+                self._rates.pop(file.content_signature, None)
 
     def _with_overrides(
         self, unit_signature: str, marked: frozenset[str], units: Sequence[AlbumUnit]
@@ -8950,6 +9524,8 @@ class LibraryApi:
                 "album": provenance.album,
                 "album_agree": provenance.album_agree,
                 "year": provenance.year,
+                "year_from": provenance.year_from,
+                "compilation": provenance.compilation,
                 "titled": provenance.titled,
                 "numbered": provenance.numbered,
                 "dissent": list(provenance.dissent),
@@ -9086,68 +9662,83 @@ class LibraryApi:
                     return source
         return None
 
-    def _embedded_cover(self, unit: AlbumUnit) -> str | None:
+    def _embedded_cover(self, unit: AlbumUnit, unit_id: int | None) -> str | None:
         """The picture this album already has, from wherever it actually keeps it.
 
-        The embedded one first, because it is this application's own business —
-        and then the folder's, which is where a great many albums keep the only
-        cover they have. Reading only the first track would show an empty card
-        for a folder whose files carry no picture and which holds a perfectly
-        good `cover.jpg`.
+        Five steps, the first that answers wins:
+
+        1. the front this application wrote, or the user chose, as long as it
+           is still in the folder or the first track — a decision on record
+           outranks every guess below;
+        2. a folder picture whose name says it is the front, or carries the
+           album's title;
+        3. a folder picture the first track also carries;
+        4. the picture inside the first track;
+        5. the largest folder picture that does not say it is not the front.
+
+        Steps 2, 3 and 5 are ``front_in_folder``'s ranking, and ``vouched`` is
+        what separates them from 5. Size alone used to decide, and a ripper's
+        screenshot twice the size of `cover.jpg` took the card for that reason.
         """
         if self._cover_cache is None or not unit.audio_files:
             return None
-        # **The folder's picture first.** It is the album's cover in the only
-        # sense anything outside this application uses: it is what the Finder
-        # draws and what every player reads, and it is one picture for the
-        # record rather than one per track. The first track may carry a
-        # ripper's logo while the real cover sits in the folder beside it, or
-        # no picture at all.
-        from_folder = self._folder_cover(unit)
-        if from_folder is not None:
-            return from_folder
         first = unit.audio_files[0].path
         try:
-            facts = self._artwork_store.describe_embedded(first)
-            if facts is None:
-                return None
-            self._cover_cache.mkdir(parents=True, exist_ok=True)
-            cached = self._cover_cache / f"{facts.digest}{extension_for(facts.media_type)}"
-            if not cached.is_file():
-                self._artwork_store.extract(first, cached)
-            return self._picture(cached)
+            inside = self._artwork_store.describe_embedded(first)
         except Exception:
-            return None
-
-    def _folder_cover(self, unit: AlbumUnit) -> str | None:
-        """The image sitting in the album's own folder, drawn as it is."""
-        if unit.is_loose_track:
-            return None
+            inside = None
         artwork = self._pipeline.artwork
-        if self._cover_cache is None or artwork is None:
-            return None
-        folder = unit.folder_path
+        pictures = (
+            artwork.pictures_in_folder(unit.folder_path)
+            if artwork is not None and not unit.is_loose_track
+            else ()
+        )
         try:
-            # **One rule, one place**: `front_in_folder`, the largest picture
-            # that does not say it is not the front. Taking the first image in
-            # alphabetical order instead would pick `back.jpg` in every folder
-            # that has one.
-            found = artwork.front_in_folder(folder)
-            if found is not None:
-                facts, entry = found
-                # Copied into the cache and served from there, exactly as an
-                # embedded picture is. Serving it from the album's own folder
-                # would hand the window a path outside the one directory the
-                # image server answers for, and the fallback to a `data:` URI
-                # is the slow path this cache exists to avoid.
-                self._cover_cache.mkdir(parents=True, exist_ok=True)
-                cached = self._cover_cache / f"{facts.digest}{extension_for(facts.media_type)}"
-                if not cached.is_file():
-                    cached.write_bytes(entry.read_bytes())
-                return self._picture(cached)
+            for digest in self._store.written_fronts(unit_id) if unit_id is not None else ():
+                for facts, entry in pictures:
+                    if facts.digest == digest:
+                        return self._folder_picture(facts, entry)
+                if inside is not None and inside.digest == digest:
+                    return self._track_picture(first, inside)
+            front = (
+                artwork.front_in_folder(
+                    unit.folder_path,
+                    inside=frozenset({inside.digest}) if inside is not None else frozenset(),
+                )
+                if pictures and artwork is not None
+                else None
+            )
+            if front is not None and (front.vouched or inside is None):
+                return self._folder_picture(front.facts, front.path)
+            if inside is not None:
+                return self._track_picture(first, inside)
         except Exception:
             return None
         return None
+
+    def _folder_picture(self, facts: ImageFacts, entry: Path) -> str | None:
+        """Draw a picture from the album's folder through the cover cache.
+
+        Copied into the cache and served from there, exactly as an embedded
+        picture is. Serving it from the album's own folder would hand the window
+        a path outside the one directory the image server answers for, and the
+        fallback to a `data:` URI is the slow path this cache exists to avoid.
+        """
+        assert self._cover_cache is not None
+        self._cover_cache.mkdir(parents=True, exist_ok=True)
+        cached = self._cover_cache / f"{facts.digest}{extension_for(facts.media_type)}"
+        if not cached.is_file():
+            cached.write_bytes(entry.read_bytes())
+        return self._picture(cached)
+
+    def _track_picture(self, track: Path, facts: ImageFacts) -> str | None:
+        """Draw the picture embedded in one track through the cover cache."""
+        assert self._cover_cache is not None
+        self._cover_cache.mkdir(parents=True, exist_ok=True)
+        cached = self._cover_cache / f"{facts.digest}{extension_for(facts.media_type)}"
+        if not cached.is_file():
+            self._artwork_store.extract(track, cached)
+        return self._picture(cached)
 
     def _chosen_preview(self, plan: ChangePlan) -> str | None:
         """Draw the picture a cover plan would write, before it is written.
@@ -10504,6 +11095,142 @@ def _written_credit(track: TrackMetadata) -> str:
     return written_credit(track.artists)
 
 
+_NO_COLLECTION: dict[str, object] = {
+    "ok": False,
+    "error": "The collection is not part of this installation.",
+}
+
+
+_LIST_LIMIT_BYTES = 20 * 1024 * 1024
+"""A list of records is text; anything past this is not one."""
+
+
+def _read_mapping(mapping: Mapping[str, str] | None) -> dict[int, str]:
+    """The window's mapping, column index to field; a column left out is not read."""
+    read: dict[int, str] = {}
+    for index, name in (mapping or {}).items():
+        if name and str(index).isdigit():
+            read[int(index)] = str(name)
+    return read
+
+
+def _import_plan_payload(plan: ImportPlan) -> dict[str, object]:
+    return {
+        "ok": not plan.problems,
+        "problems": list(plan.problems),
+        "error": " ".join(plan.problems) or None,
+        "records": len(plan.records),
+        "skipped": [{"line": line, "reason": reason} for line, reason in plan.skipped],
+        "already_here": [{"line": line, "name": name} for line, name in plan.already_here],
+        "ungraded": plan.ungraded,
+        "no_year": plan.no_year,
+        "new_locations": list(plan.new_locations),
+        "new_categories": list(plan.new_categories),
+    }
+
+
+def _stored_candidate_payload(candidate: Candidate) -> dict[str, object]:
+    return {
+        "source": candidate.source,
+        "release_id": candidate.release_id,
+        "title": candidate.title,
+        "artist": candidate.artist,
+        "year": candidate.year,
+        "country": candidate.country,
+        "formats": list(candidate.formats),
+        "labels": list(candidate.labels),
+        "catalog_numbers": list(candidate.catalog_numbers),
+        "group_id": candidate.group_id,
+        "original_year": candidate.original_year,
+        "is_group": candidate.is_group,
+        "url": (
+            _group_url(candidate.source, candidate.group_id)
+            if candidate.is_group
+            else _source_url(_Linked(MetadataSourceId(candidate.source), candidate.release_id))
+        ),
+    }
+
+
+_GROUP_LINKS = {MetadataSources.DISCOGS: "https://www.discogs.com/master/{id}"}
+
+
+def _group_url(source: str, group_id: str) -> str | None:
+    """The public page of an album, for the line that offers the album itself."""
+    template = _GROUP_LINKS.get(MetadataSourceId(source))
+    return template.format(id=group_id) if template and group_id else None
+
+
+@dataclass(frozen=True, slots=True)
+class _Linked:
+    """Just enough of a release for `_source_url` to build its page."""
+
+    source: MetadataSourceId
+    source_release_id: str
+
+
+def _typed_year(value: object) -> int | str | None:
+    """A year as typed, ``None`` when none was, or the reason it is not a year."""
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return None
+    if text.isdigit() and len(text) == 4:
+        return int(text)
+    return f"“{text}” is not a year."
+
+
+def _record_payload(record: PhysicalRecord, release: ReleaseMetadata | None) -> dict[str, object]:
+    """One record for the window: the user's words and facts, and the catalogue's.
+
+    The two are kept apart: what the catalogue says about the pressing
+    travels under ``release`` and is read, never edited; what the user says —
+    condition, place, notes, categories, and the words of a record no catalogue
+    identified — travels beside it.
+    """
+    return {
+        "record_id": record.record_id,
+        "artist": record.artist,
+        "album": record.album,
+        "year": record.year,
+        "identified": record.identified,
+        "identified_by": record.identified_by,
+        "media_grade": record.media_grade,
+        "sleeve_grade": record.sleeve_grade,
+        "location_id": record.location_id,
+        "notes": record.notes,
+        "category_ids": list(record.category_ids),
+        "label": record.label,
+        "catalog_number": record.catalog_number,
+        "edition": record.edition,
+        "country": record.country,
+        "candidate_count": record.candidate_count,
+        "candidates_asked": record.candidates_asked_at is not None,
+        "candidates_error": record.candidates_error,
+        "release": None if release is None else _collection_release(release),
+    }
+
+
+def _collection_release(release: ReleaseMetadata) -> dict[str, object]:
+    return {
+        "source": str(release.source),
+        "release_id": release.source_release_id,
+        "title": release.title,
+        "artist": written_credit(release.artists),
+        "released": None if release.released_on is None else release.released_on.isoformat(),
+        "original_year": (
+            None if release.original_released_on is None else release.original_released_on.year
+        ),
+        "country": release.country,
+        "labels": list(release.labels),
+        "catalog_numbers": list(release.catalog_numbers),
+        "formats": list(release.formats),
+        "barcode": release.barcode,
+        "genres": list(release.genres),
+        "styles": list(release.styles),
+        "master_id": release.release_group_id,
+        "url": _source_url(release),
+    }
+
+
 def _source_url(release: object) -> str | None:
     """Build the public page of a release, so the user can verify the match."""
     if release is None:
@@ -10534,6 +11261,10 @@ HELP_PAGES = frozenset(
     }
 )
 """Where the welcome sends someone to create a key, matched exactly."""
+
+ATTRIBUTION_PAGES = frozenset({"https://www.discogs.com"})
+"""Where the attribution the Discogs terms require points, matched exactly."""
+
 
 CATALOGUE_HOSTS = frozenset(
     {"discogs.com", "www.discogs.com", "musicbrainz.org", "www.musicbrainz.org"}

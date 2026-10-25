@@ -9,54 +9,63 @@ path on disk, because it reads the audio in place and never copies it. Only the
 native side knows the path, so the drop is read here and the application layer
 receives a plain list of strings, the same way it receives the folder dialog.
 
-Two things about pywebview 6.2 are worth writing down, because both are
-invisible until a drop silently does nothing:
+Three things about pywebview 6.2 are worth writing down, because each is
+invisible until a drop does nothing:
 
-- The paths are collected only while something is listening. `performDragOperation_`
-  checks a listener count before it reads the pasteboard, so registering the
-  handler is what switches the feature on, not just what consumes it.
-- `pywebviewFullPath` is attached by matching a recorded path against the name
-  the page reports, and for a **directory** the recorded key is the name of its
-  *parent* — so for a dropped folder the two never match and the path is never
-  attached. The paths are still collected, so they are read from where they are
-  collected. Both routes are honoured here: the attached one when it is there,
-  the collected list when it is not.
+- The paths are collected only while something is listening.
+  `performDragOperation_` checks a listener count before it reads the
+  pasteboard, so that count is what switches the feature on.
+- **The listener itself is never registered.** pywebview answers a DOM listener
+  by serialising the whole event for the bridge, and an event carries its
+  `currentTarget` — the element listened on, with every descendant and each
+  one's `innerHTML`, `outerHTML` and `textContent`. Listening on `<body>` sent
+  the entire window across as one JSON string on every drop — about 2.4 kB
+  for each element on the page, so tens of megabytes for a shelf of a thousand
+  albums — and past the engine's longest string it raised *Out of memory*
+  inside pywebview's own script, so nothing reached this side and the window
+  waited for an answer that was never sent. The page already knows a
+  drop happened; it asks for the paths through the bridge like any other call,
+  and what crosses is the paths.
+- The paths are recorded before the page hears of the drop — the native
+  handler reads the pasteboard and only then hands the event to the webview —
+  so by the time the page asks, they are there.
 """
 
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 
 from webview.dom import _dnd_state
 
-__all__ = ["listen"]
+__all__ = ["listen", "take"]
+
+_listening = False
 
 
-def listen(window: object, deliver: Callable[[tuple[str, ...]], None]) -> bool:
-    """Call ``deliver`` with the folders dropped anywhere on ``window``.
+def listen() -> None:
+    """Switch on the native collection of dropped paths, once."""
+    global _listening
+    if _listening:
+        return
+    _listening = True
+    _dnd_state["num_listeners"] += 1
 
-    Returns whether the listener could be registered. A platform that does not
-    carry paths through a drop loses the gesture and keeps the application:
-    every other way of adding a folder is untouched.
+
+def take() -> tuple[str, ...]:
+    """Return the folders dropped since the last call, and forget them.
+
+    Taken and cleared, because the platform appends to this list and never
+    empties it: left in place, the next drop would add this one's folders
+    again.
     """
-    try:
-        body = window.dom.body  # type: ignore[attr-defined]
-    except Exception:
-        return False
-
-    def dropped(event: dict[str, object]) -> None:
-        deliver(_folders(event))
-
-    try:
-        body.events.drop += dropped
-    except Exception:
-        return False
-    return True
+    paths = [str(path) for _, path in _dnd_state["paths"]]
+    _dnd_state["paths"].clear()
+    return _folders(paths)
 
 
-def _folders(event: dict[str, object]) -> tuple[str, ...]:
-    """Return the directories in one drop, in the order they were dropped."""
+def _folders(paths: Iterable[str]) -> tuple[str, ...]:
+    """Return the directories among ``paths``, in the order they were dropped."""
     found: list[str] = []
-    for path in _paths(event):
+    for path in paths:
         # A folder is what this application organises. Dropping the tracks
         # themselves means the same album, so the folder holding them is what
         # is taken — and dropping ten tracks of one album adds it once.
@@ -75,20 +84,3 @@ def _folders(event: dict[str, object]) -> tuple[str, ...]:
         if folder and folder not in found:
             found.append(folder)
     return tuple(found)
-
-
-def _paths(event: dict[str, object]) -> Iterable[str]:
-    """Read every real path this drop carried, by whichever route carried it."""
-    transfer = event.get("dataTransfer") or {}
-    files = transfer.get("files", []) if isinstance(transfer, dict) else []
-    attached = [
-        str(entry["pywebviewFullPath"])
-        for entry in files
-        if isinstance(entry, dict) and entry.get("pywebviewFullPath")
-    ]
-    # Whatever was not matched to a name is still recorded, and for a dropped
-    # folder nothing ever is. Taken and cleared, so the next drop starts empty
-    # rather than re-adding this one.
-    collected = [str(path) for _, path in _dnd_state["paths"]]
-    _dnd_state["paths"].clear()
-    return [*attached, *collected]

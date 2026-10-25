@@ -15,7 +15,7 @@ from diglibrary.metadata.normalization import fold_accents, normalize_text
 
 _BRACKET_SUFFIX = re.compile(r"\s*\[[^\]]*\]\s*$")
 # Edition wording a catalogue does not carry in its release title. Left in the
-# query, a search for "Night Train (Remastered)" returns nothing at all.
+# query, a search for "Lenha Zorca (Remastered)" returns nothing at all.
 _EDITION_WORDS = (
     "remaster",
     "remasteriz",
@@ -289,7 +289,7 @@ def hints_from_folder_name(name: str, numbered_collection: bool = False) -> Sear
 
     Trailing brackets, repeated years, and edition wording are removed, because a
     catalogue stores the release title without them and a query carrying them
-    matches nothing: "Night Train (Remastered)" and "Harbour (1974) (1974)"
+    matches nothing: "Lenha Zorca (Remastered)" and "Harbour (1974) (1974)"
     are not titles any catalogue holds.
 
     ``numbered_collection`` says the caller established that these folders are
@@ -502,7 +502,7 @@ def clean_album_title(title: str) -> str:
     """Strip the decoration a catalogue does not store from an album title.
 
     Applied to whatever the title came from: a tag is as likely as a folder
-    name to read "Night Train (Remastered)".
+    name to read "Lenha Zorca (Remastered)".
     """
     cleaned = normalize_text(title) or ""
     while True:

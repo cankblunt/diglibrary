@@ -1,6 +1,6 @@
 # DigLibrary
 
-**Em português: [LEIAME.md](https://github.com/cankblunt/diglibrary/blob/v1.7.0/LEIAME.md)** — mesmo conteúdo, passo a passo.
+**Em português: [LEIAME.md](https://github.com/cankblunt/diglibrary/blob/v1.8.0/LEIAME.md)** — mesmo conteúdo, passo a passo.
 
 A desktop application for the state a music collection is actually in: **hundreds
 of albums, from a hundred sources, each named however it happened to arrive.**
@@ -74,7 +74,7 @@ and give an album a cover when the archive has none.
 untouched and sent to review with the reason why. It never touches a Rekordbox
 database.
 
-### The six screens
+### The seven screens
 
 | | |
 |---|---|
@@ -84,6 +84,7 @@ database.
 | **Quality** | The bench: what a file really is, with a spectrogram and a verdict. |
 | **Mixing** | Key, tempo and the Camelot wheel over the tracks you have measured. |
 | **History** | Every run that wrote to your files, each with a `Revert`. |
+| **Collection** | The records on your shelf, added one by one or imported from a list you keep: identified from a link, a barcode or a search, graded, and filed where you keep them. Never priced. |
 
 ---
 
@@ -182,7 +183,7 @@ brew install chromaprint
 application, installed from the code rather than by name — which is what you
 want if you mean to read it, change it, or run its test suite.
 
-![Three stages: install the tools, get DigLibrary, open it](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.7.0/docs/images/steps.svg)
+![Three stages: install the tools, get DigLibrary, open it](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.8.0/docs/images/steps.svg)
 
 Each step below is one line: copy it, paste it, press Return (Enter), wait for
 it to finish. About fifteen minutes in total, and steps 1 and 2 are done once
@@ -222,7 +223,7 @@ brew install chromaprint
 
 Download the ZIP from the
 [latest release](https://github.com/cankblunt/diglibrary/releases/latest) and
-double-click it. You get a folder called something like `diglibrary-1.7.0`,
+double-click it. You get a folder called something like `diglibrary-1.8.0`,
 normally in **Downloads**. Leave it there or move it wherever you keep things —
 just remember where.
 
@@ -232,7 +233,7 @@ Type `cd` and a space, then **drag the folder from Finder onto the Terminal
 window** — it writes the path for you — then press Return (Enter).
 
 ```bash
-cd ~/Downloads/diglibrary-1.7.0
+cd ~/Downloads/diglibrary-1.8.0
 ```
 
 ### 5. Make a place for it to live
@@ -259,7 +260,7 @@ That line is how you know it worked.
 .venv/bin/python -m diglibrary
 ```
 
-![What the Terminal looks like](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.7.0/docs/images/terminal.svg)
+![What the Terminal looks like](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.8.0/docs/images/terminal.svg)
 
 The window opens. **Leave the Terminal open while you use the app** — closing it
 closes DigLibrary. From now on, opening DigLibrary again is steps 4 and 7: point
@@ -292,13 +293,13 @@ press **Scan**. Nothing is written to your files until you read a plan and press
 **The Library**, where your records live. The sleeves are blank in the picture
 below because it shows a simulated library, made of invented albums.
 
-![The Library screen](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.7.0/docs/images/screen-library.png)
+![The Library screen](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.8.0/docs/images/screen-library.png)
 
 **Mixing**, for DJs: the key and the tempo of the tracks you asked it to
 measure, laid around the Camelot wheel, each key with how decided the reading
 was and — where it was close — the key it beat.
 
-![The Mixing screen](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.7.0/docs/images/screen-mixing.png)
+![The Mixing screen](https://raw.githubusercontent.com/cankblunt/diglibrary/v1.8.0/docs/images/screen-mixing.png)
 
 ### When something goes wrong
 
@@ -502,11 +503,11 @@ embedded — their terms do not permit it.
 
 The architectural boundaries are enforced by tests rather than by convention:
 `tests/architecture/` reads the source by its syntax tree and fails when a layer
-reaches across one. [CHANGELOG](https://github.com/cankblunt/diglibrary/blob/v1.7.0/CHANGELOG.md) says what each release
+reaches across one. [CHANGELOG](https://github.com/cankblunt/diglibrary/blob/v1.8.0/CHANGELOG.md) says what each release
 changed for the files on your disk.
 
 How to add a provider or a metadata source without editing the core:
-[Extending DigLibrary](https://github.com/cankblunt/diglibrary/blob/v1.7.0/docs/EXTENDING.md).
+[Extending DigLibrary](https://github.com/cankblunt/diglibrary/blob/v1.8.0/docs/EXTENDING.md).
 
 **There is a Homebrew tap**, if you would rather install this the way you install
 everything else — `ffmpeg` arrives with it and no Terminal has to be reopened:
@@ -529,4 +530,4 @@ here; the tap repository is a copy of that one file.
 
 ## License
 
-MIT — see [LICENSE](https://github.com/cankblunt/diglibrary/blob/v1.7.0/LICENSE).
+MIT — see [LICENSE](https://github.com/cankblunt/diglibrary/blob/v1.8.0/LICENSE).

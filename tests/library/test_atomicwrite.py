@@ -140,3 +140,31 @@ def test_the_finder_icon_survives_a_rewrite(tmp_path: Path) -> None:
     assert target.read_bytes() == b"the recording, retagged"
     assert "com.apple.ResourceFork" in names(target), "the icon must outlive the write"
     assert "com.apple.FinderInfo" in names(target), "and the flag that draws it"
+
+
+@pytest.mark.parametrize("word", ["Zorvelim & ", "Ação é Já & "], ids=["ascii", "accented"])
+def test_a_name_at_the_filesystem_s_line_can_still_be_rewritten(tmp_path: Path, word: str) -> None:
+    """The copy's name is ten bytes longer than the file's, and must still be storable.
+
+    A track named up to the 255-byte line — a live record crediting every guest
+    — had its cover refused with ``ENAMETOOLONG``: not the file, its copy. The
+    accented case is cut on a character boundary, two bytes at a time.
+    """
+    stem = "2-11. "
+    while len(f"{stem}{word}".encode()) + len(".flac") <= 255:
+        stem += word
+    stem += "x" * (255 - len(".flac") - len(stem.encode()))
+    song = _file(tmp_path / f"{stem}.flac")
+    assert len(song.name.encode()) == 255
+    seen: list[Path] = []
+
+    def write(copy: Path) -> None:
+        seen.append(copy)
+        copy.write_bytes(b"the new recording")
+
+    replacing(song, write)
+
+    assert song.read_bytes() == b"the new recording"
+    assert len(seen[0].name.encode()) <= 255
+    assert seen[0].name.startswith(".2-11. ") and seen[0].suffix == ".flac"
+    assert list(tmp_path.iterdir()) == [song]

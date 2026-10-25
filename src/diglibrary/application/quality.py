@@ -12,6 +12,7 @@ from diglibrary.library.audio_key import audio_key
 from diglibrary.library.models import AlbumUnit, AudioFileFacts
 from diglibrary.library.scanner import LibraryScanner
 from diglibrary.quality.analysis import FfmpegQualityAnalyzer
+from diglibrary.quality.edges import FilterEdge
 from diglibrary.quality.framing import READINGS, FrameGrid
 from diglibrary.quality.models import Encoding, Proof, TrackAnalysis
 from diglibrary.quality.verdict import (
@@ -21,6 +22,7 @@ from diglibrary.quality.verdict import (
     album_is_transcoded,
     album_proof,
     album_transcode_reason,
+    convicted_by_filter_edge,
     convicted_by_frame_grid,
     judge_album,
     track_is_transcoded,
@@ -225,7 +227,7 @@ class QualitySurvey:
         # that ever stopped being true the rows would go on being written with
         # the last files silently left out.
         for (signature, analysis), track in zip(present, verdict.tracks, strict=True):
-            fresh[signature] = _stored(track, analysis)
+            fresh[signature] = stored_measurement(track, analysis)
         # An album measured earlier is rebuilt from the database rather than
         # decoded again, so a second scan of a library costs no audio at all.
         replayed = [
@@ -275,7 +277,9 @@ def _unmeasured(unit: AlbumUnit) -> AlbumQuality:
     )
 
 
-def _stored(track: TrackVerdict, analysis: TrackAnalysis) -> StoredQuality:
+def stored_measurement(
+    track: TrackVerdict, analysis: TrackAnalysis, key: str | None = None
+) -> StoredQuality:
     """Render one track's verdict in the shape the database keeps.
 
     The row names the audio it was taken from. Without that it answers for every
@@ -291,6 +295,11 @@ def _stored(track: TrackVerdict, analysis: TrackAnalysis) -> StoredQuality:
     change an answer is the wrong shape: ambiguity is not a stable property,
     and a file that becomes ambiguous later has already been written without
     a key.
+
+    **The one place a measurement becomes a row.** The survey and the deep pass
+    both write through it, so a column added for one cannot be forgotten by the
+    other — that is how the two once judged one file two ways. ``key`` is
+    handed in by a caller that already holds the file's key.
     """
     return StoredQuality(
         encoding=str(track.encoding),
@@ -301,7 +310,7 @@ def _stored(track: TrackVerdict, analysis: TrackAnalysis) -> StoredQuality:
         ceiling_db=analysis.spectral.ceiling_db,
         findings=tuple(str(name) for name in track.findings),
         reason=track.reason,
-        audio_key=audio_key(analysis.path),
+        audio_key=key or audio_key(analysis.path),
         # And which ruler measured it. Present means the wall was found as a
         # step; absent means this row is older than that rule and is left to
         # the conclusion it was given.
@@ -321,6 +330,10 @@ def _stored(track: TrackVerdict, analysis: TrackAnalysis) -> StoredQuality:
         frame_grid_agreeing=(
             None if analysis.frame_grid is None else analysis.frame_grid.agreeing_readings
         ),
+        # And how much of it stops at one frequency, so that a row caught by its
+        # edge is still caught when it is read back.
+        edge_share=None if analysis.filter_edge is None else analysis.filter_edge.share,
+        edge_hertz=None if analysis.filter_edge is None else analysis.filter_edge.hertz,
     )
 
 
@@ -588,6 +601,13 @@ def _grid_of(quality: StoredQuality) -> FrameGrid | None:
     return FrameGrid(peak_z=quality.frame_grid_z, offset=-1, agreeing_readings=agreeing)
 
 
+def _edge_of(quality: StoredQuality) -> FilterEdge | None:
+    """Rebuild the edge reading a row carries, or ``None`` if it carries none."""
+    if quality.edge_share is None:
+        return None
+    return FilterEdge(share=quality.edge_share, hertz=quality.edge_hertz)
+
+
 def _key_of(file: AudioFileFacts) -> tuple[str, str | None]:
     """Name one file by its audio, falling back to its declared shape.
 
@@ -627,6 +647,10 @@ def stored_track_is_transcoded(quality: StoredQuality) -> bool:
     # caught. A row with no grid columns predates the question and falls
     # through to the rule it was measured for.
     if convicted_by_frame_grid(_grid_of(quality)):
+        return True
+    # And the edge read frame by frame, for the same reason: the probes'
+    # spectrum of a file it caught can read lossless.
+    if convicted_by_filter_edge(_edge_of(quality)):
         return True
     if quality.decay_db is None or quality.ceiling_db is None:
         return quality.encoding == "transcoded"

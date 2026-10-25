@@ -1015,6 +1015,7 @@ export const STR = {
   chooseCover: "Choose a cover…",
   // The same gesture over an album that already has a picture.
   changeCover: "Change cover…",
+  tipEnlargeCover: "Show this cover at its full size.",
   tipChooseCover:
     "Pick an image from this Mac. It becomes the folder's cover, the picture "
     + "inside every track and the tracks' icons in the Finder. Nothing is "
@@ -1300,14 +1301,20 @@ export const STR = {
       : "Nothing in those folders looked like an album.",
   // Found, and already here. Said apart from the sentence above: an album
   // already on the shelf is not a folder where nothing looked like an album.
-  // **Said, and nothing else.** The album is named, so the search is the
-  // user's to use with the words in front of them; the application does not
-  // write into the search box.
+  // Named, and then pointed at on the shelf once this notice is closed: the
+  // window brings it into view and highlights it, and marks nothing.
   adoptedKnown: (names) =>
     names.length === 1
-      ? `“${names[0]}” is already in your library. Search for it by name to find it.`
+      ? `“${names[0]}” is already in your library. It is highlighted on the shelf.`
       : `${names.length} of these albums are already in your library: `
-        + `${STR.someNamed(names)}. Search for them by name to find them.`,
+        + `${STR.someNamed(names)}. They are highlighted on the shelf.`,
+  // Already here, and kept off the screen by the filter or the search in use,
+  // which the application does not change on the user's behalf.
+  knownHidden: (names) =>
+    names.length === 1
+      ? `“${names[0]}” is hidden by the filter or the search in use, so it cannot be shown.`
+      : `${names.length} of them are hidden by the filter or the search in use: `
+        + `${STR.someNamed(names)}.`,
   // Up to three names, quoted, and a count of the rest.
   someNamed: (names) => {
     const quoted = names.slice(0, 3).map((name) => `“${name}”`);
@@ -1329,6 +1336,209 @@ export const STR = {
       : `${found.length} albums that just arrived hold the same audio as albums already `
         + `in your library: ${STR.someNamed(found.map((entry) => entry.album))}. `
         + "Both copies of each are kept; nothing was moved or deleted.",
+  // A new album whose every track is already on the shelf inside a larger
+  // album: a reissue with bonus tracks, a two-in-one, a compilation. Not a
+  // second copy, so it is not said as one. The counts are the server's.
+  arrivedInsideAnother: (found) =>
+    found.length === 1
+      ? `Every track of “${found[0].album}” is also in another album in your library, `
+        + `at ${found[0].twin_folder}, which has ${found[0].twin_tracks} tracks to this one's `
+        + `${found[0].tracks}. Both are kept; nothing was moved or deleted.`
+      : `${found.length} albums that just arrived have every track inside a larger album `
+        + `already in your library: ${STR.someNamed(found.map((entry) => entry.album))}. `
+        + "Both are kept; nothing was moved or deleted.",
+  // A verdict on an album already organized: its names were written before the
+  // verdict, and only planning it again shows the names the verdict gives it.
+  renameWaitsHeading: "The names on disk come from before this",
+  renameWaits: (album) =>
+    `“${album}” is already organized, so its folder and file names were written `
+    + "before this verdict and still read as they did. Plan it again to see the names "
+    + "the verdict gives it. Nothing is renamed until you approve the plan.",
+  // An album already on the shelf, read again from its folder, whose files are
+  // not the ones that folder held when it was last seen.
+  knownChanged: (changes) =>
+    changes
+      .map((change) => {
+        const parts = [];
+        if (change.joined) {
+          parts.push(
+            change.joined === 1 ? "one file joined it" : `${change.joined} files joined it`,
+          );
+        }
+        if (change.left) {
+          parts.push(
+            change.left === 1
+              ? "one file is no longer in it"
+              : `${change.left} files are no longer in it`,
+          );
+        }
+        return `“${change.album}” was already in your library, and ${parts.join(" and ")} `
+          + "since it was last read.";
+      })
+      .join(" "),
+  // The physical collection. A record's condition, location,
+  // notes and categories are the user's; the pressing is the catalogue's.
+  tabCollection: "Collection",
+  collectionHeading: "Your records",
+  collectionNote:
+    "The records on your shelf: the catalogue's facts about each pressing, and its condition, "
+    + "location, notes and categories, which are yours. Nothing here is ever priced.",
+  collectionAdd: "Add a record",
+  collectionLocations: "Locations",
+  collectionCategories: "Categories",
+  tipSearchCollection: "Find a record on your shelf by artist, album, label or note",
+  emptyCollection:
+    "No records yet. Add one by pasting a link, typing its barcode, or searching for it.",
+  collectionNone: "No record matches that search.",
+  collectionColumnRecord: "Artist - Album",
+  collectionColumnYear: "Year",
+  collectionColumnPressing: "Label · Catalogue no.",
+  collectionColumnMedia: "Record",
+  collectionColumnSleeve: "Sleeve",
+  collectionColumnLocation: "Location",
+  collectionColumnCategories: "Categories",
+  collectionAttribution: "Data provided by Discogs",
+  collectionAddHeading: "Add a record",
+  collectionIdentifyHeading: (name) => `Identify “${name}”`,
+  collectionAddNote: "Nothing is chosen for you: pick the pressing you hold.",
+  collectionLinkLabel: "A Discogs or MusicBrainz release link",
+  collectionLinkAdd: "Use this link",
+  collectionBarcodeLabel: "The barcode printed on it",
+  collectionFind: "Find",
+  collectionArtist: "Artist",
+  collectionAlbum: "Album",
+  collectionYear: "Year",
+  collectionAddUnidentified: "Add it in these words, without a catalogue",
+  collectionAsking: "Asking the catalogue…",
+  collectionCandidatesNone: "The catalogue found no release for this.",
+  collectionCandidatesFound: (count) =>
+    count === 1 ? "1 release found. Pick the one you hold." : `${count} releases found. Pick the one you hold.`,
+  collectionChoose: "This is mine",
+  // The album itself, above its pressings: Discogs calls it a master.
+  collectionAlbumBadge: "Master",
+  collectionChooseAlbumTip:
+    "Adds the pressing the catalogue takes for the main one of this album.",
+  collectionFirstReleased: (year) => `first released ${year}`,
+  collectionThisRelease: (year) => `this release ${year}`,
+  collectionSeeIt: "See it",
+  collectionAdded: "Added to your records.",
+  collectionIdentified: "The pressing is identified.",
+  collectionSaved: "Saved.",
+  collectionRemoved: "Taken off the shelf.",
+  collectionUngraded: "Ungraded",
+  collectionNoLocation: "No location",
+  collectionNoCategories: "No categories yet. Add yours with Categories.",
+  collectionUnidentified: "not identified",
+  collectionYourWords: "In your words, not identified by a catalogue.",
+  collectionFoundBy: (via) =>
+    ({ link: "Identified from a link.", barcode: "Identified by its barcode.", search: "Identified by a search." })[via]
+    || "",
+  collectionMediaLabel: "Record condition",
+  collectionSleeveLabel: "Sleeve condition",
+  collectionLocationLabel: "Location",
+  collectionCategoriesLabel: "Categories",
+  collectionNotesLabel: "Notes",
+  collectionRemove: "Take it off the shelf",
+  collectionIdentify: "Identify the pressing…",
+  collectionSave: "Save",
+  collectionFactLabel: "Label",
+  collectionFactCatalogue: "Catalogue no.",
+  collectionFactFormat: "Format",
+  collectionFactCountry: "Country",
+  collectionFactReleased: "Released",
+  collectionFactOriginal: "First released",
+  collectionFactBarcode: "Barcode",
+  collectionFactGenres: "Genres and styles",
+  collectionSeeOnCatalogue: "See this pressing in the catalogue",
+  collectionLocationsHeading: "Your locations",
+  collectionCategoriesHeading: "Your categories",
+  collectionLocationsNote: "Where your records are kept. Each record can be at one of them.",
+  collectionCategoriesNote: "How you file your records. A record can be under several.",
+  collectionListEmpty: "Nothing here yet.",
+  collectionListAdd: "Add",
+  collectionListRename: "Rename",
+  collectionListRemove: "Remove",
+  collectionConfirmHeading: "Are you sure?",
+  collectionConfirmYes: "Remove it",
+  collectionRemoveRecord: (name) =>
+    `“${name}” leaves your records, with its condition, location, notes and categories.`,
+  collectionRemoveInUse: (name, uses) =>
+    uses === 1
+      ? `“${name}” is used by 1 record, which keeps everything else.`
+      : `“${name}” is used by ${uses} records, which keep everything else.`,
+  // Importing a list, and the offers behind it.
+  collectionImport: "Import a list",
+  collectionImportHeading: "Import a list",
+  collectionImportNote: (file, lines) =>
+    `${file}: ${lines === 1 ? "1 line" : `${lines} lines`}. Point each column at a field, `
+    + "or leave it out. A column left out is not read.",
+  collectionImportColumn: "Column in your list",
+  collectionImportExample: "First lines",
+  collectionImportField: "Imported as",
+  collectionImportLeaveOut: "Not imported",
+  collectionImportPreview: "Check what would happen",
+  collectionImportApply: "Import",
+  collectionFieldName: (field) =>
+    ({
+      artist: "Artist",
+      album: "Album",
+      year: "Year",
+      label: "Label",
+      catalog_number: "Catalogue no.",
+      edition: "Edition",
+      country: "Country",
+      categories: "Categories",
+      media_grade: "Record condition",
+      sleeve_grade: "Sleeve condition",
+      location: "Location",
+      notes: "Notes",
+    })[field] || field,
+  collectionImportPlan: (plan) =>
+    [
+      plan.records === 1 ? "1 record will be added." : `${plan.records} records will be added.`,
+      plan.already_here.length
+        ? `${plan.already_here.length} already on your shelf, left out.`
+        : "",
+      plan.skipped.length
+        ? `${plan.skipped.length} ${plan.skipped.length === 1 ? "line has" : "lines have"} `
+          + "no artist and no album, left out"
+          + ` (line ${plan.skipped.slice(0, 5).map((entry) => entry.line).join(", ")}`
+          + `${plan.skipped.length > 5 ? ", …" : ""}).`
+        : "",
+      plan.ungraded
+        ? `${plan.ungraded} ${plan.ungraded === 1 ? "grade is" : "grades are"} not on the `
+          + "Goldmine scale and will be left ungraded."
+        : "",
+      plan.no_year
+        ? `${plan.no_year} ${plan.no_year === 1 ? "year is" : "years are"} not a year and will be left out.`
+        : "",
+      plan.new_locations.length ? `New locations: ${plan.new_locations.join(", ")}.` : "",
+      plan.new_categories.length ? `New categories: ${plan.new_categories.join(", ")}.` : "",
+      "After importing, the catalogue is asked for the pressings of each record; you choose.",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  collectionImported: (added) =>
+    added === 1 ? "1 record imported." : `${added} records imported.`,
+  collectionAskingProgress: (done, total) =>
+    `Looking for the pressings of your records: ${done} of ${total}.`,
+  collectionAskedDone: (total, refused) =>
+    refused
+      ? `Pressings looked for: ${total - refused} answered, ${refused} refused by the catalogue.`
+      : "Pressings looked for. Records with offers are under To review.",
+  collectionReview: (count) => `To review (${count})`,
+  collectionToReview: (count) => ` · ${count} to review`,
+  collectionOffersNote: (count) =>
+    count === 1
+      ? "The catalogue offers 1 pressing. Is it yours?"
+      : `The catalogue offers ${count} pressings. Pick the one you hold.`,
+  collectionOffersRefused: (error) => `The catalogue refused: ${error}`,
+  collectionOffersNone: "None of these",
+  collectionOffersAgain: "Search again",
+  collectionYourLabel: "Your label",
+  collectionYourCatalogue: "Your catalogue no.",
+  collectionYourEdition: "Your edition",
+  collectionYourCountry: "Your country",
   sameAudioHeading: "Already in your library",
   sameAudioOk: "OK",
   // The relocation the database refused because the folder is another album's,

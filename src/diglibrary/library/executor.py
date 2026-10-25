@@ -383,7 +383,7 @@ class ChangeExecutor:
                     lost.append(disk.origin(operation.target_path))
                 continue
             if operation.kind in _IMAGE_KINDS:
-                problems.extend(self._image_problems(operation, disk, lost))
+                problems.extend(self._image_problems(operation, disk, lost, plan))
                 continue
             source = operation.target_path
             destination = Path(str(operation.after_state["path"]))
@@ -414,13 +414,19 @@ class ChangeExecutor:
         raise ExecutionError(" ".join(problems))
 
     def _image_problems(
-        self, operation: ChangeOperation, disk: "_DiskAsPlanned", lost: list[Path]
+        self,
+        operation: ChangeOperation,
+        disk: "_DiskAsPlanned",
+        lost: list[Path],
+        plan: ChangePlan,
     ) -> tuple[str, ...]:
         """Say what would stop one image operation, adding to ``lost`` what the disk lost.
 
-        A staged image that is gone is not a stale plan: no scan puts it back,
-        the artwork has to be fetched again, so it is reported without that
-        advice.
+        A staged image that is gone is not a stale plan. It is staged again
+        from the album itself when the album holds the same picture — in its
+        folder or inside a track, which is where a chosen cover and a picture
+        worked out from the files came from — and named as gone only when it
+        does not.
         """
         store, _ = self._artwork_requirements()
         # A repair stages nothing: the picture it writes back is the one already
@@ -428,8 +434,14 @@ class ChangeExecutor:
         staged = operation.after_state.get("source")
         if staged is not None:
             source = Path(str(staged))
-            if not source.is_file():
-                return (f"The cover image staged for this album is gone: {source}.",)
+            digest = operation.after_state.get("digest")
+            if not source.is_file() and not (
+                isinstance(digest, str) and self._stage_again(store, source, digest, plan, disk)
+            ):
+                return (
+                    "The cover image staged for this album is gone, and the album "
+                    f"holds no copy of it to stage again: {source}.",
+                )
         target = operation.target_path
         occupant = disk.holder(target)
         if operation.kind is OperationKind.EMBED_IMAGE:
@@ -644,6 +656,58 @@ class ChangeExecutor:
             store.clear(entry.operation.target_path)
             return
         store.embed(entry.operation.target_path, Path(str(backup)))
+
+    def _stage_again(
+        self,
+        store: ArtworkStore,
+        source: Path,
+        digest: str,
+        plan: ChangePlan,
+        disk: "_DiskAsPlanned",
+    ) -> bool:
+        """Put a lost staged picture back from the album's own copy, if it has one.
+
+        Staged files are named by their digest and read only by digest, so a
+        picture in the album with the same digest *is* the staged picture, and
+        copying it back is restoring a cache entry, not choosing anything. The
+        copy is read again before it is trusted.
+
+        Looked for where the plan's targets are now — ``disk.origin`` undoes the
+        renames rehearsed so far — in every folder they sit in: the pictures
+        there, and the pictures inside the tracks there. A plan that writes only
+        a cover names no track at all, so the tracks are read from the folder.
+        """
+        folders = {disk.origin(operation.target_path).parent for operation in plan.operations}
+        candidates: list[tuple[Path, bool]] = []
+        for folder in sorted(folders):
+            entries = _files_in(folder)
+            candidates.extend(
+                (entry, False) for entry in entries if entry.suffix.lower() in _PICTURE_SUFFIXES
+            )
+            candidates.extend(
+                (entry, True) for entry in entries if entry.suffix.lower() in AUDIO_EXTENSIONS
+            )
+        for candidate, embedded in candidates:
+            try:
+                facts = (
+                    store.describe_embedded(candidate) if embedded else store.describe(candidate)
+                )
+                if facts is None or facts.digest != digest:
+                    continue
+                if embedded:
+                    store.extract(candidate, source)
+                else:
+                    store.copy(candidate, source)
+                again = store.describe(source)
+            except Exception:
+                continue
+            if again is not None and again.digest == digest:
+                self._logger.info(
+                    "A staged cover that was gone was staged again from the album's own copy.",
+                    extra={"operation": "library.apply.image_staged_again"},
+                )
+                return True
+        return False
 
     def _artwork_requirements(self) -> tuple[ArtworkStore, Path]:
         if self._artwork_store is None or self._backup_directory is None:
@@ -918,3 +982,14 @@ def _is_same_entry(source: Path, destination: Path) -> bool:
         return os.path.samefile(source, destination)
     except OSError:
         return False
+
+
+_PICTURE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png"})
+
+
+def _files_in(folder: Path) -> tuple[Path, ...]:
+    """The files directly inside one folder, in a stable order."""
+    try:
+        return tuple(sorted(entry for entry in folder.iterdir() if entry.is_file()))
+    except OSError:
+        return ()

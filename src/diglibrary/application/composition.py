@@ -8,15 +8,18 @@ from pathlib import Path
 
 from diglibrary.application.acoustic import AcousticIdentification
 from diglibrary.application.api import (
+    DroppedFolders,
     FolderPicker,
     ImagePicker,
     ImageUrls,
     LibraryApi,
+    ListPicker,
     PathOpener,
     _Pipeline,
 )
 from diglibrary.application.artwork import ArtworkPolicy, ArtworkService
 from diglibrary.application.bench import QualityBench
+from diglibrary.application.collection import CollectionService
 from diglibrary.application.contracts import MetadataSources
 from diglibrary.application.identification import (
     DEFAULT_CONFIDENCE_THRESHOLD,
@@ -29,6 +32,7 @@ from diglibrary.config.models import ApplicationConfig
 from diglibrary.connectors.slskd.client import SlskdClient, UrllibSlskdTransport
 from diglibrary.connectors.slskd.connector import SlskdConnector
 from diglibrary.connectors.slskd.mapper import SlskdMapper
+from diglibrary.database.collection_store import CollectionStore
 from diglibrary.database.connection import Database
 from diglibrary.database.copies import take_copy
 from diglibrary.database.library_store import LibraryStore
@@ -65,11 +69,13 @@ from diglibrary.providers.registry import ProviderRegistry
 from diglibrary.providers.soulseek import SOULSEEK_PROVIDER_ID, SoulseekProvider
 from diglibrary.providers.types import ProviderId
 from diglibrary.quality.analysis import (
+    ANALYSIS_SECONDS,
     DEEP_PROBE_FREQUENCIES,
     FfmpegQualityAnalyzer,
     SubprocessCommandRunner,
     find_ffmpeg,
 )
+from diglibrary.quality.edges import FilterEdgeProbe
 from diglibrary.quality.framing import FfmpegPcmReader, FrameGridProbe
 from diglibrary.quality.spectrogram import SpectrogramRenderer
 
@@ -219,6 +225,8 @@ def create_api(
     application: Application,
     folder_picker: FolderPicker | None = None,
     image_picker: ImagePicker | None = None,
+    list_picker: ListPicker | None = None,
+    dropped_folders: DroppedFolders | None = None,
     path_opener: PathOpener | None = None,
     icon_maker: Callable[[], dict[str, object]] | None = None,
     keep_awake: Callable[[bool], None] | None = None,
@@ -296,7 +304,7 @@ def create_api(
         )
         executor = ChangeExecutor(tag_store, logger, artwork_store, config.artwork.backup_directory)
         scanner = LibraryScanner(MutagenAudioProbe(), logger)
-        survey = _create_quality_survey(scanner, logger, store, ffmpeg)
+        survey = create_quality_survey(scanner, logger, store, ffmpeg)
         return _Pipeline(
             scanner=scanner,
             workflow=workflow,
@@ -326,6 +334,8 @@ def create_api(
         logger=logger,
         folder_picker=folder_picker,
         image_picker=image_picker,
+        list_picker=list_picker,
+        dropped_folders=dropped_folders,
         cover_cache=config.artwork.staging_directory / "covers",
         path_opener=path_opener,
         icon_maker=icon_maker,
@@ -357,6 +367,14 @@ def create_api(
         # machine and not one per screen. Quality and Mixing both ask it, and
         # neither works it out from whichever object it happens to hold.
         ffmpeg=ffmpeg is not None,
+        # The physical collection: its own store, the release cache it
+        # points at, and the catalogues through the one door they are asked by.
+        collection=CollectionService(
+            CollectionStore(application.database, logger),
+            store,
+            application.metadata,
+            logger,
+        ),
         # Where the window fetches a cover's bytes. Handed in by the interface,
         # which owns the server, because this layer never imports upward.
         images=images,
@@ -544,11 +562,12 @@ def _create_metadata_service(config: ApplicationConfig, logger: logging.Logger) 
     )
 
 
-def _create_quality_survey(
+def create_quality_survey(
     scanner: LibraryScanner,
     logger: logging.Logger,
     store: LibraryStore,
     executable: str | None,
+    workers: int | None = None,
 ) -> QualitySurvey | None:
     """Assemble the quality survey, or report its absence honestly.
 
@@ -560,6 +579,11 @@ def _create_quality_survey(
     The binary is handed in rather than looked for here: this is one of four
     places that wanted it, and four independent answers are four chances for the
     screen to be told something the objects do not agree with.
+
+    **Public, because it is the one way a survey is built.** A tool that runs
+    the survey without the window used to assemble its own analyzer and left
+    the frame grid out, so every row it wrote was a row the next scan had to
+    measure again. ``workers`` is the one thing such a caller may change.
     """
     if executable is None:
         return None
@@ -572,8 +596,28 @@ def _create_quality_survey(
         SubprocessCommandRunner(executable),
         logger,
         frame_grid=FrameGridProbe(FfmpegPcmReader(executable, logger=logger)),
+        filter_edge=_filter_edge_probe(executable, logger),
     )
-    return QualitySurvey(scanner, analyzer, logger, store=store)
+    if workers is None:
+        return QualitySurvey(scanner, analyzer, logger, store=store)
+    return QualitySurvey(scanner, analyzer, logger, workers=workers, store=store)
+
+
+def _filter_edge_probe(
+    executable: str, logger: logging.Logger, timeout_seconds: float = 120.0
+) -> FilterEdgeProbe:
+    """Assemble the frame-by-frame edge probe, the same for both passes.
+
+    It reads the minute the survey's spectral probes read, and the deep pass
+    reads that same minute: the edge is a property of where an encoder put its
+    low-pass, which a longer read does not move, and one stretch for both
+    passes is what keeps the deep pass from judging a file the survey judged
+    differently.
+    """
+    return FilterEdgeProbe(
+        FfmpegPcmReader(executable, timeout_seconds=timeout_seconds, logger=logger),
+        seconds=ANALYSIS_SECONDS,
+    )
 
 
 def _create_deep_analyzer(
@@ -603,6 +647,7 @@ def _create_deep_analyzer(
         frame_grid=FrameGridProbe(
             FfmpegPcmReader(executable, timeout_seconds=900.0, logger=logger)
         ),
+        filter_edge=_filter_edge_probe(executable, logger, timeout_seconds=900.0),
     )
 
 

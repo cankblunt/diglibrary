@@ -41,6 +41,8 @@ const document = { createElement: () => element() };
 const STR = {
   adoptedKnown: (names) => `known ${names.join(",")}`,
   arrivedSameAudio: (found) => `same ${found.map((entry) => entry.album).join(",")}`,
+  arrivedInsideAnother: (found) => `inside ${found.map((entry) => entry.album).join(",")}`,
+  knownChanged: (changes) => `changed ${changes.map((change) => change.album).join(",")}`,
 };
 """
 
@@ -99,3 +101,20 @@ def test_nothing_to_say_opens_nothing() -> None:
     said = _run("sayKnownAgain([]); sayArrivedSameAudio(undefined);")
 
     assert said["made"] == [] and said["open"] is False
+
+
+def test_an_album_inside_a_larger_one_is_not_said_as_a_copy() -> None:
+    said = _run(
+        'sayArrivedSameAudio([{ album: "Quáltora", identical: true },'
+        ' { album: "Vimbrel", identical: false }]);'
+    )
+
+    assert said["lines"] == ["same Quáltora", "inside Vimbrel"]
+
+
+def test_an_album_whose_folder_changed_says_so_instead_of_only_known() -> None:
+    said = _run(
+        'sayKnownAgain(["Vimbrel", "Quáltora"], [{ album: "Vimbrel", joined: 8, left: 0 }]);'
+    )
+
+    assert said["lines"] == ["known Quáltora", "changed Vimbrel"]

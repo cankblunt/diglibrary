@@ -5,6 +5,7 @@ from datetime import date
 from typing import Protocol, TypeVar, runtime_checkable
 
 from diglibrary.application.contracts import (
+    AlbumBehindPressings,
     MetadataQuery,
     MetadataSearchResult,
     MetadataSourceId,
@@ -141,6 +142,16 @@ class MetadataService:
             if identifier == source:
                 resolver = getattr(client, "main_release_id", None)
                 return self._ask(source, resolver, group_id) if callable(resolver) else None
+        return None
+
+    def describe_group(
+        self, source: MetadataSourceId, group_id: str
+    ) -> AlbumBehindPressings | None:
+        """Return what a source says about the album behind a pressing, if it can say."""
+        for identifier, client in self._sources:
+            if identifier == source:
+                describe = getattr(client, "describe_group", None)
+                return self._ask(source, describe, group_id) if callable(describe) else None
         return None
 
     def releases_in_group(

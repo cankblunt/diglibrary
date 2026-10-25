@@ -7,6 +7,10 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   albums: [],
+  // How many writes this window has made to the shelf's rows and seen the
+  // server confirm. A dashboard asked for before one of them is a picture of
+  // the shelf from before it, and drawing it would undo the write on screen.
+  shelfWrites: 0,
   history: [],
   settings: {},
   root: null,
@@ -29,6 +33,10 @@ const state = {
   // those sit above whatever the order says, newest gesture first.
   sort: "recent",
   pointedAt: [],
+  // Albums already on the shelf that a drop or an opened folder just named,
+  // highlighted for a moment. Read by the card and the row when they are drawn,
+  // so the highlight survives a redraw while it lasts.
+  pointedOut: new Set(),
   // The History row last clicked, by `historyKey`. One at a time, and for the
   // session: it is about which row is being read, not about the run.
   historyCurrent: null,
@@ -51,6 +59,20 @@ const state = {
   identifying: new Set(),
   // From the first press of `Approve & apply` until its answer is in.
   approving: false,
+  // The physical collection: what the server last answered, the words
+  // typed in its search, and which record or list a dialog is about.
+  collection: { records: [], locations: [], categories: [], mediaGrades: [], sleeveGrades: [] },
+  collectionError: null,
+  collectionSearch: "",
+  collectionOpen: null,
+  collectionAddFor: null,
+  collectionListKind: null,
+  // The list being imported, as the server read it, and the mapping on screen;
+  // whether the shelf shows only records with offers waiting; and the walk that
+  // asks the catalogue for those offers.
+  collectionImport: null,
+  collectionReviewOnly: false,
+  collectionAsking: false,
   // Which albums hold some of the same audio as another one, by unit id, and
   // the pairs behind it. Read with the shelf and never per card: this is one
   // query for the whole Library.
@@ -287,6 +309,7 @@ const RUNNING_FLAGS = [
   "opening",
   "restoring",
   "measuringHarmonics",
+  "collectionAsking",
 ];
 
 function anythingRunning() {
@@ -1115,6 +1138,7 @@ async function forgetAlbum(unitId) {
     toastError(result.error);
     return;
   }
+  state.shelfWrites += 1;
   state.albums = state.albums.filter((album) => album.unit_id !== unitId);
   renderGrid();
   toast(STR.forgotten);
@@ -1232,6 +1256,7 @@ function card(album) {
   // over this one, which is why the name line below carries none.
   button.title = fullNameFor(album);
   button.dataset.unitId = album.unit_id;
+  if (state.pointedOut.has(album.unit_id)) button.classList.add("is-pointed-out");
   button.addEventListener("click", () => openAlbum(album.unit_id));
   albumMenu(button, album);
   button.appendChild(forgetButton(album));
@@ -1364,6 +1389,7 @@ async function applyRating(unitId, value) {
     toastError(response.error);
     return false;
   }
+  state.shelfWrites += 1;
   const card = state.albums.find((one) => one.unit_id === unitId);
   if (card) card.rating = value;
   if (state.openAlbum && state.openAlbum.unit_id === unitId) {
@@ -1419,6 +1445,7 @@ function listRow(album) {
   // where the longest names are.
   row.title = fullNameFor(album);
   row.dataset.unitId = album.unit_id;
+  if (state.pointedOut.has(album.unit_id)) row.classList.add("is-pointed-out");
   row.addEventListener("click", () => openAlbum(album.unit_id));
   albumMenu(row, album);
 
@@ -4711,13 +4738,15 @@ async function pollEvents() {
       // is sorted by. Dropping a record already on the shelf is exactly the
       // case a sort by date buries: the row is old, the gesture is not.
       // Recorded before the refresh, because the refresh draws the shelf.
-      for (const unitId of event.payload.unit_ids || []) {
-        state.pointedAt = [unitId, ...state.pointedAt.filter((id) => id !== unitId)];
-      }
+      // An album already here is floated too, and highlighted below, so a
+      // drop of several scattered down the shelf brings them together where
+      // the eye already is; it is not marked, so it does not join the next
+      // Scan. Floating only ever applies to the date order (`sortedAlbums`).
+      floatToTheTop([...(event.payload.known_ids || []), ...(event.payload.unit_ids || [])]);
       // Marked, like every other arrival: what was new, and what was already
       // here but had moved. An album dropped again from the folder it already
-      // lives in is not among them — it is named in the sentence below and
-      // nothing else.
+      // lives in is not among them — it is floated above, named in the notice
+      // and highlighted below, and never marked.
       markArrivals(event.payload.unit_ids);
       //
       // Timed: the API's half of an adoption rides on the event, and
@@ -4736,8 +4765,9 @@ async function pollEvents() {
       // loop over everything the bridge had queued, and leaving it early would
       // drop whatever came after.
       if (event.payload.refused) continue;
-      // An album already on the shelf, dropped again, is named by floating to
-      // the top of the shelf (`state.pointedAt` above) and by the toast below.
+      // An album already on the shelf, dropped again, is shown by floating to
+      // the top of the shelf (`state.pointedAt` above), by the notice, and by
+      // the highlight once the notice is closed (`announceKnown`).
       // It is never named by typing into the search box: that hides every
       // other album, which is indistinguishable from the library emptying
       // itself.
@@ -4770,7 +4800,7 @@ async function pollEvents() {
         if (event.payload.albums) toast(STR.adopted(event.payload.albums));
         else if (!event.payload.known) toast(STR.adoptedNothing(event.payload.folders));
       }
-      sayKnownAgain(event.payload.known_albums);
+      announceKnown(event.payload);
       sayArrivedSameAudio(event.payload.same_audio);
     } else if (event.type === "collected") {
       // The album is in the library now; the screen still shows the library as
@@ -4803,10 +4833,12 @@ async function pollEvents() {
       // already lives in is not an arrival — it is named, the same as a drop,
       // because the two are one gesture.
       markArrivals(event.payload.albums);
+      floatToTheTop(event.payload.known_ids || []);
       // Its own wait, and nothing else's: a scan beside it keeps its bar.
       state.opening = Math.max(0, state.opening - 1);
-      refresh();
-      sayKnownAgain(event.payload.known_albums);
+      // Awaited, so what is pointed at below is the shelf just drawn.
+      await refresh();
+      announceKnown(event.payload);
       sayArrivedSameAudio(event.payload.same_audio);
     } else if (event.type === "restored") {
       // The albums are there now. Asked for rather than pushed, because the
@@ -4835,6 +4867,19 @@ async function pollEvents() {
       renderMarkCount();
       renderLibraryChrome();
       toastError(event.payload.message);
+    } else if (event.type === "collection-asking") {
+      // Its own line under the Collection's bar: the walk runs whichever tab
+      // is in front, and says how far it is where its records are.
+      state.collectionAsking = true;
+      $("collection-asking").hidden = false;
+      $("collection-asking").textContent = STR.collectionAskingProgress(
+        event.payload.done, event.payload.total,
+      );
+    } else if (event.type === "collection-asked") {
+      state.collectionAsking = false;
+      $("collection-asking").hidden = true;
+      toast(STR.collectionAskedDone(event.payload.total, event.payload.refused));
+      await refreshCollection();
     } else {
       // The complement. The chain above names the kinds this window knows, and
       // a kind the application learns to send later belongs to none of them —
@@ -5618,14 +5663,108 @@ function sayAlreadyInLibrary(sentence) {
   dialog.showModal();
 }
 
-/** The arrivals whose audio was already on the shelf, if any. */
+/** The arrivals whose audio was already on the shelf, if any.
+ *
+ * Two different findings: a second copy of an album, and an album whose tracks
+ * all sit inside a larger one. The server says which (`identical`); this only
+ * picks the sentence.
+ */
 function sayArrivedSameAudio(found) {
-  if (found && found.length) sayAlreadyInLibrary(STR.arrivedSameAudio(found));
+  if (!found || !found.length) return;
+  const copies = found.filter((entry) => entry.identical !== false);
+  const inside = found.filter((entry) => entry.identical === false);
+  if (copies.length) sayAlreadyInLibrary(STR.arrivedSameAudio(copies));
+  if (inside.length) sayAlreadyInLibrary(STR.arrivedInsideAnother(inside));
 }
 
-/** The albums read again from the folders they already live in, if any. */
-function sayKnownAgain(names) {
-  if (names && names.length) sayAlreadyInLibrary(STR.adoptedKnown(names));
+/** Put these albums at the top of a shelf in date order, latest gesture first. */
+function floatToTheTop(unitIds) {
+  for (const unitId of [...unitIds].reverse()) {
+    state.pointedAt = [unitId, ...state.pointedAt.filter((id) => id !== unitId)];
+  }
+}
+
+/** Say which albums were already here, then show them on the shelf.
+ *
+ * The ones the filter or the search in use keeps off the screen are named as
+ * such, because the window does not change those for the user; the rest are
+ * brought into view and highlighted once the notice is closed.
+ */
+function announceKnown(payload) {
+  const ids = payload.known_ids || [];
+  const names = payload.known_albums || [];
+  const drawn = new Set(
+    [...albumContainer().querySelectorAll("[data-unit-id]")].map((node) =>
+      Number(node.dataset.unitId),
+    ),
+  );
+  const hidden = names.filter((_, index) => !drawn.has(ids[index]));
+  sayKnownAgain(names, payload.known_changes);
+  if (hidden.length) sayAlreadyInLibrary(STR.knownHidden(hidden));
+  pointOut(ids.filter((unitId) => drawn.has(unitId)));
+}
+
+const POINTED_OUT_MS = 2400;
+
+/** Bring these albums into view and highlight them for a moment, marking nothing.
+ *
+ * Waits for the notice to be closed, since it covers the shelf. The first of
+ * them in the shelf's own order is the one scrolled to; under the date order
+ * they sit together at the top, and under an order the user chose they stay
+ * where it puts them and are all highlighted.
+ */
+async function pointOut(unitIds) {
+  if (!unitIds.length) return;
+  const notice = $("same-audio-dialog");
+  if (notice.open) {
+    await new Promise((resolve) => notice.addEventListener("close", resolve, { once: true }));
+  }
+  state.pointedOut = new Set(unitIds);
+  const nodes = [...albumContainer().querySelectorAll("[data-unit-id]")].filter((node) =>
+    state.pointedOut.has(Number(node.dataset.unitId)),
+  );
+  for (const node of nodes) node.classList.add("is-pointed-out");
+  if (nodes.length) nodes[0].scrollIntoView({ block: "center", behavior: "smooth" });
+  setTimeout(() => {
+    state.pointedOut = new Set();
+    for (const node of document.querySelectorAll(".is-pointed-out")) {
+      node.classList.remove("is-pointed-out");
+    }
+  }, POINTED_OUT_MS);
+}
+
+/** The albums read again from the folders they already live in, if any.
+ *
+ * One whose folder holds other files than when it was last read says how many
+ * joined or left, instead of only that it was already here.
+ */
+function sayKnownAgain(names, changes) {
+  const changed = new Set((changes || []).map((change) => change.album));
+  const plain = (names || []).filter((name) => !changed.has(name));
+  if (plain.length) sayAlreadyInLibrary(STR.adoptedKnown(plain));
+  if (changes && changes.length) sayAlreadyInLibrary(STR.knownChanged(changes));
+}
+
+/** A verdict changed the names of an album already organized: plan it again?
+ *
+ * The server says which albums (`renaming_waits`), and only those whose names
+ * the verdict would change, so marking track after track of an album already
+ * named for it asks nothing. The answer is the gesture the card's menu already
+ * offers, which opens the album with its new plan to approve or leave.
+ */
+async function offerReplanAfterWord(waiting) {
+  for (const entry of waiting || []) {
+    $("rename-waits-message").textContent = STR.renameWaits(entry.album);
+    const again = await askThrough(
+      $("rename-waits-dialog"),
+      $("rename-waits-yes"),
+      $("rename-waits-no"),
+    );
+    if (again) {
+      await replanFromMenu(entry.unit_id);
+      return;
+    }
+  }
 }
 
 /** A relocation refused because the folder is another album's: let this card go?
@@ -5804,6 +5943,27 @@ function drawDialogCover(unitId) {
   $("album-cover-empty").hidden = Boolean(cached);
   $("album-choose-cover").hidden = !known;
   $("album-choose-cover").textContent = cached ? STR.changeCover : STR.chooseCover;
+}
+
+/** Put the dialog's picture on screen at its own size.
+ *
+ * The same image the dialog draws, so the enlargement can never show a
+ * different cover from the thumbnail it was opened from.
+ */
+function enlargeDialogCover() {
+  const source = $("album-cover");
+  if (source.hidden || !source.src) return;
+  $("cover-zoom-image").src = source.src;
+  $("cover-zoom-dialog").showModal();
+}
+
+/** Put it down. Any click or key does it: there is nothing on it to answer. */
+function closeCoverZoom(event) {
+  // Stopped here so the Escape that closes the picture is not also read by the
+  // album dialog underneath as a request to close the album.
+  event.stopPropagation();
+  event.preventDefault();
+  $("cover-zoom-dialog").close();
 }
 
 /** Run the cover plan that is on screen. */
@@ -7047,6 +7207,7 @@ function everyTrackControls(album, detail) {
       // `refreshBench` re-reads both, so re-reading the tracks here as well
       // would be a second statement of one rule.
       await refreshBench();
+      await offerReplanAfterWord(response.renaming_waits);
     });
     holder.append(button);
   }
@@ -7102,6 +7263,7 @@ function verdictControls({ label, current, signature, file, audioKey, path, comp
       // from the database with no disk walked, so it is cheap. It renders on
       // its way out, so it goes last and there is one draw rather than two.
       await refreshBench();
+      await offerReplanAfterWord(response.renaming_waits);
     });
     holder.append(button);
   }
@@ -9085,9 +9247,720 @@ function makeColumnsResizable() {
   // Every table with headings is listed here by hand, so a table added to the
   // window has to be added to this list to get its grips.
   resizableTable("mixing", $("mixing-table"));
+  resizableTable("collection", $("collection-table"));
 }
 
 // --- tabs, refresh, toast ---------------------------------------------------
+
+/** Ask for the physical collection and draw it.
+ *
+ * A refusal is drawn where the records would be, in the server's own words,
+ * rather than as an empty shelf: a collection that could not be read and a
+ * collection with nothing in it must not look the same.
+ */
+async function refreshCollection() {
+  let answer;
+  try {
+    answer = await api().collection();
+  } catch (error) {
+    answer = { ok: false, error: String(error) };
+  }
+  if (answer.ok) {
+    state.collectionError = null;
+    state.collection = {
+      records: answer.records || [],
+      locations: answer.locations || [],
+      categories: answer.categories || [],
+      mediaGrades: answer.media_grades || [],
+      sleeveGrades: answer.sleeve_grades || [],
+    };
+  } else {
+    state.collectionError = answer.error || STR.unknownFailure;
+  }
+  renderCollection();
+}
+
+/** A record's name: the catalogue's when a release stands behind it, else the user's. */
+function collectionName(record) {
+  const artist = record.release ? record.release.artist : record.artist;
+  const album = record.release ? record.release.title : record.album;
+  return [artist, album].filter(Boolean).join(" - ");
+}
+
+function collectionRecord(recordId) {
+  return state.collection.records.find((record) => record.record_id === recordId) || null;
+}
+
+function collectionEntryName(entries, entryId) {
+  const entry = entries.find((candidate) => candidate.id === entryId);
+  return entry ? entry.name : "";
+}
+
+/** The year a record answers to: the work's first year, then the pressing's, then the user's. */
+function collectionYear(record) {
+  const release = record.release;
+  if (release && release.original_year) return release.original_year;
+  if (release && release.released) return Number(release.released.slice(0, 4));
+  return record.year;
+}
+
+/** Label and catalogue number: the catalogue's, or the user's words before one answers. */
+function collectionPressing(record) {
+  const release = record.release;
+  if (!release) return [record.label, record.catalog_number].filter(Boolean).join(" · ");
+  return [release.labels[0], release.catalog_numbers[0]].filter(Boolean).join(" · ");
+}
+
+function collectionCategoryNames(record) {
+  return record.category_ids
+    .map((categoryId) => collectionEntryName(state.collection.categories, categoryId))
+    .filter(Boolean);
+}
+
+/** Everything a search box on this screen can find a record by. */
+function collectionWords(record) {
+  return [
+    collectionName(record),
+    record.artist,
+    record.album,
+    String(collectionYear(record) || ""),
+    collectionPressing(record),
+    record.notes,
+    record.label,
+    record.catalog_number,
+    record.edition,
+    collectionEntryName(state.collection.locations, record.location_id),
+    ...collectionCategoryNames(record),
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Whether a record has offers waiting for the user to choose from. */
+function collectionAwaits(record) {
+  return !record.identified && record.candidate_count > 0;
+}
+
+function visibleCollection() {
+  const wanted = state.collectionSearch.trim().toLowerCase();
+  const records = state.collectionReviewOnly
+    ? state.collection.records.filter(collectionAwaits)
+    : state.collection.records;
+  return wanted ? records.filter((record) => collectionWords(record).includes(wanted)) : records;
+}
+
+function collectionCell(text, quiet = false) {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  if (quiet) cell.className = "muted-cell";
+  return cell;
+}
+
+/** A grade as the trade abbreviates it: what the scale writes between its brackets.
+ *
+ * Read out of the grade's own words rather than looked up, so a grade the
+ * scale gains is abbreviated the day it arrives; one written with no brackets
+ * has no shorter form and is shown whole.
+ */
+function collectionGradeShort(grade) {
+  const bracketed = /\(([^)]+)\)/.exec(grade || "");
+  return bracketed ? bracketed[1].split(" or ")[0] : grade || "";
+}
+
+/** A grade's cell: the abbreviation on the row, the scale's whole words on hover. */
+function collectionGradeCell(grade) {
+  const cell = collectionCell(collectionGradeShort(grade) || STR.collectionUngraded, !grade);
+  if (grade) cell.title = grade;
+  return cell;
+}
+
+function renderCollection() {
+  const failure = state.collectionError;
+  const all = state.collection.records;
+  // **Settled before the rows are chosen.** With nothing left to review the
+  // filter goes off and its button hides; choosing the rows first drew an empty
+  // shelf under a hidden button — a shelf the application filtered, reading as
+  // a shelf that lost its records.
+  const waiting = all.filter(collectionAwaits).length;
+  if (!waiting) state.collectionReviewOnly = false;
+  const rows = failure ? [] : visibleCollection();
+  $("collection-error").hidden = !failure;
+  $("collection-error").textContent = failure || "";
+  $("empty-collection").hidden = Boolean(failure) || all.length > 0;
+  $("collection-none").hidden = Boolean(failure) || all.length === 0 || rows.length > 0;
+  $("collection-table").hidden = rows.length === 0;
+  // Beside the data it attributes, and only while some of it is on screen.
+  $("collection-attribution").hidden = !rows.some(
+    (record) => record.release && record.release.source === "discogs",
+  );
+  $("collection-review").hidden = waiting === 0;
+  $("collection-review").textContent = STR.collectionReview(waiting);
+  $("collection-review").setAttribute("aria-pressed", String(state.collectionReviewOnly));
+  $("collection-body").replaceChildren(
+    ...rows.map((record) => {
+      const row = document.createElement("tr");
+      row.className = "collection-row";
+      row.addEventListener("click", () => openCollectionRecord(record.record_id));
+      const name = collectionCell(collectionName(record));
+      if (!record.identified) {
+        const mark = document.createElement("span");
+        mark.className = "muted-cell";
+        mark.textContent = ` · ${STR.collectionUnidentified}`;
+        name.append(mark);
+      }
+      if (collectionAwaits(record)) {
+        const offers = document.createElement("span");
+        offers.className = "collection-waiting";
+        offers.textContent = STR.collectionToReview(record.candidate_count);
+        name.append(offers);
+      }
+      row.append(
+        name,
+        collectionCell(String(collectionYear(record) || "")),
+        collectionCell(collectionPressing(record)),
+        collectionCell(collectionEntryName(state.collection.locations, record.location_id)),
+        collectionCell(collectionCategoryNames(record).join(", ")),
+        collectionGradeCell(record.media_grade),
+        collectionGradeCell(record.sleeve_grade),
+      );
+      return row;
+    }),
+  );
+}
+
+function collectionOptions(select, choices, emptyLabel, chosen) {
+  const options = [["", emptyLabel], ...choices.map((choice) => [String(choice[0]), choice[1]])];
+  select.replaceChildren(
+    ...options.map(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }),
+  );
+  select.value = chosen === null || chosen === undefined ? "" : String(chosen);
+}
+
+/** What the catalogue says about the pressing, read only. */
+function collectionFacts(release) {
+  const facts = [
+    [STR.collectionFactLabel, release.labels.join(", ")],
+    [STR.collectionFactCatalogue, release.catalog_numbers.join(", ")],
+    [STR.collectionFactFormat, release.formats.join(", ")],
+    [STR.collectionFactCountry, release.country || ""],
+    [STR.collectionFactReleased, release.released || ""],
+    [STR.collectionFactOriginal, release.original_year ? String(release.original_year) : ""],
+    [STR.collectionFactBarcode, release.barcode || ""],
+    [STR.collectionFactGenres, [...release.genres, ...release.styles].join(", ")],
+  ];
+  return facts
+    .filter(([, value]) => value)
+    .flatMap(([term, value]) => {
+      const name = document.createElement("dt");
+      name.textContent = term;
+      const answer = document.createElement("dd");
+      answer.textContent = value;
+      return [name, answer];
+    });
+}
+
+function openCollectionRecord(recordId) {
+  const record = collectionRecord(recordId);
+  if (!record) return;
+  state.collectionOpen = recordId;
+  $("collection-record-heading").textContent = collectionName(record);
+  $("collection-record-source").textContent = record.identified
+    ? STR.collectionFoundBy(record.identified_by)
+    : STR.collectionYourWords;
+  const facts = record.release ? collectionFacts(record.release) : collectionYourFacts(record);
+  if (record.release && record.release.url) {
+    const term = document.createElement("dt");
+    const answer = document.createElement("dd");
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "link-button";
+    link.textContent = STR.collectionSeeOnCatalogue;
+    link.addEventListener("click", () => api().open_url(record.release.url));
+    answer.append(link);
+    facts.push(term, answer);
+  }
+  $("collection-record-facts").replaceChildren(...facts);
+  $("collection-record-facts").hidden = facts.length === 0;
+  const grades = (scale) => scale.map((grade) => [grade, grade]);
+  collectionOptions(
+    $("collection-media"), grades(state.collection.mediaGrades), STR.collectionUngraded,
+    record.media_grade,
+  );
+  collectionOptions(
+    $("collection-sleeve"), grades(state.collection.sleeveGrades), STR.collectionUngraded,
+    record.sleeve_grade,
+  );
+  collectionOptions(
+    $("collection-location"),
+    state.collection.locations.map((location) => [location.id, location.name]),
+    STR.collectionNoLocation,
+    record.location_id,
+  );
+  const checks = state.collection.categories.map((category) => {
+    const label = document.createElement("label");
+    label.className = "collection-check";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = String(category.id);
+    box.checked = record.category_ids.includes(category.id);
+    label.append(box, document.createTextNode(category.name));
+    return label;
+  });
+  if (!checks.length) {
+    const none = document.createElement("p");
+    none.className = "muted";
+    none.textContent = STR.collectionNoCategories;
+    checks.push(none);
+  }
+  $("collection-category-checks").replaceChildren(...checks);
+  $("collection-notes").value = record.notes;
+  renderCollectionOffers(record);
+  $("collection-record-dialog").showModal();
+}
+
+/** The user's own words about a pressing no catalogue has answered for yet. */
+function collectionYourFacts(record) {
+  return [
+    [STR.collectionYourLabel, record.label],
+    [STR.collectionYourCatalogue, record.catalog_number],
+    [STR.collectionYourEdition, record.edition],
+    [STR.collectionYourCountry, record.country],
+  ]
+    .filter(([, value]) => value)
+    .flatMap(([term, value]) => {
+      const name = document.createElement("dt");
+      name.textContent = term;
+      const answer = document.createElement("dd");
+      answer.textContent = value;
+      return [name, answer];
+    });
+}
+
+/** The pressings a search offered for this record, or why there are none.
+ *
+ * Shown only for a record no catalogue has answered for: an identified one has
+ * nothing to choose. A refusal is said in the catalogue's words, with the way
+ * to ask again beside it.
+ */
+async function renderCollectionOffers(record) {
+  const box = $("collection-offers");
+  const refused = record.candidates_error;
+  box.hidden = record.identified || (!record.candidate_count && !refused);
+  $("collection-offers-list").replaceChildren();
+  $("collection-offers-none").hidden = Boolean(refused) || !record.candidate_count;
+  if (box.hidden) return;
+  if (refused) {
+    $("collection-offers-note").textContent = STR.collectionOffersRefused(refused);
+    return;
+  }
+  const response = await api().collection_candidates(record.record_id);
+  const offers = (response && response.candidates) || [];
+  $("collection-offers-note").textContent = STR.collectionOffersNote(
+    offers.filter((offer) => !offer.is_group).length,
+  );
+  $("collection-offers-list").replaceChildren(
+    ...offers.map((offer) => collectionOfferLine(record, offer)),
+  );
+}
+
+function collectionOfferLine(record, offer) {
+  const line = collectionCandidateLine(offer, "search");
+  // The same line the add dialog draws, answering for this record rather than
+  // for a new one: its button identifies the record the sheet is about.
+  const choose = line.querySelector(".button");
+  const fresh = choose.cloneNode(true);
+  fresh.addEventListener("click", () => chooseCollectionOffer(record, offer));
+  choose.replaceWith(fresh);
+  return line;
+}
+
+async function chooseCollectionOffer(record, offer) {
+  const response = await api().collection_add(
+    "", offer.source, offer.release_id, "search", record.record_id,
+    offer.is_group ? offer.group_id : "",
+  );
+  if (!response.ok) {
+    toastError(response.error);
+    return;
+  }
+  $("collection-record-dialog").close();
+  toast(STR.collectionIdentified);
+  await refreshCollection();
+  openCollectionRecord(record.record_id);
+}
+
+async function dismissCollectionOffers() {
+  const record = collectionRecord(state.collectionOpen);
+  if (!record) return;
+  await api().collection_dismiss_candidates(record.record_id);
+  await refreshCollection();
+  const fresh = collectionRecord(record.record_id);
+  if (fresh) renderCollectionOffers(fresh);
+}
+
+async function askCollectionOffersAgain() {
+  const record = collectionRecord(state.collectionOpen);
+  if (!record) return;
+  $("collection-offers-note").textContent = STR.collectionAsking;
+  const response = await api().collection_ask_candidates(record.record_id);
+  if (!response.ok) toastError(response.error);
+  await refreshCollection();
+  const fresh = collectionRecord(record.record_id);
+  if (fresh) renderCollectionOffers(fresh);
+}
+
+/** Choose a list and point its columns at fields. Nothing is read past this. */
+async function openCollectionImport() {
+  const response = await api().collection_import_open();
+  if (response.cancelled) return;
+  if (!response.ok) {
+    toastError(response.error);
+    return;
+  }
+  state.collectionImport = { ...response, mapping: { ...response.suggested } };
+  $("collection-import-note").textContent = STR.collectionImportNote(response.file, response.lines);
+  $("collection-import-summary").hidden = true;
+  $("collection-import-apply").disabled = true;
+  renderCollectionMapping();
+  $("collection-import-dialog").showModal();
+}
+
+function renderCollectionMapping() {
+  const opened = state.collectionImport;
+  $("collection-mapping-body").replaceChildren(
+    ...opened.headers.map((header, index) => {
+      const row = document.createElement("tr");
+      const name = document.createElement("td");
+      name.textContent = header;
+      const example = document.createElement("td");
+      example.className = "muted-cell";
+      example.textContent = opened.sample
+        .map((line) => line[index])
+        .filter(Boolean)
+        .join(" · ");
+      const field = document.createElement("td");
+      const select = document.createElement("select");
+      const choices = [["", STR.collectionImportLeaveOut], ...opened.fields.map(
+        (key) => [key, STR.collectionFieldName(key)],
+      )];
+      select.replaceChildren(
+        ...choices.map(([value, label]) => {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = label;
+          return option;
+        }),
+      );
+      select.value = opened.mapping[String(index)] || "";
+      select.addEventListener("change", () => {
+        if (select.value) opened.mapping[String(index)] = select.value;
+        else delete opened.mapping[String(index)];
+        // A mapping that changed has not been rehearsed.
+        $("collection-import-apply").disabled = true;
+        $("collection-import-summary").hidden = true;
+      });
+      field.append(select);
+      row.append(name, example, field);
+      return row;
+    }),
+  );
+}
+
+async function previewCollectionImport() {
+  const plan = await api().collection_import_preview(state.collectionImport.mapping);
+  $("collection-import-summary").hidden = false;
+  $("collection-import-summary").textContent = plan.ok
+    ? STR.collectionImportPlan(plan)
+    : plan.error || STR.unknownFailure;
+  $("collection-import-apply").disabled = !plan.ok || plan.records === 0;
+}
+
+async function applyCollectionImport() {
+  $("collection-import-apply").disabled = true;
+  const response = await api().collection_import_apply(state.collectionImport.mapping);
+  if (!response.ok) {
+    $("collection-import-summary").textContent = response.error || STR.unknownFailure;
+    return;
+  }
+  state.collectionImport = null;
+  $("collection-import-dialog").close();
+  toast(STR.collectionImported(response.added));
+  if (response.asking) {
+    state.collectionAsking = true;
+    ensurePolling();
+  }
+  await refreshCollection();
+}
+
+async function saveCollectionRecord() {
+  const recordId = state.collectionOpen;
+  const location = $("collection-location").value;
+  const categories = [...$("collection-category-checks").querySelectorAll("input:checked")].map(
+    (box) => Number(box.value),
+  );
+  const response = await api().collection_describe(
+    recordId,
+    $("collection-media").value || null,
+    $("collection-sleeve").value || null,
+    location ? Number(location) : null,
+    $("collection-notes").value,
+    categories,
+  );
+  if (!response.ok) {
+    toastError(response.error);
+    return;
+  }
+  $("collection-record-dialog").close();
+  toast(STR.collectionSaved);
+  await refreshCollection();
+}
+
+function confirmCollection(message) {
+  $("collection-confirm-message").textContent = message;
+  return askThrough(
+    $("collection-confirm-dialog"),
+    $("collection-confirm-yes"),
+    $("collection-confirm-no"),
+  );
+}
+
+async function removeCollectionRecord() {
+  const record = collectionRecord(state.collectionOpen);
+  if (!record) return;
+  $("collection-record-dialog").close();
+  if (!(await confirmCollection(STR.collectionRemoveRecord(collectionName(record))))) return;
+  const response = await api().collection_remove(record.record_id);
+  if (!response.ok) {
+    toastError(response.error);
+    return;
+  }
+  toast(STR.collectionRemoved);
+  await refreshCollection();
+}
+
+/** Open the dialog that adds a record, or identifies ``record`` when one is given. */
+function openCollectionAdd(record) {
+  state.collectionAddFor = record ? record.record_id : null;
+  $("collection-add-heading").textContent = record
+    ? STR.collectionIdentifyHeading(collectionName(record))
+    : STR.collectionAddHeading;
+  $("collection-link").value = "";
+  $("collection-barcode").value = "";
+  $("collection-artist").value = record ? record.artist : "";
+  $("collection-album").value = record ? record.album : "";
+  $("collection-year").value = record && record.year ? String(record.year) : "";
+  // A record already on the shelf is identified, never added a second time.
+  $("collection-add-unidentified").hidden = Boolean(record);
+  collectionStatus("");
+  $("collection-candidates").replaceChildren();
+  $("collection-add-dialog").showModal();
+}
+
+function collectionStatus(text) {
+  $("collection-add-status").textContent = text;
+  $("collection-add-status").hidden = !text;
+}
+
+async function finishCollectionAdd(response) {
+  if (!response.ok) {
+    collectionStatus(response.error || STR.unknownFailure);
+    return;
+  }
+  const identifying = state.collectionAddFor !== null;
+  $("collection-add-dialog").close();
+  toast(identifying ? STR.collectionIdentified : STR.collectionAdded);
+  await refreshCollection();
+  if (identifying) openCollectionRecord(response.record_id);
+}
+
+async function collectionAddByLink() {
+  const link = $("collection-link").value.trim();
+  if (!link) return;
+  collectionStatus(STR.collectionAsking);
+  const response = await api().collection_add(link, "", "", "", state.collectionAddFor);
+  await finishCollectionAdd(response);
+}
+
+async function collectionAddUnidentified() {
+  const response = await api().collection_add_unidentified(
+    $("collection-artist").value,
+    $("collection-album").value,
+    $("collection-year").value,
+  );
+  await finishCollectionAdd(response);
+}
+
+/** Ask the catalogue for candidates, by barcode or by the words typed. */
+async function collectionFind(byBarcode) {
+  collectionStatus(STR.collectionAsking);
+  $("collection-candidates").replaceChildren();
+  const response = byBarcode
+    ? await api().collection_find($("collection-barcode").value)
+    : await api().collection_find(
+      "",
+      $("collection-artist").value,
+      $("collection-album").value,
+      $("collection-year").value,
+    );
+  if (!response.ok) {
+    collectionStatus(response.error || STR.unknownFailure);
+    return;
+  }
+  const candidates = response.candidates || [];
+  // An album's own line is not one more release found: it heads the ones that are.
+  const found = candidates.filter((candidate) => !candidate.is_group).length;
+  collectionStatus(found ? STR.collectionCandidatesFound(found) : STR.collectionCandidatesNone);
+  $("collection-candidates").replaceChildren(
+    ...candidates.map((candidate) => collectionCandidateLine(candidate, response.via)),
+  );
+}
+
+function collectionCandidateLine(candidate, via) {
+  const line = document.createElement("li");
+  line.className = "collection-candidate";
+  if (candidate.is_group) line.classList.add("collection-candidate-album");
+  else if (candidate.group_id) line.classList.add("collection-candidate-pressing");
+  const words = document.createElement("span");
+  const name = candidate.artist ? `${candidate.artist} - ${candidate.title}` : candidate.title;
+  // Two years, and they are different facts: when the album first came out,
+  // and when this pressing of it did. Each is said by name where both are
+  // known, because two bare years side by side say neither.
+  const years = candidate.original_year
+    ? [
+      STR.collectionFirstReleased(candidate.original_year),
+      candidate.year ? STR.collectionThisRelease(candidate.year) : "",
+    ]
+    : [candidate.year];
+  const detail = [
+    ...years,
+    candidate.country,
+    candidate.formats.join(", "),
+    [candidate.labels[0], candidate.catalog_numbers[0]].filter(Boolean).join(" · "),
+  ].filter(Boolean);
+  words.textContent = detail.length ? `${name} (${detail.join(" · ")})` : name;
+  if (candidate.is_group) {
+    const badge = document.createElement("span");
+    badge.className = "badge badge-album";
+    badge.textContent = STR.collectionAlbumBadge;
+    words.prepend(badge, " ");
+  }
+  const actions = document.createElement("span");
+  actions.className = "collection-candidate-actions";
+  if (candidate.url) {
+    const see = document.createElement("button");
+    see.type = "button";
+    see.className = "link-button";
+    see.textContent = STR.collectionSeeIt;
+    see.addEventListener("click", () => api().open_url(candidate.url));
+    actions.append(see);
+  }
+  const choose = document.createElement("button");
+  choose.type = "button";
+  choose.className = "button";
+  choose.textContent = STR.collectionChoose;
+  if (candidate.is_group) choose.title = STR.collectionChooseAlbumTip;
+  choose.addEventListener("click", async () => {
+    collectionStatus(STR.collectionAsking);
+    const response = await api().collection_add(
+      "", candidate.source, candidate.release_id, via, state.collectionAddFor,
+      candidate.is_group ? candidate.group_id : "",
+    );
+    await finishCollectionAdd(response);
+  });
+  actions.append(choose);
+  line.append(words, actions);
+  return line;
+}
+
+/** Open the user's own list of locations or categories. */
+function openCollectionList(kind) {
+  state.collectionListKind = kind;
+  const locations = kind === "location";
+  $("collection-list-heading").textContent = locations
+    ? STR.collectionLocationsHeading
+    : STR.collectionCategoriesHeading;
+  $("collection-list-note").textContent = locations
+    ? STR.collectionLocationsNote
+    : STR.collectionCategoriesNote;
+  $("collection-list-name").value = "";
+  renderCollectionList();
+  $("collection-list-dialog").showModal();
+}
+
+function collectionListEntries() {
+  return state.collectionListKind === "location"
+    ? state.collection.locations
+    : state.collection.categories;
+}
+
+function renderCollectionList() {
+  const entries = collectionListEntries();
+  const lines = entries.map((entry) => {
+    const line = document.createElement("li");
+    line.className = "collection-entry";
+    const name = document.createElement("input");
+    name.type = "text";
+    name.value = entry.name;
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "button button-quiet";
+    rename.textContent = STR.collectionListRename;
+    rename.addEventListener("click", () => renameCollectionListEntry(entry, name.value));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button button-quiet";
+    remove.textContent = STR.collectionListRemove;
+    remove.addEventListener("click", () => removeCollectionListEntry(entry));
+    line.append(name, rename, remove);
+    return line;
+  });
+  if (!lines.length) {
+    const none = document.createElement("li");
+    none.className = "muted";
+    none.textContent = STR.collectionListEmpty;
+    lines.push(none);
+  }
+  $("collection-list-entries").replaceChildren(...lines);
+}
+
+async function afterCollectionListChange(response) {
+  if (!response.ok) {
+    toastError(response.error);
+    return;
+  }
+  await refreshCollection();
+  renderCollectionList();
+}
+
+async function addCollectionListEntry() {
+  const name = $("collection-list-name").value;
+  const response = await api().collection_list_add(state.collectionListKind, name);
+  if (response.ok) $("collection-list-name").value = "";
+  await afterCollectionListChange(response);
+}
+
+async function renameCollectionListEntry(entry, name) {
+  await afterCollectionListChange(
+    await api().collection_list_rename(state.collectionListKind, entry.id, name),
+  );
+}
+
+async function removeCollectionListEntry(entry) {
+  const kind = state.collectionListKind;
+  let response = await api().collection_list_remove(kind, entry.id);
+  if (response.confirm) {
+    // The list's own dialog is modal; the question is asked over it and the
+    // list is drawn again underneath whichever way it is answered.
+    if (!(await confirmCollection(STR.collectionRemoveInUse(entry.name, response.uses)))) return;
+    response = await api().collection_list_remove(kind, entry.id, true);
+  }
+  await afterCollectionListChange(response);
+}
 
 function switchTab(name) {
   const arriving = state.tab !== name;
@@ -9122,6 +9995,9 @@ function switchTab(name) {
   // the tab is not something the observer hears about. Without this every row
   // would stay on its placeholder.
   requestVisibleCovers();
+  // The collection is asked for when it is arrived at, and after each gesture
+  // on it: nothing else on the window changes it.
+  if (arriving && name === "collection") refreshCollection();
 }
 
 /** Ask whether the albums on screen still have their folders, and mark those
@@ -9204,6 +10080,22 @@ function requestVisibleCovers() {
   }
 }
 
+/** Ask for the dashboard, and ask again if the shelf was written meanwhile.
+ *
+ * The read takes seconds on a large shelf, and a ✕ or a rating confirmed while
+ * it was in flight is not in what it returns: drawn, it put a card back that
+ * the server had already taken off, and the next ✕ on it answered "Unknown
+ * album". A read asked after the write's confirmation includes it, so that is
+ * the one that is drawn.
+ */
+async function readDashboard() {
+  for (;;) {
+    const asked = state.shelfWrites;
+    const snapshot = await api().state();
+    if (state.shelfWrites === asked) return snapshot;
+  }
+}
+
 async function refresh() {
   // A downloaded album joins the library by itself once it has arrived, so the
   // question is asked wherever the window refreshes rather than only after
@@ -9220,7 +10112,7 @@ async function refresh() {
   // beside what this read costs, and it stands aside entirely while a run is
   // going.
   await checkFoldersStillThere();
-  const snapshot = await api().state();
+  const snapshot = await readDashboard();
   // The survey outlives a tab switch and a reopened window, so its findings
   // are read back rather than kept only in whatever events this session saw.
   const bench = await api().bench_state();
@@ -9503,10 +10395,11 @@ function hideToast() {
 
 applyStrings();
 // --- folders dropped onto the window ----------------------------------------
-// Where a dropped folder *is* can only be answered natively, so the path is
+// Where a dropped folder *is* can only be answered natively, so the paths are
 // read on the other side of the bridge and nothing here ever sees one. This
-// half does the two things a page must: stop the webview from navigating to
-// whatever was dropped, and say that the window will take it.
+// half does the three things a page must: stop the webview from navigating to
+// whatever was dropped, say that the window will take it, and tell the other
+// side that a drop has happened.
 //
 // The counter exists because dragenter and dragleave both fire when the
 // pointer crosses onto a child element, so tracking a boolean makes the
@@ -9544,14 +10437,23 @@ document.addEventListener("drop", (event) => {
   event.preventDefault();
   dragDepth = 0;
   showDropTarget(false);
-  // The paths arrive natively, so there is nothing to send — only the waiting
-  // to start. The answer is guaranteed, including when the drop held no
-  // folder, which is what lets this be set without a timeout to undo it.
+  // The paths were recorded natively before this event was raised, so there
+  // is nothing to send — only the asking, and the waiting to start. Every way
+  // out of `adopt_dropped` announces itself with an `adopted` event, including
+  // a drop that held no folder, which is what lets this be set without a
+  // timeout to undo it.
   state.adopting += 1;
   $("empty-library").textContent = STR.adopting;
   // Not `pollEvents()` directly: a drop can land while a scan is already being
   // listened to, and a second timer chain would double every beat.
   ensurePolling();
+  // The one way out that announces nothing is the call itself failing to
+  // cross: then no event is coming, and the wait is ended here.
+  api().adopt_dropped().catch((error) => {
+    state.adopting = Math.max(0, state.adopting - 1);
+    renderGrid();
+    toastError(String(error?.message || error));
+  });
 });
 
 $("choose-folder").addEventListener("click", chooseFolder);
@@ -9673,6 +10575,18 @@ $("plan-yours-drop-all").addEventListener("click", dropEveryCorrectedTitle);
 $("album-previous").addEventListener("click", () => stepThroughShelf(-1));
 $("album-next").addEventListener("click", () => stepThroughShelf(1));
 $("album-choose-cover").addEventListener("click", chooseCover);
+$("album-cover").addEventListener("click", enlargeDialogCover);
+$("cover-zoom-dialog").addEventListener("click", closeCoverZoom);
+// On the document and on the way down: the picture holds nothing that takes
+// focus, so a key may land anywhere — including inside the album dialog, whose
+// own Escape listener would otherwise close the album as well.
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if ($("cover-zoom-dialog").open) closeCoverZoom(event);
+  },
+  true,
+);
 $("cover-choice-write").addEventListener("click", writeChosenCover);
 $("cover-choice-drop").addEventListener("click", discardChosenCover);
 $("album-scan-here").addEventListener("click", scanThisAlbum);
@@ -9891,6 +10805,40 @@ $("history-search").addEventListener("keydown", (event) => {
   }
 });
 $("history-search-clear").addEventListener("click", clearHistorySearch);
+$("collection-search").addEventListener("input", (event) => {
+  state.collectionSearch = event.target.value;
+  renderCollection();
+});
+$("collection-add").addEventListener("click", () => openCollectionAdd(null));
+$("collection-locations").addEventListener("click", () => openCollectionList("location"));
+$("collection-categories").addEventListener("click", () => openCollectionList("category"));
+$("collection-attribution-link").addEventListener("click", () => {
+  api().open_url("https://www.discogs.com");
+});
+$("collection-link-add").addEventListener("click", collectionAddByLink);
+$("collection-barcode-find").addEventListener("click", () => collectionFind(true));
+$("collection-words-find").addEventListener("click", () => collectionFind(false));
+$("collection-add-unidentified").addEventListener("click", collectionAddUnidentified);
+$("collection-record-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveCollectionRecord();
+});
+$("collection-identify").addEventListener("click", () => {
+  const record = collectionRecord(state.collectionOpen);
+  $("collection-record-dialog").close();
+  if (record) openCollectionAdd(record);
+});
+$("collection-remove").addEventListener("click", removeCollectionRecord);
+$("collection-list-add").addEventListener("click", addCollectionListEntry);
+$("collection-import").addEventListener("click", openCollectionImport);
+$("collection-import-preview").addEventListener("click", previewCollectionImport);
+$("collection-import-apply").addEventListener("click", applyCollectionImport);
+$("collection-review").addEventListener("click", () => {
+  state.collectionReviewOnly = !state.collectionReviewOnly;
+  renderCollection();
+});
+$("collection-offers-none").addEventListener("click", dismissCollectionOffers);
+$("collection-offers-again").addEventListener("click", askCollectionOffersAgain);
 $("status-menu").addEventListener("click", (event) => {
   // The same popover the right-click menus use, so there is one menu in this
   // window rather than a second kind that behaves almost like the first.

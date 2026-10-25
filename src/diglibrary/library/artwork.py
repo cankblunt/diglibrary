@@ -116,6 +116,13 @@ class StagedImage:
     kind: ImageKind
     path: Path
     facts: ImageFacts
+    picked_by: str = ""
+    """Who decided this is the picture: `user`, `archive`, or empty for a guess.
+
+    A guess is this application choosing among pictures already on the disk.
+    Carried into the change operation, because what was written by a guess is
+    not a decision, and reading it back later as one would keep the guess.
+    """
 
     @property
     def extension(self) -> str:

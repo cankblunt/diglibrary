@@ -498,14 +498,17 @@ def check_committer_names(file: PublicFile, text: str, words: Iterable[str]) -> 
 # (c) names from a local library
 # --------------------------------------------------------------------------
 
-# Columns that hold a name or a path made of names. Written as the text
-# columns of the tables that describe a library; a table added later is not
-# read until it is named here, and `unread_tables` reports it so that the
-# omission is a decision.
+# Columns that hold a name or a path made of names, and below them the columns
+# that hold text and no name. Between the two every column that can hold text
+# is classified: a table named in neither is reported by `unread_tables`, and
+# a column named in neither by `unread_columns`, so that leaving one unread is
+# a decision somebody wrote down and never what happens to a column added later.
 NAME_COLUMNS: dict[str, tuple[str, ...]] = {
     "album_units": ("folder_path",),
+    "apply_proofs": ("payload",),
     "audio_files": ("path",),
-    "downloads": ("directory", "folder", "landed_path"),
+    "downloads": ("directory", "folder", "landed_path", "source"),
+    "identifications": ("explanation", "verification"),
     "metadata_releases": ("title", "primary_artist", "payload"),
     "manual_corrections": ("value", "replaced"),
     "playlists": ("name",),
@@ -516,29 +519,108 @@ NAME_COLUMNS: dict[str, tuple[str, ...]] = {
     "change_operations": ("target_path", "before_state", "after_state", "backup_path"),
     "collection_categories": ("name",),
     "collection_locations": ("name",),
-    "physical_records": ("artist", "album", "notes", "label", "edition"),
-    "physical_record_candidates": ("title", "artist", "labels"),
+    "physical_records": (
+        "artist",
+        "album",
+        "notes",
+        "label",
+        "edition",
+        "catalog_number",
+        "candidates_error",
+    ),
+    "physical_record_candidates": ("title", "artist", "labels", "catalog_numbers"),
+    "settings": ("key", "value"),
 }
 
-# Tables that hold no name: digests, verdicts, measurements, bookkeeping.
-NO_NAMES_IN = frozenset(
-    {
-        "acoustic_fingerprints",
-        "acoustic_prints",
-        "apply_proofs",
-        "change_plans",
-        "duplicate_decisions",
-        "identifications",
-        "physical_record_categories",
-        "quality_overrides",
-        "quality_words",
-        "schema_migrations",
-        "settings",
-        "track_harmonics",
-        "track_quality",
-        "sqlite_sequence",
-    }
-)
+# Text that names nothing: digests, keys, verdicts, timestamps, identifiers a
+# catalogue issued, and sentences this application composes out of numbers.
+NAMELESS_COLUMNS: dict[str, tuple[str, ...]] = {
+    "acoustic_fingerprints": (
+        "content_signature",
+        "algorithm",
+        "fingerprint",
+        "external_recording_id",
+        "computed_at",
+        "looked_up_at",
+    ),
+    "acoustic_prints": (
+        "content_signature",
+        "audio_key",
+        "algorithm",
+        "fingerprint",
+        "external_recording_id",
+        "looked_up_at",
+        "computed_at",
+    ),
+    "album_units": ("unit_signature", "state", "created_at", "updated_at", "origin", "cleared_at"),
+    "apply_proofs": ("kind", "created_at"),
+    "audio_files": (
+        "content_signature",
+        "modified_at",
+        "container_format",
+        "codec",
+        "first_seen_at",
+        "last_seen_at",
+        "audio_key",
+    ),
+    "change_operations": ("kind", "applied_at", "reverted_at"),
+    "change_plans": ("state", "created_at", "applied_at", "reverted_at", "run_id"),
+    "collection_categories": ("created_at",),
+    "collection_locations": ("created_at",),
+    "downloads": ("requested_at", "collected_at", "cleared_at", "unit_signature"),
+    "duplicate_decisions": ("first_signature", "second_signature", "verdict", "decided_at"),
+    "identifications": ("method", "state", "decided_by", "created_at", "decided_at"),
+    "manual_corrections": ("field", "release_key", "created_at"),
+    "metadata_releases": (
+        "source",
+        "source_release_id",
+        "released_on",
+        "fetched_at",
+        "original_released_on",
+    ),
+    "physical_record_candidates": ("source", "release_id", "country", "formats", "group_id"),
+    "physical_record_categories": (),
+    "physical_records": (
+        "identified_by",
+        "identified_at",
+        "media_grade",
+        "sleeve_grade",
+        "created_at",
+        "updated_at",
+        "country",
+        "candidates_asked_at",
+    ),
+    "playlist_tracks": ("audio_key",),
+    "playlists": ("created_at", "updated_at"),
+    "quality_bench_albums": ("unit_signature", "seen_at"),
+    "quality_bench_files": ("content_signature", "audio_key"),
+    "quality_bench_roots": ("added_at", "walked_at"),
+    "quality_overrides": ("unit_signature", "content_signature", "verdict", "created_at"),
+    "quality_words": ("unit_signature", "content_signature", "audio_key", "verdict", "created_at"),
+    "schema_migrations": ("name", "applied_at"),
+    "sqlite_sequence": ("name", "seq"),
+    "track_harmonics": (
+        "audio_key",
+        "content_signature",
+        "tonic",
+        "mode",
+        "measured_at",
+        "runner_up_tonic",
+        "runner_up_mode",
+    ),
+    "track_quality": (
+        "content_signature",
+        "audio_key",
+        "encoding",
+        "findings",
+        "reason",
+        "measured_at",
+    ),
+}
+
+# A value that is one of this application's own keys followed by a path. The
+# key is vocabulary every source file writes; only the path is somebody's.
+PATH_AFTER_A_KEY = frozenset({("settings", "key")})
 
 # JSON keys under which a catalogue answer carries a name.
 NAME_KEYS = frozenset({"title", "name", "artist", "artists", "album", "label", "sort-name"})
@@ -587,12 +669,15 @@ def _names_in(value: str) -> Iterator[str]:
         bare = DECORATION.sub(" ", component)
         for candidate in (component, bare, LEADING_NUMBER.sub("", bare)):
             yield candidate
-            yield from re.split(r"\s+[-\u2013\u2014]\s+|\s*_-_\s*", candidate)
+            yield from re.split(r"\s+[-\u2013\u2014\u00b7]\s+|\s*_-_\s*", candidate)
 
 
 def _names_in_json(payload: object) -> Iterator[str]:
     if isinstance(payload, dict):
         for key, value in payload.items():
+            # A proof of what was written is keyed by the file it was written to.
+            if isinstance(key, str) and AUDIO_SUFFIX.search(key):
+                yield from _names_in(key)
             if key in NAME_KEYS and isinstance(value, str):
                 yield value
             else:
@@ -610,6 +695,33 @@ class LibraryNames:
     rows_read: int
     tables_read: tuple[str, ...]
     unread_tables: tuple[str, ...]
+    unread_columns: tuple[str, ...] = ()
+    # Names the owner looked at and judged ordinary words, set aside.
+    reviewed: int = 0
+
+
+REVIEWED_AS_ORDINARY = "names-reviewed-as-ordinary.txt"
+"""Beside the database, never in the repository: names judged ordinary words.
+
+A name in a library can be a word anybody writes — a genre, a month, a word
+of Portuguese the dictionary does not hold — and once it is a whole name there,
+every file using the word is refused. Each line is one name the owner has
+looked at and judged to identify nothing; `#` starts a comment. Kept with the
+library rather than here because the list is itself drawn from the library.
+"""
+
+
+def reviewed_as_ordinary(database: Path) -> frozenset[tuple[str, ...]]:
+    """The names the owner set aside, normalized the way names are compared."""
+    listed = database.with_name(REVIEWED_AS_ORDINARY)
+    if not listed.is_file():
+        return frozenset()
+    found = set()
+    for line in listed.read_text(encoding="utf-8").splitlines():
+        text = line.split("#", 1)[0].strip()
+        if text:
+            found.add(normalize(text))
+    return frozenset(found)
 
 
 def is_comparable(words: tuple[str, ...]) -> bool:
@@ -629,6 +741,37 @@ def is_comparable(words: tuple[str, ...]) -> bool:
     if not telling:
         return False
     return len("".join(telling)) >= 4
+
+
+def _declared_for_numbers(declared: str) -> bool:
+    """Whether a column's declared type gives it an integer or a real affinity."""
+    declared = declared.upper()
+    if "INT" in declared:
+        return True
+    if any(word in declared for word in ("CHAR", "CLOB", "TEXT", "BLOB")) or not declared:
+        return False
+    return any(word in declared for word in ("REAL", "FLOA", "DOUB"))
+
+
+def _unclassified_columns(connection: sqlite3.Connection, tables: Iterable[str]) -> Iterator[str]:
+    """Columns that can hold text and that nobody has said hold a name or do not.
+
+    A column declared for numbers is asked what it holds, because the
+    declaration is an affinity and not a constraint: a string that is not a
+    number is stored in it as the string it is.
+    """
+    for table in tables:
+        classified = {*NAME_COLUMNS.get(table, ()), *NAMELESS_COLUMNS.get(table, ())}
+        for _, column, declared, *_ in connection.execute(f'PRAGMA table_info("{table}")'):
+            if column in classified:
+                continue
+            if _declared_for_numbers(declared or ""):
+                holds_text = connection.execute(
+                    f"""SELECT 1 FROM "{table}" WHERE typeof("{column}") = 'text' LIMIT 1"""
+                ).fetchone()
+                if holds_text is None:
+                    continue
+            yield f"{table}.{column}"
 
 
 def read_library_names(database: Path) -> LibraryNames:
@@ -656,6 +799,8 @@ def read_library_names(database: Path) -> LibraryNames:
                 for column, value in zip(wanted, row, strict=True):
                     if not isinstance(value, str) or not value:
                         continue
+                    if (table, column) in PATH_AFTER_A_KEY:
+                        value = value[value.find("/") :] if "/" in value else ""
                     found: Iterable[str]
                     if column == "payload" or value[:1] in "{[":
                         try:
@@ -675,8 +820,16 @@ def read_library_names(database: Path) -> LibraryNames:
                         words = normalize(name)
                         if is_comparable(words):
                             names.add(words)
-        unread = sorted(present - set(NAME_COLUMNS) - NO_NAMES_IN)
-        return LibraryNames(frozenset(names), rows_read, tuple(tables_read), tuple(unread))
+        classified = set(NAME_COLUMNS) | set(NAMELESS_COLUMNS)
+        reviewed = reviewed_as_ordinary(database) & names
+        return LibraryNames(
+            frozenset(names - reviewed),
+            rows_read,
+            tuple(tables_read),
+            tuple(sorted(present - classified)),
+            tuple(_unclassified_columns(connection, sorted(present & classified))),
+            reviewed=len(reviewed),
+        )
     finally:
         connection.close()
 
@@ -954,6 +1107,11 @@ def main(arguments: list[str] | None = None) -> int:
                 could_not_run.append(
                     "library names: tables nobody has classified: "
                     + ", ".join(library.unread_tables)
+                )
+            if library.unread_columns:
+                could_not_run.append(
+                    "library names: columns nobody has classified: "
+                    + ", ".join(library.unread_columns)
                 )
             if not ordinary_words():
                 could_not_run.append(f"library names: no word list at {DICTIONARY}")

@@ -288,3 +288,27 @@ def _find_cycles(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:
     for module in graph:
         visit(module)
     return cycles
+
+
+TOOLS_ROOT = SOURCE_ROOT.parents[1] / "tools"
+
+
+def test_a_quality_measurement_is_assembled_only_by_the_composition_root() -> None:
+    """Every survey measures with the same probes, because one place builds them.
+
+    Read across ``tools/`` as well as the package. A tool that ran the survey
+    outside the window once assembled its own analyzer and left the frame grid
+    out, so every row it wrote was incomplete and nothing said so: the rule
+    above reads only ``src``, and a script beside it is where the second
+    assembly lived. Each name maps to *every* file that calls it, so a second
+    caller is a failure rather than an overwrite.
+    """
+    measured = {"FfmpegQualityAnalyzer", "FilterEdgeProbe", "FrameGridProbe", "QualitySurvey"}
+    found: dict[str, set[Path]] = {}
+    for path in [*SOURCE_ROOT.rglob("*.py"), *TOOLS_ROOT.rglob("*.py")]:
+        for call_name in _called_names(path):
+            if call_name in measured:
+                found.setdefault(call_name, set()).add(path)
+
+    composition = SOURCE_ROOT / "application" / "composition.py"
+    assert found == {name: {composition} for name in measured}

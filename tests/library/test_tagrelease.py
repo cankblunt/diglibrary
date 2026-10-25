@@ -8,10 +8,17 @@ does not exist.
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from diglibrary.application.contracts import MetadataSources
 from diglibrary.library.audio import AudioProperties
 from diglibrary.library.models import AlbumUnit, AudioFileFacts
-from diglibrary.library.tagrelease import release_from_tags
+from diglibrary.library.tagrelease import (
+    VARIOUS_ARTISTS,
+    _credit_of_many,
+    release_from_tags,
+    year_in_folder_name,
+)
 
 FOLDER = Path("/music/an album")
 
@@ -379,7 +386,7 @@ def test_one_title_repeated_on_every_file_does_not_name_the_tracks() -> None:
     unit = _unit("01- zunto livre.mp3", "02- plimba 64.mp3")
     said = {
         "albumartist": ("Artista",),
-        "album": ("Compacto",),
+        "album": ("Zunvelho",),
         "date": ("1980",),
         "title": ("www.example-downloads.com",),
     }
@@ -410,3 +417,41 @@ def test_titles_that_differ_still_name_the_tracks() -> None:
     assert reading.release is not None
     assert [track.title for track in reading.release.tracks] == ["Primeiro", "Segundo"]
     assert reading.missing == ()
+
+
+@pytest.mark.parametrize(
+    ("credits", "expected"),
+    [
+        # One artist on every track, a guest beside them on one: still their album.
+        ((("Ana Zinco",), ("Ana Zinco",), ("Ana Zinco", "Beto Pardo")), None),
+        # One credit of three people on every track is that credit, not three.
+        ((("Ana Zinco, Beto Pardo & Ciro Lume",),) * 3, None),
+        # Two credits with nobody in common: a split, credited to both.
+        ((("Ana Zinco",), ("Beto Pardo",), ("Ana Zinco",)), ("Ana Zinco", "Beto Pardo")),
+        # A split whose one side is itself several people.
+        (
+            (("Ana Zinco, Beto Pardo & Ciro Lume",), ("Zerda Vale",)),
+            ("Ana Zinco, Beto Pardo & Ciro Lume", "Zerda Vale"),
+        ),
+        # More than two credits and nobody on every track: a compilation.
+        ((("Ana Zinco",), ("Beto Pardo",), ("Ciro Lume",)), (VARIOUS_ARTISTS,)),
+    ],
+)
+def test_who_an_album_read_from_its_files_is_credited_to(credits, expected) -> None:
+    assert _credit_of_many(credits) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "year"),
+    [
+        ("Coletanea Zorvo 1979", 1979),
+        ("Zorvo - Coletanea (1979) [FLAC]", 1979),
+        ("2001 Zorvo", None),  # a number inside a title is not the album's year
+        ("Zorvo (Ed. 1993)", None),  # nor is a designator's
+        ("Zorvo (Remasterizado - 1977) (2022)", 2022),
+        ("Zorvo (1979) (1980)", None),  # two years answer nothing
+        ("Zorvo (0000)", None),
+    ],
+)
+def test_the_year_a_folder_name_states(name, year) -> None:
+    assert year_in_folder_name(name) == year

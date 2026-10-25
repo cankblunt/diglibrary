@@ -284,7 +284,7 @@ def test_a_mixed_bitrate_folder_names_both_qualities() -> None:
     """
     label = format_label([_stream("mp3", 320_000), _stream("mp3", 192_000)])
 
-    assert label == "MP3 192, MP3 320"
+    assert label == "MP3 320, MP3 192"
 
 
 def test_every_shipped_style_renders_the_name_it_advertises() -> None:
@@ -460,14 +460,14 @@ def test_a_folder_names_every_quality_it_holds() -> None:
 
     label = format_label(files, (False, True, False), "Fake")
 
-    assert label == "FLAC, Fake, MP3 128"
+    assert label == "FLAC, MP3 128, Fake"
 
 
 def test_two_constant_bitrates_are_named_as_two_qualities() -> None:
     """128 beside 320 is two rips, and hiding that defeats the point of the label."""
     files = (_stream("mp3", 128_000), _stream("mp3", 320_000))
 
-    assert format_label(files) == "MP3 128, MP3 320"
+    assert format_label(files) == "MP3 320, MP3 128"
 
 
 def test_a_variable_bitrate_rip_is_one_label_not_eight() -> None:
@@ -997,3 +997,45 @@ def test_the_style_in_a_folder_name_is_spelled_as_the_tag_is() -> None:
     policy = NamingPolicy(folder_template="%albumartist% - %album%{ [%style%]}")
 
     assert policy.folder_name(release, "FLAC") == "Mirén Zoélle - Quarrelzon [Jazz-Funk]"
+
+
+def test_every_lossy_codec_carries_its_rate_and_no_lossless_one_does() -> None:
+    """The rate is named for a lossy codec, whichever it is, and never for a lossless one.
+
+    Written as the complement of *lossless*: a list of the lossy codecs that
+    carry a number left AAC without one, and would leave the next codec too.
+    """
+    assert format_label([_stream("mp4a.40.2", 256_000)]) == "M4A 256"
+    assert format_label([_stream("flac"), _stream("mp4a.40.2", 256_000)]) == "FLAC, M4A 256"
+    assert format_label([_stream("opus", 160_000)]) == "OPUS 160"
+    for lossless in ("flac", "alac", "wave", "aiff", "pcm_s24be"):
+        assert not format_label([_stream(lossless, 900_000)]).endswith(" 900"), lossless
+
+
+def test_a_stream_measured_below_what_it_declares_is_named_by_its_measurement() -> None:
+    """Ten 320s and one 128 labelled 320 are two qualities, best first."""
+    files = [_stream("mp3", 320_000)] * 11
+    measured = [None] * 10 + [128]
+
+    assert format_label(files, measured_rates=measured) == "MP3 320, MP3 128"
+    assert odd_track_labels(files, [False] * 11, measured_rates=measured)[-1] == "128kbps"
+    assert format_label([_stream("mp3", 320_000)], measured_rates=[128]) == "MP3 128"
+
+
+def test_a_measured_stream_stays_out_of_a_variable_rip() -> None:
+    """VBR is the declared rates breathing; a stream measured lower is its own quality."""
+    files = [_stream("mp3", rate * 1000) for rate in (167, 178, 180, 182, 319)]
+
+    assert format_label(files, measured_rates=[None] * 4 + [192]) == "MP3 192, MP3 VBR"
+
+
+def test_qualities_are_named_best_first() -> None:
+    files = (_stream("mp3", 128_000), _stream("flac"), _stream("flac"), _stream("mp3", 320_000))
+
+    assert (
+        format_label(files, (False, False, True, False), "Lossy") == "FLAC, MP3 320, MP3 128, Lossy"
+    )
+
+
+def test_a_transcode_keeps_its_word_whatever_was_measured() -> None:
+    assert format_label([_stream("flac")], (True,), "Lossy", [192]) == "Lossy"

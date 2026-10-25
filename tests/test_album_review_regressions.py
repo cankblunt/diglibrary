@@ -84,8 +84,8 @@ def test_arranging_by_tags_plans_the_folder_cover(tmp_path: Path) -> None:
     """Arranging by tags also writes `cover.jpg` into the album folder.
 
     The picture is the one the files already carry, so this embeds one first and
-    then asks for the arrangement. What must not appear is anything that writes
-    into one of the audio files.
+    then asks for the arrangement. The tags the names were made of are written
+    back as well, and the folder still gets its `cover.jpg`.
     """
     from tests.library.test_artwork_store import _drawable_jpeg
 
@@ -109,7 +109,7 @@ def test_arranging_by_tags_plans_the_folder_cover(tmp_path: Path) -> None:
 
     assert len(covers) == 1, f"no cover.jpg was planned; the arrangement planned {kinds}"
     assert Path(covers[0]["target"]).name == "cover.jpg", covers[0]["target"]
-    assert "write_tags" not in kinds, "the arrangement wrote a tag, which is its whole promise"
+    assert "write_tags" in kinds, "the arrangement writes back the tags its names came from"
 
 
 # --- 3. an album moved on disk is followed to where it went ----------------

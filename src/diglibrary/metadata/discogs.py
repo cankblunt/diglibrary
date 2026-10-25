@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from diglibrary.application.contracts import (
+    AlbumBehindPressings,
     ArtistMetadata,
     MetadataQuery,
     MetadataSources,
@@ -54,6 +55,10 @@ class DiscogsClient:
             parameters["release_title"] = query.album
         if query.barcode:
             parameters["barcode"] = query.barcode
+        if query.label:
+            parameters["label"] = query.label
+        if query.catalog_number:
+            parameters["catno"] = query.catalog_number
         payload = self._get("/database/search", parameters)
         results = payload.get("results", [])
         if not isinstance(results, list):
@@ -90,6 +95,20 @@ class DiscogsClient:
         year = payload.get("year")
         return parse_partial_date(str(year)) if year else None
 
+    def describe_group(self, group_id: str) -> AlbumBehindPressings:
+        """Return what a Discogs master says of itself: its name, its year, its main pressing."""
+        payload = self._get(f"/masters/{group_id}", {})
+        year = payload.get("year")
+        main = payload.get("main_release")
+        return AlbumBehindPressings(
+            source=MetadataSources.DISCOGS,
+            group_id=str(group_id),
+            title=normalize_text(_string(payload, "title")) or "",
+            artists=_discogs_artists(payload.get("artists")),
+            first_released=year if isinstance(year, int) and year > 0 else None,
+            main_release_id=str(main) if main else None,
+        )
+
     def _get(self, path: str, parameters: Mapping[str, str]) -> Mapping[str, Any]:
         token = self._credentials.required(self._token_environment_variable)
         url = f"{_BASE_URL}{path}?{urlencode(parameters)}" if parameters else f"{_BASE_URL}{path}"
@@ -119,6 +138,8 @@ def _map_discogs_search_result(payload: Mapping[str, Any]) -> ReleaseMetadata:
         catalog_numbers=tuple(
             number for number in (normalize_text(_string(payload, "catno")),) if number
         ),
+        # A search writes zero for a pressing that belongs to no master.
+        release_group_id=normalize_identifier(payload.get("master_id") or None),
         external_ids={MetadataSources.DISCOGS: identifier},
     )
 

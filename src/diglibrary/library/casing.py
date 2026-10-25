@@ -19,7 +19,6 @@ from itertools import pairwise
 
 from diglibrary.application.contracts import (
     ArtistMetadata,
-    MetadataSources,
     ReleaseMetadata,
     TrackMetadata,
 )
@@ -136,13 +135,12 @@ def normalize_release(
 ) -> ReleaseMetadata:
     """Return the release with its album, track and artist names written one way.
 
-    Applied to what a catalogue published, and only that: a release read from
-    the user's own tags is their words and comes back untouched, and so does a
-    track they added, a title they corrected (``user_titles``, by position) and
-    a credit they wrote.
+    Applied to what a catalogue published and to what the album's own tags say,
+    because arranging an album by its tags normalizes it to the same pattern. A
+    track the user added, a title they corrected (``user_titles``, by position)
+    and a credit they wrote are their words typed for this purpose, and come
+    back untouched.
     """
-    if release.source == MetadataSources.TAGS:
-        return release
     names, fallback = _credited_names(release), _release_language(release)
     return replace(
         release,
@@ -162,8 +160,6 @@ def normalize_album_names(release: ReleaseMetadata) -> ReleaseMetadata:
     cards are drawn hundreds at a time, and normalizing every track title to
     read one line is a cost that grows with the whole shelf.
     """
-    if release.source == MetadataSources.TAGS:
-        return release
     fallback = _release_language(release)
     return replace(
         release,
@@ -180,8 +176,6 @@ def normalize_track(
     Asked of each paired track as well as of the release, because a file's name
     and tags are drawn from the track its pairing carries.
     """
-    if release.source == MetadataSources.TAGS:
-        return track
     return _named_track(
         track, _credited_names(release), _release_language(release), title_from_user=title_from_user
     )
@@ -246,7 +240,7 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
     cursor = 0
     for match in _TOKEN.finditer(text):
         start, end = match.span()
-        word = match.group()
+        word = _repaired(match.group())
         pieces.append(text[cursor:start])
         cursor = end
         if _left_alone(word, text, start, end, kept):
@@ -260,6 +254,32 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
         pieces.append(_cased(word, text[start:], edge, language, names, artist))
     pieces.append(text[cursor:])
     return "".join(pieces)
+
+
+def _repaired(word: str) -> str:
+    """Undo the two capitals inside a word that no name is spelled with.
+
+    A capital inside a word is usually deliberate — `McZorvo`, `ZunZun`,
+    `iPhone` — and is left alone. Two shapes are not. A second capital held
+    down at the start, followed only by small letters (`ZOrvelim`), is a slip
+    of the shift key; a plural of an initialism has a single small letter
+    after it (`LPs`) and is kept. A capital beside an accented letter in the
+    middle of a word (`InfluêNcia`, `DurÃO`) is what a program leaves when it
+    takes the accented letter for the end of a word. Both are written with the
+    first letter as it was and the rest in small letters.
+    """
+    if len(word) < 4 or not word[0].isupper():
+        return word
+    tail = word[1:]
+    slipped = tail[0].isupper() and tail[1:].islower() and len(tail) >= 3
+    broken = any(
+        character.isupper()
+        and (not character.isascii() or not tail[index - 1].isascii())
+        and tail[index - 1].isalpha()
+        for index, character in enumerate(tail)
+        if index > 0
+    )
+    return word[0] + tail.lower() if slipped or broken else word
 
 
 def _left_alone(word: str, text: str, start: int, end: int, kept: list[tuple[int, int]]) -> bool:

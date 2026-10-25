@@ -199,16 +199,20 @@ def _refresh(body: str) -> dict:
     """
     source = SCRIPT.read_text(encoding="utf-8")
     found = re.search(
-        r"async function refresh\(\) \{[\s\S]+?\n  const snapshot = await api\(\)\.state\(\);",
+        r"async function refresh\(\) \{[\s\S]+?\n  const snapshot = await readDashboard\(\);",
         source,
     )
     assert found, "refresh() no longer opens the way this guard reads it"
     check = re.search(r"async function checkFoldersStillThere\([\s\S]*?\) \{[\s\S]+?\n\}", source)
     assert check, "no checkFoldersStillThere() to run"
+    read = re.search(r"async function readDashboard\(\) \{[\s\S]+?\n\}", source)
+    assert read, "no readDashboard() to run"
     opening = found.group(0) + "\n}"
     program = (
         REFRESH_HARNESS
         + check.group(0)
+        + "\n"
+        + read.group(0)
         + "\nfunction collectDownloads() {}\n"
         + opening
         + ";\n(async () => {\n"

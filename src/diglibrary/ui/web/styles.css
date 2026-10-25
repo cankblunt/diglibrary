@@ -683,6 +683,28 @@ main { padding: 20px; }
    edge to themselves and the eye reads the row as one question. */
 .dialog-more { margin-right: auto; }
 .dialog-cover { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; }
+.dialog-cover-zoomable { cursor: zoom-in; }
+/* The enlarged cover. Bounded by the window and never by more than the
+   picture's own pixels: a 300px scan blown up to fill the screen would show a
+   sharper cover than the album has. */
+.cover-zoom {
+  background: none;
+  border: none;
+  padding: 0;
+  max-width: 92vw;
+  max-height: 92vh;
+  overflow: hidden;
+  position: fixed;
+  cursor: zoom-out;
+}
+.cover-zoom-close { position: absolute; top: 8px; right: 8px; }
+.cover-zoom::backdrop { background: rgba(5, 6, 8, 0.85); }
+.cover-zoom-image {
+  display: block;
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 8px;
+}
 /* The picture and the gesture that changes it, one column. The gesture is grey
    and small — an edit offered, not a step owed — and it keeps its place
    whether or not there is a picture, so the eye learns one spot. */
@@ -898,12 +920,23 @@ main { padding: 20px; }
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* An album already on the shelf that was just dropped or opened again: pulsed
+   for a moment so it can be found. On a row the pulse is on the cells, since a
+   row draws no outline; the selector outranks the row's own hover. */
+.card.is-pointed-out { animation: pointed-out 0.8s ease-in-out 3; }
+.albums-list tbody tr.is-pointed-out td { animation: pointed-out-row 0.8s ease-in-out 3; }
+@keyframes pointed-out { 50% { box-shadow: 0 0 0 3px var(--accent); } }
+@keyframes pointed-out-row {
+  50% { box-shadow: inset 0 2px 0 var(--accent), inset 0 -2px 0 var(--accent); }
+}
 @media (prefers-reduced-motion: reduce) {
   .find-status.is-busy::before,
   .activity-ring,
   .badge-working::before,
   .button.is-working::after { animation-duration: 3s; }
   .flash { transition: none; }
+  .card.is-pointed-out,
+  .albums-list tbody tr.is-pointed-out td { animation: none; outline: 2px solid var(--accent); }
 }
 
 /* --- the end of a run, said in the middle of the window -------------------
@@ -3643,3 +3676,81 @@ body.is-dropping .drop-veil {
   object-fit: cover;
   flex: none;
 }
+
+/* The physical collection. Its table wears `.history`'s rules; what
+   follows is only what a record needs beyond them. */
+/* Where each column starts, until its edge is dragged: what the record is,
+   then where it is kept, then the state it is in. The last takes what is left. */
+.collection-table th:nth-child(1) { width: 32%; }
+.collection-table th:nth-child(2) { width: 6%; }
+.collection-table th:nth-child(3) { width: 19%; }
+.collection-table th:nth-child(4) { width: 12%; }
+.collection-table th:nth-child(5) { width: 13%; }
+.collection-table th:nth-child(6) { width: 9%; }
+.collection-table .collection-row { cursor: pointer; }
+.collection-table .collection-row:hover td { background: var(--panel-raised); }
+.muted-cell { color: var(--muted); }
+.collection-search { width: 220px; }
+.collection-attribution { text-align: right; padding: var(--space-2) 12px; }
+.collection-line { display: flex; align-items: center; gap: var(--space-2); }
+.collection-line input { flex: 1; min-width: 0; }
+/* `fr` alone keeps a track as wide as its content at least, and a text input's
+   own width is twenty characters: three of them are wider than the dialog. */
+.collection-words {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.collection-words input { min-width: 0; width: 100%; box-sizing: border-box; }
+.collection-candidates { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.collection-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.collection-candidate-actions { display: flex; gap: var(--space-2); flex: none; }
+/* The album itself, heading the pressings that are copies of it. Marked by
+   weight and a raised ground rather than by colour: it is a heading, not a
+   warning, and the pressings under it are set in by one step. */
+.collection-candidate-album {
+  background: var(--panel-raised);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  font-weight: 600;
+}
+.collection-candidate-pressing { padding-left: var(--space-3); }
+.badge-album { background: var(--line); color: var(--muted); }
+/* A catalogue's title may be one word longer than the dialog is wide. */
+.collection-candidate > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.collection-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px var(--space-3);
+  margin: 0;
+  padding: 0 var(--space-5);
+}
+.collection-facts dt { color: var(--muted); }
+.collection-facts dd { margin: 0; }
+.collection-checks { border: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.collection-checks legend { padding: 0; margin-bottom: 6px; }
+.collection-check { display: flex !important; align-items: center; gap: 8px; }
+.collection-entries { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.collection-entry { display: flex; align-items: center; gap: var(--space-2); }
+.collection-entry input { flex: 1; min-width: 0; }
+.settings-form textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  resize: vertical;
+}
+.collection-waiting { color: var(--accent); }
+.collection-asking { padding: 0 12px; }
+.collection-offers { padding-top: 0; }
+.collection-mapping { margin: 0 var(--space-5); width: calc(100% - 2 * var(--space-5)); }
+.collection-import-summary { padding: var(--space-3) var(--space-5) 0; }

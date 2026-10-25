@@ -411,6 +411,42 @@ def test_a_picture_already_in_the_folder_is_what_the_files_get(
     assert (folder / "capa.jpg").is_file(), "the file in the folder is left where it is"
 
 
+def test_a_screenshot_larger_than_the_sleeve_is_never_embedded(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """The rule the card reads is the rule the files are given, so it holds here too.
+
+    A capture of the ripping program, saved beside the files and larger than
+    the sleeve, would otherwise be written into every track by size alone.
+    """
+    folder = tmp_path / "Mira Castell - Night Harbour (1967) [FLAC]"
+    folder.mkdir()
+    (folder / "capa.jpg").write_bytes(jpeg(600, 600))
+    (folder / "EAC.png").write_bytes(jpeg(1188, 1188))
+    service = _service(FakeArchive(release=(), images={}), tmp_path)
+
+    artwork = service.fetch(None, None, (), folder=folder)
+
+    assert artwork.embedded is not None
+    assert artwork.embedded.facts.pixels == 600 * 600
+    assert artwork.embedded.picked_by == "", "chosen among the folder's pictures: a guess"
+
+
+def test_a_picture_named_for_the_album_is_vouched_for_and_the_artist_is_not(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """The album's title in a file name says it is the sleeve; the artist's name does not."""
+    folder = tmp_path / "Mira Castell - Night Harbour (1967) [FLAC]"
+    folder.mkdir()
+    (folder / "Mira Castell.jpg").write_bytes(jpeg(900, 900))
+    (folder / "night harbour.jpg").write_bytes(jpeg(500, 500))
+    service = _service(FakeArchive(release=(), images={}), tmp_path)
+
+    front = service.front_in_folder(folder)
+
+    assert front is not None and front.path.name == "night harbour.jpg" and front.vouched
+
+
 def test_an_album_the_archive_answered_for_keeps_the_archive_picture(
     tmp_path: Path, jpeg: Callable[[int, int], bytes]
 ) -> None:
@@ -430,6 +466,7 @@ def test_an_album_the_archive_answered_for_keeps_the_archive_picture(
 
     assert artwork.embedded is not None
     assert artwork.embedded.facts.width == 500, "the archive's own embed size stands"
+    assert artwork.embedded.picked_by == "archive", "and it is on record as the archive's"
 
 
 def test_a_folder_with_no_picture_at_all_changes_nothing(tmp_path: Path) -> None:

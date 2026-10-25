@@ -9,6 +9,24 @@ import mutagen
 AUDIO_EXTENSIONS = frozenset({".flac", ".wav", ".aiff", ".aif", ".m4a", ".mp3"})
 """Lossless formats plus MP3, per the formats decision for v1."""
 
+_LOSSLESS_CODECS = frozenset(
+    {"flac", "alac", "wav", "wave", "aiff", "aif", "ape", "wavpack", "tta", "shorten"}
+)
+
+
+def is_lossless_codec(codec: str) -> bool:
+    """Report whether a codec promises to have lost nothing.
+
+    One answer for the two vocabularies that name codecs here — ffprobe's
+    (`pcm_s16be`, `aac`) and mutagen's (`wave`, `mp4a.40.2`) — so the Quality
+    verdict and the folder name cannot disagree about what is lossless. PCM is
+    asked as a family, so a flavour nobody listed still answers right; every
+    codec that is not lossless is treated as lossy, including one met for the
+    first time.
+    """
+    name = codec.casefold()
+    return name.startswith("pcm_") or name.split(".")[0] in _LOSSLESS_CODECS
+
 
 @dataclass(frozen=True, slots=True)
 class AudioProperties:

@@ -579,15 +579,17 @@ class IdentificationWorkflow:
         the ones an arrangement needs, and a second path beside them would be a
         path those guards never reach.
 
-        **It renames — and gives the Finder icon, and does nothing else.** The
-        icon is the one image gesture that fits the mode's own rule: made from
-        the picture the file already carries, offered only to a file that draws
-        none, reaching nobody. No tag is written and no cover is fetched or
-        embedded. And **it never comes back automatic** — the answer is
-        complete, the plan is ready, and reaching it is an explicit gesture:
-        the album's own Approve, or `Arrange N by tags`. The batch that must
-        not reach it is the *scan's* batch, because the two proposals are
-        different claims.
+        **It renames, writes the tags the names were made of, and puts the
+        album's own cover where every plan puts it.** The tags are the same
+        values written back in the form the names take, plus what the reading
+        decided — the year a folder's name states, the credit of a compilation —
+        and a field the reading does not carry keeps what the file holds. The
+        cover is the one already in the folder or in the files: nothing is
+        fetched, because arranging asks nobody. And **it never comes back
+        automatic** — the answer is complete, the plan is ready, and reaching it
+        is an explicit gesture: the album's own Approve, or `Arrange N by
+        tags`. The batch that must not reach it is the *scan's* batch, because
+        the two proposals are different claims.
         """
         reading = read_tags(unit, self._tag_store)
         if reading.release is None:
@@ -621,7 +623,6 @@ class IdentificationWorkflow:
             transcoded=transcoded,
             measured_rates=measured_rates,
             offline=True,
-            renames_only=True,
         )
         outcome = replace(outcome, provenance=reading)
         contested = self._contested_name(unit, outcome.plan, taken_names)
@@ -1014,12 +1015,6 @@ class IdentificationWorkflow:
         transcoded: frozenset[str] = frozenset(),
         measured_rates: Mapping[str, int] | None = None,
         offline: bool = False,
-        # The one path whose release came from the files themselves plans a
-        # rename and nothing else: no tag is handed back to the file it was
-        # read from, and no cover is fetched, written or embedded, because
-        # neither is a rename. Stated here rather than at the two `plan` calls
-        # below, so that both exits of this method honour it.
-        renames_only: bool = False,
         acoustic: str = "",
         # Carried into every outcome: persistence decides `method='acoustic'`
         # from this field, and the window reads it to say whether the audio
@@ -1064,17 +1059,10 @@ class IdentificationWorkflow:
         # organized album whose files all carry a cover is restored over a
         # folder holding no image at all.
         #
-        # The arrangement reads the local disk for a cover, and asks nobody.
-        # Handed nothing, an album arranged by its own tags would end with the
-        # Finder icons and no `cover.jpg` beside them, while the picture is in
-        # the files, one local read away. It is the local half only: the
-        # archive is addressed *through* MusicBrainz and arranging asks nobody
-        # anything, so there is no release to address it by; and the planner
-        # takes the cover from this and never the embed, because writing into
-        # a file is what this mode promises not to do.
-        if renames_only:
-            artwork = self._artwork_locally(unit)
-        elif not (alignment.is_usable or alignment.is_partial):
+        # The arrangement is planned offline, so it reads the local disk for a
+        # cover and asks nobody: the archive is addressed *through* MusicBrainz,
+        # and arranging has no release to address it by.
+        if not (alignment.is_usable or alignment.is_partial):
             artwork = None
         elif offline:
             artwork = self._artwork_locally(unit)
@@ -1088,7 +1076,6 @@ class IdentificationWorkflow:
             taken_names=taken_names,
             transcoded=transcoded,
             measured_rates=measured_rates,
-            write_tags=not renames_only,
         )
         if not plan.is_applicable:
             return IdentificationOutcome(
@@ -1106,7 +1093,6 @@ class IdentificationWorkflow:
                     plan,
                     transcoded=transcoded,
                     measured_rates=measured_rates,
-                    write_tags=not renames_only,
                 ),
                 sources_consulted=consulted,
                 reason=" ".join(plan.blockers),
@@ -1643,9 +1629,17 @@ def _arranged_sentence(reading: TagReading) -> str:
         else f"{len(reading.dissent)} of {reading.files} files say otherwise"
     )
     numbers = "the tags number the tracks" if reading.numbered else "the disk order numbers them"
+    # A value the tags did not hold is said where it came from, beside the rest.
+    besides = []
+    if reading.compilation:
+        besides.append("no artist runs through the files, so it is a compilation")
+    if reading.year_from == "folder":
+        besides.append("no file holds a year, so it is the one the folder's name states")
     return (
         f"Arranged from this album's own tags — {' · '.join(part for part in facts if part)}; "
-        f"{agreement}; {numbers}. No source was asked."
+        f"{agreement}; {numbers}"
+        + "".join(f"; {part}" for part in besides)
+        + ". No source was asked."
     )
 
 

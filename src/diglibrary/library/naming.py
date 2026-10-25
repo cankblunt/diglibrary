@@ -10,7 +10,7 @@ from types import MappingProxyType
 
 from diglibrary.application.contracts import ReleaseMetadata, written_credit
 from diglibrary.library.artwork import ImageKind
-from diglibrary.library.audio import AudioProperties
+from diglibrary.library.audio import AudioProperties, is_lossless_codec
 from diglibrary.library.genres import spell_genres
 
 DEFAULT_FOLDER_TEMPLATE = (
@@ -115,14 +115,6 @@ rip. A CBR file reports its rate exactly, so 128 beside 320 is two qualities
 and deserves to be named as two. A VBR file reports an average, so 167 beside
 188 is one album breathing — a single such album can span many values, and
 naming each would make an unreadable folder.
-"""
-
-_BITRATE_LABELS = frozenset({"MP3"})
-"""Formats whose label carries the bitrate, because it is what tells two apart.
-
-A lossless format is named by the format alone: every FLAC of an album is the
-album. Two MP3 rips of the same album are not the same file, and the number is
-the difference.
 """
 
 
@@ -805,10 +797,11 @@ def track_format_label(
     rule applies to: `Lossy 128 kbps` beside a bare `Lossy` would be two rules.
     The word is the form that is always available.
 
-    ``measured_rate`` is still accepted and deliberately unused, exactly as
-    `format_label` accepts and ignores `measured_rates`: the callers hold it
-    because the plan carries it, and taking it away here would move the
-    decision to whoever calls.
+    ``measured_rate`` is the rate a lossy stream's audio measured where it
+    declares more than it holds — a 128 kbps stream labelled 320. It names the
+    stream instead of the declared rate, because it is what the file is. It
+    never reaches a transcode, whose word stands alone (above), and the caller
+    hands it over only when the measurement is provably this file's.
 
     The accepted cost: a lossless folder whose tracks came from encoders of
     different rates names them all alike. The Quality screen still tells them
@@ -817,9 +810,22 @@ def track_format_label(
     label = _codec_label(item.codec)
     if transcoded:
         return transcoded_word
-    if label in _BITRATE_LABELS and item.bitrate:
-        return f"{label} {round(item.bitrate / 1000)}"
+    # A lossless format is named alone: every FLAC of an album is the album.
+    # Two lossy rips of one album are not the same file, and the rate the file
+    # declares is the difference — for any lossy codec, not a list of them.
+    rate = _lossy_rate(item, measured_rate)
+    if rate:
+        return f"{label} {rate}"
     return label
+
+
+def _lossy_rate(item: AudioProperties, measured_rate: int | None) -> int | None:
+    """The rate a lossy stream is named by, in kbps: what it measured, else what it declares."""
+    if is_lossless_codec(item.codec):
+        return None
+    if measured_rate:
+        return measured_rate
+    return round(item.bitrate / 1000) if item.bitrate else None
 
 
 def odd_track_labels(
@@ -836,14 +842,11 @@ def odd_track_labels(
     codec, the number is what distinguishes it (`128kbps`); when it does not,
     the format is (`FLAC`, `Lossy`).
 
-    ``measured_rates`` is what the *audio* of a lossy-origin track turned out to
-    be, and **it does not reach a name**: the mark is `[Lossy]`, never a
-    measured rate. The argument is still taken, and taken deliberately: the
-    callers hold it because the plan carries it.
-
-    The number that does still reach a track's mark is the file's *declared*
-    bitrate, below, and it is a different fact about a different situation —
-    the odd track that shares the album's codec.
+    A lossy-origin track inside a lossless container is marked `[Lossy]`, never
+    with a rate. A lossy stream that declares more than its audio holds is
+    marked by the rate it measured (``measured_rates``), and every other odd
+    track of the album's codec by the rate it declares: the same rate its
+    folder names it by.
 
     The folder is deliberately not affected: it keeps `[Lossy]` and `[FLAC,
     Lossy]`, because a folder names the qualities inside it and a bitrate that
@@ -871,10 +874,9 @@ def odd_track_labels(
         return tuple(None for _ in labels)
     dominant = Counter(present).most_common(1)[0][0]
     dominant_codec = dominant.split(" ")[0]
-    # **A measured rate does not reach a track name.** Part of the lossy-origin
-    # tracks have no rate to write, because the detection that found them
-    # yields none, so numbering the others would mark one situation in two
-    # ways. The word is what every one of them can say.
+    # A transcode's measured rate does not reach a track name: part of them
+    # have no rate to write, so numbering the others would mark one situation
+    # in two ways. The word is what every one of them can say.
     marks: list[str | None] = []
     for index, label in enumerate(labels):
         item = properties[index]
@@ -882,11 +884,14 @@ def odd_track_labels(
             marks.append(None)
         elif (
             label.split(" ")[0] == dominant_codec
-            and dominant_codec in _BITRATE_LABELS
             and item is not None
-            and item.bitrate
+            and (
+                rate := _lossy_rate(
+                    item, measured_rates[index] if index < len(measured_rates) else None
+                )
+            )
         ):
-            marks.append(f"{round(item.bitrate / 1000)}kbps")
+            marks.append(f"{rate}kbps")
         else:
             marks.append(label)
     return tuple(marks)
@@ -900,48 +905,61 @@ def format_label(
 ) -> str:
     """Return the format tag for an album's files, as it appears in its folder name.
 
-    ``measured_rates`` is accepted and **not used**: the callers hold it because
-    the plan carries it, and taking it away here would only move the decision
-    to whoever calls. The track labels do not use it either — a folder says
-    `Lossy` and so does the odd track, which is what makes this the same rule
-    on both sides rather than two.
+    Every distinct quality present is named, separated by commas, best first,
+    so a folder holding three kinds says so: ``FLAC, MP3 320, MP3 128``. An
+    album whose files agree reads as one label, which is the common case.
 
-    Every distinct quality present is named, separated by commas, so a folder
-    holding three kinds says so: ``FLAC, FLAC Fake, MP3 128``. An album whose
-    files agree reads as one label, which is the common case.
+    A lossy stream is named by its rate: the one its audio measured where it
+    declares more than it holds (``measured_rates``), else the one it declares.
+    So an album of 320s with one 128 labelled 320 reads ``MP3 320, MP3 128``.
+    A transcode is the word alone, whatever was measured: a folder
+    name that changed because a measurement later found a rate would rename
+    itself for a reason nobody asked for.
 
-    A lossy codec whose bitrate varies from track to track is ``VBR`` rather
-    than a list of numbers. Variable-rate MP3 albums are common, and one may
-    report a different average on every track — naming each would produce a
-    folder name no one can read, and the album is a single variable-bitrate
-    rip, not several qualities.
+    A lossy codec whose *declared* bitrate varies from track to track is
+    ``VBR`` rather than a list of numbers. Variable-rate albums are common, and
+    one may report a different average on every track — naming each would
+    produce a folder name no one can read. A stream measured below what it
+    declares is not part of that rip's breathing: it keeps its own rate.
     """
     items = list(properties)
     flags = list(transcoded) if transcoded is not None else [False] * len(items)
-    rates: dict[str, list[int]] = {}
-    labels: list[str] = []
+    # What each label ranks by, best first: a rate for a lossy stream, nothing
+    # for a lossless format or a transcode's word.
+    named: dict[str, int] = {}
+    declared: dict[str, set[int]] = {}
     for index, item in enumerate(items):
         is_transcoded = flags[index] if index < len(flags) else False
-        # **The measured rate is deliberately not passed here.** A folder names
-        # the qualities inside it, and a bitrate that varies from track to
-        # track is not one of them. Passing it would make one situation wear
-        # two names, `[FLAC, Lossy]` and `[FLAC, Lossy 192 kbps]`, the
-        # difference being only whether the audio had been measured yet — and
-        # a folder name that changes because a measurement later succeeded is
-        # a folder that renames itself for a reason nobody asked for.
-        label = track_format_label(item, is_transcoded, transcoded_word, None)
-        labels.append(label)
-        if not is_transcoded and _codec_label(item.codec) in _BITRATE_LABELS and item.bitrate:
-            rates.setdefault(_codec_label(item.codec), []).append(item.bitrate)
+        measured = None if is_transcoded else _at(measured_rates, index)
+        rate = None if is_transcoded else _lossy_rate(item, measured)
+        if rate and not measured:
+            declared.setdefault(_codec_label(item.codec), set()).add(rate)
+            continue
+        label = track_format_label(item, is_transcoded, transcoded_word, measured)
+        named[label] = max(named.get(label, 0), rate or 0)
+    for codec, rates in declared.items():
+        if len(rates) > 1 and not rates <= NOMINAL_BITRATES:
+            label = f"{codec} {VARIABLE_BITRATE_LABEL}"
+            named[label] = max(named.get(label, 0), *rates)
+            continue
+        for rate in rates:
+            named[f"{codec} {rate}"] = rate
+    return ", ".join(
+        sorted(named, key=lambda label: _best_first(label, named[label], transcoded_word))
+    )
 
-    variable = {
-        codec: f"{codec} {VARIABLE_BITRATE_LABEL}"
-        for codec, measured in rates.items()
-        if len(distinct := {round(rate / 1000) for rate in measured}) > 1
-        and not distinct <= NOMINAL_BITRATES
-    }
-    settled = {variable.get(label.split(" ")[0], label) for label in labels}
-    return ", ".join(sorted(settled))
+
+def _at(values: Sequence[int | None], index: int) -> int | None:
+    return values[index] if index < len(values) else None
+
+
+def _best_first(label: str, rate: int, transcoded_word: str) -> tuple[int, int, str]:
+    """Lossless formats first, then lossy ones from the highest rate down, then a transcode."""
+    if label == transcoded_word:
+        return (2, 0, label)
+    if rate:
+        return (1, -rate, label)
+    return (0, 0, label)
 
 
 _BRACKETED = re.compile(r"\[([^\[\]]*)\]")

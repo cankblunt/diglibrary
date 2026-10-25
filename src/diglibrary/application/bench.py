@@ -19,7 +19,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from diglibrary.application.quality import QualitySurvey, verdict_from_stored
+from diglibrary.application.quality import (
+    QualitySurvey,
+    stored_measurement,
+    verdict_from_stored,
+)
 from diglibrary.database.library_store import (
     BenchAlbum,
     BenchRoot,
@@ -467,46 +471,7 @@ class QualityBench:
                     file_name=file.name,
                     content_signature=file.content_signature,
                     audio_key=key,
-                    measured=StoredQuality(
-                        encoding=str(verdict.encoding),
-                        effective_bitrate_kbps=verdict.effective_bitrate_kbps,
-                        cutoff_hertz=verdict.cutoff_hertz,
-                        steepest_drop_db=analysis.spectral.steepest_drop_db,
-                        findings=tuple(str(name) for name in verdict.findings),
-                        reason=verdict.reason,
-                        decay_db=analysis.spectral.decay_db,
-                        ceiling_db=analysis.spectral.ceiling_db,
-                        audio_key=key,
-                        # Which ruler found the wall, and where the audio stops
-                        # changing. The survey's row carries both, so this one
-                        # must too: a row written without a floor is judged by
-                        # fall-and-emptiness alone, and the deep pass would then
-                        # judge a file lossless while the row it wrote reads
-                        # back as lossy on the next launch.
-                        wall_low_hertz=analysis.spectral.wall_low_hertz,
-                        floor_hertz=analysis.spectral.floor_from_hertz,
-                        # And the framing, for the same reason: this is the
-                        # second place a measurement becomes a row, and a column
-                        # carried by one writer and not the other makes the deep
-                        # pass disagree with the survey about the same file.
-                        frame_grid_z=(
-                            None if analysis.frame_grid is None else analysis.frame_grid.peak_z
-                        ),
-                        frame_grid_agrees=(
-                            None
-                            if analysis.frame_grid is None
-                            else analysis.frame_grid.readings_agree
-                        ),
-                        # The count as well as the flag, for the same reason the
-                        # two lines above exist: the deep pass and the survey
-                        # must write the same facts or they judge one file two
-                        # ways.
-                        frame_grid_agreeing=(
-                            None
-                            if analysis.frame_grid is None
-                            else analysis.frame_grid.agreeing_readings
-                        ),
-                    ),
+                    measured=stored_measurement(verdict, analysis, key),
                     bands=bands,
                     was=standing.get((file.content_signature, file.audio_key)),
                 )

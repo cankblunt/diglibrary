@@ -645,8 +645,8 @@ def test_a_durationless_track_is_rescued_at_the_scoring_threshold() -> None:
     nothing to override.
     """
     unit = _unit("Album", (180_000, 240_000))
-    release = _titled_release((("Na-Na (Means I Need You)", None), ("Gamma", None)))
-    titles = ("Na Na Means I Need You", "Gamma")
+    release = _titled_release((("Zo-Zo (Means I Miss Zorvo)", None), ("Gamma", None)))
+    titles = ("Zo Zo Means I Miss Zorvo", "Gamma")
 
     candidate = AlbumMatcher().rank(unit, (release,), local_titles=titles)[0]
     alignment = align_tracks(unit, release, local_titles=titles)

@@ -54,6 +54,8 @@ async function refresh() { did.push(["refresh"]); }
 function toastError(message) { did.push(["error", message]); }
 function sayArrivedSameAudio(found) { if (found && found.length) did.push(["same audio", found]); }
 function sayKnownAgain(names) { if (names && names.length) did.push(["known", names]); }
+function floatToTheTop() {}
+function announceKnown(payload) { sayKnownAgain(payload.known_albums); }
 function worthPolling() { return false; }
 function pollDelay() { return 0; }
 """

@@ -87,6 +87,7 @@
         <button class="tab" data-tab="quality" role="tab" data-str="tabQuality">Quality</button>
         <button class="tab" data-tab="mixing" role="tab" data-str="tabMixing">Mixing</button>
         <button class="tab" data-tab="history" role="tab" data-str="tabHistory">History</button>
+        <button class="tab" data-tab="collection" role="tab" data-str="tabCollection">Collection</button>
       </nav>
       <div class="topbar-actions">
         <!-- Only what is true on every tab lives in the frame. The Library's
@@ -508,6 +509,47 @@
         <tbody id="history-body"></tbody>
       </table>
     </section>
+
+    <!-- The physical collection: records on a shelf, never
+         priced. The catalogue's words about a pressing are read here and never
+         edited; condition, location, notes and categories are the user's. -->
+    <section id="view-collection" class="view" hidden>
+      <div class="screen-bar">
+        <h2 class="screen-title" data-str="collectionHeading"
+            data-str-title="collectionNote">Your records</h2>
+        <div class="screen-questions">
+          <button id="collection-add" class="button button-primary" type="button" data-str="collectionAdd">Add a record</button>
+          <button id="collection-import" class="button button-quiet" type="button" data-str="collectionImport">Import a list</button>
+          <button id="collection-review" class="button button-quiet" type="button" aria-pressed="false" hidden></button>
+          <button id="collection-locations" class="button button-quiet" type="button" data-str="collectionLocations">Locations</button>
+          <button id="collection-categories" class="button button-quiet" type="button" data-str="collectionCategories">Categories</button>
+          <input id="collection-search" type="search" class="search-field collection-search" autocomplete="off"
+                 data-str-title="tipSearchCollection" />
+        </div>
+      </div>
+      <p id="collection-asking" class="muted collection-asking" hidden></p>
+      <p id="collection-error" class="empty" hidden></p>
+      <p id="empty-collection" class="empty" data-str="emptyCollection">No records yet. Add one by pasting a link, typing its barcode, or searching for it.</p>
+      <p id="collection-none" class="empty" data-str="collectionNone" hidden>No record matches that search.</p>
+      <table id="collection-table" class="history collection-table" hidden>
+        <thead>
+          <tr>
+            <th data-str="collectionColumnRecord">Artist - Album</th>
+            <th data-str="collectionColumnYear">Year</th>
+            <th data-str="collectionColumnPressing">Label · Catalogue no.</th>
+            <th data-str="collectionColumnLocation">Location</th>
+            <th data-str="collectionColumnCategories">Categories</th>
+            <th data-str="collectionColumnMedia">Record</th>
+            <th data-str="collectionColumnSleeve">Sleeve</th>
+          </tr>
+        </thead>
+        <tbody id="collection-body"></tbody>
+      </table>
+      <!-- The attribution the Discogs terms require beside their data. -->
+      <p id="collection-attribution" class="muted collection-attribution" hidden>
+        <button id="collection-attribution-link" class="link-button" type="button" data-str="collectionAttribution">Data provided by Discogs</button>
+      </p>
+    </section>
   </main>
 
   <!-- Some shares call a whole music dump one folder: a search can match one
@@ -545,6 +587,157 @@
     </div>
     <footer class="dialog-actions">
       <button id="same-audio-ok" class="button button-primary" type="button" data-str="sameAudioOk">OK</button>
+    </footer>
+  </dialog>
+
+  <!-- Add a record, or identify one already on the shelf: three ways of entering
+       evidence, and a search only ever answers with candidates to choose from. -->
+  <dialog id="collection-add-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 id="collection-add-heading"></h2>
+        <p class="muted" data-str="collectionAddNote">Nothing is chosen for you: pick the pressing you hold.</p>
+      </div>
+      <button class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog" data-close>✕</button>
+    </div>
+    <div class="settings-form">
+      <label>
+        <span data-str="collectionLinkLabel">A Discogs or MusicBrainz release link</span>
+        <div class="collection-line">
+          <input id="collection-link" type="text" autocomplete="off" />
+          <button id="collection-link-add" class="button" type="button" data-str="collectionLinkAdd">Use this link</button>
+        </div>
+      </label>
+      <label>
+        <span data-str="collectionBarcodeLabel">The barcode printed on it</span>
+        <div class="collection-line">
+          <input id="collection-barcode" type="text" autocomplete="off" inputmode="numeric" />
+          <button id="collection-barcode-find" class="button" type="button" data-str="collectionFind">Find</button>
+        </div>
+      </label>
+      <div class="collection-words">
+        <label><span data-str="collectionArtist">Artist</span><input id="collection-artist" type="text" autocomplete="off" /></label>
+        <label><span data-str="collectionAlbum">Album</span><input id="collection-album" type="text" autocomplete="off" /></label>
+        <label><span data-str="collectionYear">Year</span><input id="collection-year" type="text" autocomplete="off" inputmode="numeric" /></label>
+      </div>
+      <div class="collection-line">
+        <button id="collection-words-find" class="button" type="button" data-str="collectionFind">Find</button>
+        <button id="collection-add-unidentified" class="link-button" type="button" data-str="collectionAddUnidentified">Add it in these words, without a catalogue</button>
+      </div>
+      <p id="collection-add-status" class="muted" hidden></p>
+      <ul id="collection-candidates" class="collection-candidates"></ul>
+    </div>
+  </dialog>
+
+  <!-- Import a list the user keeps: each column pointed at a field or
+       left out, a rehearsal that writes nothing, then the import. No field can
+       hold money, so a price column has nowhere to go. -->
+  <dialog id="collection-import-dialog" class="dialog">
+    <div class="dialog-head">
+      <div>
+        <h2 id="collection-import-heading" data-str="collectionImportHeading">Import a list</h2>
+        <p id="collection-import-note" class="muted"></p>
+      </div>
+      <button class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog" data-close>✕</button>
+    </div>
+    <table class="history collection-mapping">
+      <thead>
+        <tr>
+          <th data-str="collectionImportColumn">Column in your list</th>
+          <th data-str="collectionImportExample">First lines</th>
+          <th data-str="collectionImportField">Imported as</th>
+        </tr>
+      </thead>
+      <tbody id="collection-mapping-body"></tbody>
+    </table>
+    <p id="collection-import-summary" class="muted collection-import-summary" hidden></p>
+    <footer class="dialog-actions">
+      <button id="collection-import-preview" class="button" type="button" data-str="collectionImportPreview">Check what would happen</button>
+      <button id="collection-import-apply" class="button button-primary" type="button" data-str="collectionImportApply" disabled>Import</button>
+    </footer>
+  </dialog>
+
+  <!-- One record: what the catalogue says, read only, and what the user says. -->
+  <dialog id="collection-record-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 id="collection-record-heading"></h2>
+        <p id="collection-record-source" class="muted"></p>
+      </div>
+      <button class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog" data-close>✕</button>
+    </div>
+    <dl id="collection-record-facts" class="collection-facts"></dl>
+    <!-- The pressings a search offered for this record: nothing is
+         chosen until the user says which one is theirs, or that none is. -->
+    <div id="collection-offers" class="settings-form collection-offers" hidden>
+      <p id="collection-offers-note" class="muted"></p>
+      <ul id="collection-offers-list" class="collection-candidates"></ul>
+      <div class="collection-line">
+        <button id="collection-offers-none" class="button button-quiet" type="button" data-str="collectionOffersNone">None of these</button>
+        <button id="collection-offers-again" class="button button-quiet" type="button" data-str="collectionOffersAgain">Search again</button>
+      </div>
+    </div>
+    <form id="collection-record-form" class="settings-form">
+      <label><span data-str="collectionMediaLabel">Record condition</span><select id="collection-media"></select></label>
+      <label><span data-str="collectionSleeveLabel">Sleeve condition</span><select id="collection-sleeve"></select></label>
+      <label><span data-str="collectionLocationLabel">Location</span><select id="collection-location"></select></label>
+      <fieldset class="collection-checks">
+        <legend data-str="collectionCategoriesLabel">Categories</legend>
+        <div id="collection-category-checks"></div>
+      </fieldset>
+      <label><span data-str="collectionNotesLabel">Notes</span><textarea id="collection-notes" rows="3"></textarea></label>
+      <footer class="dialog-actions">
+        <button id="collection-remove" class="button button-quiet" type="button" data-str="collectionRemove">Take it off the shelf</button>
+        <button id="collection-identify" class="button" type="button" data-str="collectionIdentify">Identify the pressing…</button>
+        <button id="collection-save" class="button button-primary" type="submit" data-str="collectionSave">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- A user's own locations or categories: each list starts empty. -->
+  <dialog id="collection-list-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 id="collection-list-heading"></h2>
+        <p id="collection-list-note" class="muted"></p>
+      </div>
+      <button class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog" data-close>✕</button>
+    </div>
+    <div class="settings-form">
+      <ul id="collection-list-entries" class="collection-entries"></ul>
+      <div class="collection-line">
+        <input id="collection-list-name" type="text" autocomplete="off" />
+        <button id="collection-list-add" class="button" type="button" data-str="collectionListAdd">Add</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="collection-confirm-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="collectionConfirmHeading">Are you sure?</h2>
+        <p id="collection-confirm-message" class="muted"></p>
+      </div>
+      <button id="collection-confirm-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="collection-confirm-yes" class="button button-primary" type="button" data-str="collectionConfirmYes">Remove it</button>
+    </footer>
+  </dialog>
+
+  <!-- A verdict on an album already organized changes the names a plan would
+       write, and nothing re-plans an organized album by itself: its names are
+       on the disk. Offered here, with the gesture that does it. -->
+  <dialog id="rename-waits-dialog" class="dialog dialog-narrow">
+    <div class="dialog-head">
+      <div>
+        <h2 data-str="renameWaitsHeading">The names on disk come from before this</h2>
+        <p id="rename-waits-message" class="muted"></p>
+      </div>
+      <button id="rename-waits-no" class="button button-icon dialog-close" type="button" data-str-title="tipCloseDialog">✕</button>
+    </div>
+    <footer class="dialog-actions">
+      <button id="rename-waits-yes" class="button button-primary" type="button" data-str="planAnyway">Plan this album again</button>
     </footer>
   </dialog>
 
@@ -692,7 +885,7 @@
            is an edit to the thing drawn right above it. Quiet on purpose, so it
            reads as *you may*, never as *you still have to*. -->
       <div class="dialog-cover-frame">
-        <img id="album-cover" class="dialog-cover" alt="" hidden />
+        <img id="album-cover" class="dialog-cover dialog-cover-zoomable" alt="" data-str-title="tipEnlargeCover" hidden />
         <div id="album-cover-empty" class="dialog-cover dialog-cover-empty" hidden></div>
         <button id="album-choose-cover" class="cover-edit" type="button" data-str-title="tipChooseCover" hidden></button>
       </div>
@@ -990,6 +1183,14 @@
   <!-- The right-click menu for a result. A popover for the same reason the
        toast is one: it has to sit above everything, and it has to close when
        you click away without every screen having to arrange that itself. -->
+  <!-- The album's picture at its own size, over everything. No frame, no
+       controls but the ✕: any click or any key puts it down, because there is
+       nothing here to decide. -->
+  <dialog id="cover-zoom-dialog" class="cover-zoom">
+    <img id="cover-zoom-image" class="cover-zoom-image" alt="" />
+    <button class="button button-icon dialog-close cover-zoom-close" type="button" data-str-title="tipCloseDialog" data-close>✕</button>
+  </dialog>
+
   <!-- The first thing a new installation shows. A terminal step between
        someone and a thing they just installed is the step that decides
        whether they ever see it work, so the keys are asked for here. It

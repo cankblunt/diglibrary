@@ -18,16 +18,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from diglibrary.application.composition import create_application
+from diglibrary.application.composition import create_application, create_quality_survey
 from diglibrary.application.quality import AlbumQuality, QualitySurvey
 from diglibrary.database.library_store import LibraryStore
 from diglibrary.library.audio import MutagenAudioProbe
 from diglibrary.library.scanner import LibraryScanner
-from diglibrary.quality.analysis import (
-    FfmpegQualityAnalyzer,
-    SubprocessCommandRunner,
-    find_ffmpeg,
-)
+from diglibrary.quality.analysis import find_ffmpeg
 
 
 def _say(message: str) -> None:
@@ -45,13 +41,17 @@ def _elapsed(seconds: float) -> str:
 def _build(config_path: Path, workers: int) -> QualitySurvey:
     """Assemble the survey over the real database, or refuse to pretend."""
     application = create_application(config_path)
-    executable = find_ffmpeg()
-    if executable is None:
-        raise SystemExit("ffmpeg was not found; audio cannot be measured.")
     store = LibraryStore(application.database, application.logger)
     scanner = LibraryScanner(MutagenAudioProbe(), application.logger)
-    analyzer = FfmpegQualityAnalyzer(SubprocessCommandRunner(executable), application.logger)
-    return QualitySurvey(scanner, analyzer, application.logger, workers=workers, store=store)
+    # Built where the window's survey is built, so this one measures what that
+    # one measures. Assembled here by hand it once left the frame grid out, and
+    # every row it wrote had to be measured again by the next scan.
+    survey = create_quality_survey(
+        scanner, application.logger, store, find_ffmpeg(), workers=workers
+    )
+    if survey is None:
+        raise SystemExit("ffmpeg was not found; audio cannot be measured.")
+    return survey
 
 
 def _survey_root(survey: QualitySurvey, root: Path, excluded: tuple[Path, ...]) -> None:

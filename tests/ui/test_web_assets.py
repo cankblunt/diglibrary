@@ -1524,10 +1524,29 @@ def test_the_column_widths_are_kept_by_the_application_and_not_by_the_browser() 
     assert re.search(
         r"columnAppliers\.push", SCRIPT
     ), "nothing remembers how to put the widths back once they arrive"
-    # And every table with headings has its edges; the list is written by hand,
-    # so each one is named.
-    for key in ("library", "quality", "history", "mixing"):
-        assert f'resizableTable("{key}"' in SCRIPT, f"the {key} table has no draggable edges"
+    # And every table with headings has its edges. The list in the script is
+    # written by hand, so it is read here from the other side: each table the
+    # markup gives headings to, except the ones named below with their reason.
+    # Written as four names, this guard walked past the fifth table unasked.
+    headed = re.findall(r"<table\b([^>]*)>\s*<thead>", MARKUP)
+    assert len(headed) >= 5, "this guard no longer finds the tables it reads"
+    for attributes in headed:
+        identifier = re.search(r'\bid="([^"]+)"', attributes)
+        classes = re.search(r'\bclass="([^"]+)"', attributes)
+        named = identifier.group(1) if identifier else (classes.group(1) if classes else "")
+        if any(exempt in named.split() for exempt in TABLES_WITH_FIXED_EDGES):
+            continue
+        assert identifier and re.search(
+            rf'resizableTable\("[a-z]+", \$\("{re.escape(identifier.group(1))}"\)\)', SCRIPT
+        ), f"the table {named!r} has headings and no draggable edges"
+
+
+TABLES_WITH_FIXED_EDGES = {
+    # Both are drawn inside a dialog, whose width is fixed: there is no room a
+    # dragged column could take from, and nothing of theirs is remembered.
+    "collection-mapping": "the columns of a list being imported, in its dialog",
+    "evidence": "the evidence behind a match, in the album's dialog",
+}
 
 
 def test_a_window_that_never_reaches_the_application_says_so() -> None:
@@ -1877,8 +1896,10 @@ def test_every_screen_wears_the_same_bar() -> None:
     not there.
     """
     views = re.findall(r'<section id="view-([a-z]+)"[\s\S]*?</section>', MARKUP)
-    assert len(views) == 6, "a screen was added or lost; this guard counts them"
-    for name in ("library", "acquire", "transfers", "quality", "mixing", "history"):
+    assert len(views) == 7, "a screen was added or lost; this guard counts them"
+    # Every screen the markup has, not a list of the ones somebody knew about:
+    # the seventh would otherwise have walked past this unasked.
+    for name in views:
         block = re.search(r'<section id="view-' + name + r'"([\s\S]*?)</section>', MARKUP)
         assert block, f"the {name} screen is gone"
         bars = block.group(1).count('class="screen-bar"')
@@ -1904,7 +1925,7 @@ def test_every_screen_wears_the_same_bar() -> None:
     titles = re.findall(
         r'class="screen-title"\s+data-str="(\w+)"\s*\n?\s*data-str-title="(\w+)"', MARKUP
     )
-    assert len(titles) == 5, "a screen's title lost its name or its explanation"
+    assert len(titles) == len(views) - 1, "a screen's title lost its name or its explanation"
     library = re.search(r'<section id="view-library"([\s\S]*?)</section>', MARKUP)
     assert "screen-title" not in library.group(1), "the Library's title grew back"
     keys = _string_keys()

@@ -3,11 +3,13 @@
 import base64
 import hashlib
 import logging
+import os
 import shutil
 import sys
 import threading
 import time
 import unicodedata
+import wave
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -1877,6 +1879,72 @@ def test_a_coverless_album_gets_its_own_embedded_picture(
     assert result["cover_albums"] == [folder.name]
 
 
+def _waiting_cover(api: LibraryApi) -> Path:
+    """The staged file the one album's pending cover plan means to write."""
+    plan = api._album_snapshot()[0].cover_plan
+    assert plan is not None, "the album has a cover waiting, which is the case here"
+    return next(
+        Path(str(operation.after_state["source"]))
+        for operation in plan.operations
+        if "source" in operation.after_state
+    )
+
+
+def test_the_cache_ceiling_never_takes_a_cover_a_plan_is_waiting_to_write(
+    tmp_path: Path, jpeg: "Callable[[int, int], bytes]"
+) -> None:
+    """A cover staged for a plan not yet applied survives the ceiling, however old.
+
+    Discarded as the least recently used file, it made the apply refuse with
+    *the cover image staged for this album is gone* — for an album nobody had
+    touched since it was planned.
+    """
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    _embed(folder / "aaa.flac", jpeg(640, 640))
+    (folder / "seed.jpg").unlink()
+    api = _api(tmp_path, FakeSource(summaries=(), details={}))
+    _scan_and_wait(api, library)
+    staged = _waiting_cover(api)
+    staging = staged.parent
+    os.utime(staged, (1, 1))
+    for index in range(3):
+        _written(staging / f"{index:064x}.jpg", b"x" * 600_000)
+    api._artwork_cache = (staging,)
+    api._settings["artwork_cache_mb"] = 1
+
+    api._enforce_cache_limits()
+
+    assert staged.is_file(), "the oldest file in the folder was the one still needed"
+    assert api.apply_automatic()["covers"] == 1
+
+
+def test_a_cover_whose_staged_copy_is_gone_is_staged_again_from_the_album(
+    tmp_path: Path, jpeg: "Callable[[int, int], bytes]"
+) -> None:
+    """The album still holds the picture, so losing the cache's copy costs nothing.
+
+    Emptying the artwork cache from Settings takes every staged picture, and a
+    plan waiting for one used to be refused for good.
+    """
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    picture = jpeg(640, 640)
+    _embed(folder / "aaa.flac", picture)
+    (folder / "seed.jpg").unlink()
+    api = _api(tmp_path, FakeSource(summaries=(), details={}))
+    _scan_and_wait(api, library)
+    _waiting_cover(api).unlink()
+
+    result = api.apply_automatic()
+
+    assert result["covers"] == 1
+    written = FilesystemArtworkStore().describe(folder / "cover.jpg")
+    embedded = FilesystemArtworkStore().describe_embedded(folder / "aaa.flac")
+    assert written is not None and embedded is not None
+    assert written.digest == embedded.digest, "the album's own picture, nothing else"
+
+
 def test_a_folder_that_already_holds_an_image_is_left_alone(
     tmp_path: Path, jpeg: "Callable[[int, int], bytes]"
 ) -> None:
@@ -2394,8 +2462,101 @@ def test_dropping_an_album_the_library_already_holds_says_so(tmp_path: Path) -> 
     assert again["known"] == 1, "and the window must be able to say it was found"
     # Said, and nothing else — named, and neither marked nor floated.
     assert again["known_albums"] == [folder.name]
+    assert again["known_ids"] == first["unit_ids"], "by id too, so the window can show it"
     assert again["unit_ids"] == [], "an album dropped again from where it lives is not an arrival"
     assert again["same_audio"] == []
+    assert again["known_changes"] == [], "nothing in the folder changed, so nothing is said"
+
+
+def test_a_folder_dropped_again_says_which_files_joined_it_and_which_left(
+    tmp_path: Path,
+) -> None:
+    """Already here is not the whole answer when the folder holds other files now.
+
+    A download still landing when the folder was first dropped, a track added or
+    deleted by hand: the album is the one on the shelf and the files join it,
+    and saying only *already in your library* leaves that to be found by
+    accident.
+    """
+    folder = tmp_path / "dropped" / "quarteto rufo - vesperal"
+    folder.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", folder / "aaa.flac")
+    api = _api(tmp_path, FakeSource())
+
+    def dropped() -> dict[str, object]:
+        assert api.adopt_folders([str(folder)])["started"] == 1
+        _finish_reads(api)
+        return [event for event in api.events() if event["type"] == "adopted"][-1]["payload"]
+
+    dropped()
+    shutil.copy(FIXTURES / "tone-long.flac", folder / "bbb.flac")
+    shutil.copy(FIXTURES / "tone.wav", folder / "ccc.wav")
+    grown = dropped()
+    assert grown["known_albums"] == [folder.name]
+    assert grown["known_changes"] == [{"album": folder.name, "joined": 2, "left": 0}]
+
+    (folder / "aaa.flac").unlink()
+    shrunk = dropped()
+    assert shrunk["known_changes"] == [{"album": folder.name, "joined": 0, "left": 1}]
+
+    assert dropped()["known_changes"] == [], "said once, against the sighting just taken"
+
+
+def test_opening_a_folder_again_says_what_changed_the_same_way_a_drop_does(
+    tmp_path: Path,
+) -> None:
+    folder = tmp_path / "opened" / "quarteto rufo - vesperal"
+    folder.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", folder / "aaa.flac")
+    api = _api(tmp_path, FakeSource())
+    assert api.open_folder(str(folder))["ok"]
+    _finish_reads(api)
+
+    shutil.copy(FIXTURES / "tone-long.flac", folder / "bbb.flac")
+    assert api.open_folder(str(folder))["ok"]
+    _finish_reads(api)
+    again = [event for event in api.events() if event["type"] == "opened"][-1]["payload"]
+
+    assert again["known_changes"] == [{"album": folder.name, "joined": 1, "left": 0}]
+
+
+def test_an_album_taken_off_the_shelf_and_dropped_again_arrives(tmp_path: Path) -> None:
+    """The ✕ hides the row and keeps it, so a second drop reuses that row.
+
+    Asked as *does it have a row*, the album was announced as already in the
+    library — while it was on no screen, and even after the folder gained a
+    file. What it was is *not on the shelf*, and that is an arrival: counted,
+    marked and brought to the front, like any album that was not there.
+    """
+    folder = tmp_path / "dropped" / "quarteto rufo - vesperal"
+    folder.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", folder / "aaa.flac")
+    shutil.copy(FIXTURES / "tone-long.flac", folder / "bbb.flac")
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    api.adopt_folders([str(folder)])
+    _finish_reads(api)
+    first = [event for event in api.events() if event["type"] == "adopted"][-1]["payload"]
+    (unit_id,) = first["unit_ids"]
+    assert api.forget_album(unit_id)["ok"]
+    shutil.copy(FIXTURES / "tone.flac", folder / "ccc.flac")
+
+    api.adopt_folders([str(folder)])
+    _finish_reads(api)
+    again = [event for event in api.events() if event["type"] == "adopted"][-1]["payload"]
+    assert (again["albums"], again["known"]) == (1, 0)
+    assert again["known_albums"] == [], "an album on no screen was called already here"
+    assert again["unit_ids"] == [unit_id], "the same row, back, and marked"
+
+    # Opening the folder is the same gesture and answers alike.
+    assert api.forget_album(unit_id)["ok"]
+    assert api.open_folder(str(folder))["ok"]
+    _finish_reads(api)
+    opened = [event for event in api.events() if event["type"] == "opened"][-1]["payload"]
+    assert opened["albums"] == [unit_id] and opened["known_albums"] == []
 
 
 def test_opening_a_folder_again_names_its_album_the_same_way_a_drop_does(tmp_path: Path) -> None:
@@ -2424,6 +2585,7 @@ def test_opening_a_folder_again_names_its_album_the_same_way_a_drop_does(tmp_pat
     again = [event for event in api.events() if event["type"] == "opened"][-1]["payload"]
     assert again["albums"] == [], "an album opened again from where it lives was marked"
     assert again["known_albums"] == [folder.name]
+    assert again["known_ids"] == first["albums"], "by id too, so the window can show it"
 
 
 def _two_copies(tmp_path: Path) -> tuple[LibraryApi, Path, Path]:
@@ -2465,8 +2627,42 @@ def test_a_second_copy_dropped_is_a_new_album_and_says_which_one_it_repeats(
     assert [(entry["album"], entry["twin"]) for entry in payload["same_audio"]] == [
         (copy.name, folder.name)
     ]
+    entry = payload["same_audio"][0]
+    assert (entry["identical"], entry["tracks"], entry["twin_tracks"]) == (True, 2, 2)
     folders = {album["folder_path"] for album in api.state()["albums"]}
     assert {str(folder), str(copy)} <= folders, "both copies are kept"
+
+
+def test_an_album_whose_tracks_all_sit_inside_a_larger_one_is_not_called_a_copy(
+    tmp_path: Path,
+) -> None:
+    """A reissue with bonus tracks holds every stream of the record it contains.
+
+    Announced as *the same audio*, the record reads as a second copy of an
+    album there is one of. The payload says it is not identical and gives both
+    counts, and the twin it names is the smallest album holding it.
+    """
+    larger = tmp_path / "music" / "trio norte - mare alta (deluxe)"
+    larger.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", larger / "aaa.flac")
+    shutil.copy(FIXTURES / "tone-long.flac", larger / "bbb.flac")
+    shutil.copy(FIXTURES / "tone.wav", larger / "ccc.wav")
+    api = _api(tmp_path, FakeSource())
+    assert api.adopt_folders([str(larger)])["started"] == 1
+    _finish_reads(api)
+
+    record = tmp_path / "downloads" / "Trio Norte - Maré Alta (1980) [FLAC]"
+    record.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", record / "01.flac")
+    shutil.copy(FIXTURES / "tone-long.flac", record / "02.flac")
+    api.events()
+    assert api.adopt_folders([str(record)])["started"] == 1
+    _finish_reads(api)
+    payload = [event for event in api.events() if event["type"] == "adopted"][-1]["payload"]
+
+    [entry] = payload["same_audio"]
+    assert entry["twin"] == larger.name
+    assert (entry["identical"], entry["tracks"], entry["twin_tracks"]) == (False, 2, 3)
 
 
 def test_a_second_copy_found_by_a_scan_is_said_once(tmp_path: Path) -> None:
@@ -2518,6 +2714,42 @@ def test_a_drop_that_carried_no_folder_still_answers(tmp_path: Path) -> None:
     api = _api(tmp_path, source)
 
     assert api.adopt_folders([])["ok"]
+
+    announced = [event for event in api.events() if event["type"] == "adopted"]
+    assert announced == [{"type": "adopted", "payload": {"albums": 0, "folders": 0}}]
+
+
+def test_a_drop_is_read_from_the_platform_when_the_window_says_one_happened(
+    tmp_path: Path,
+) -> None:
+    """The window knows that something was dropped and never where from.
+
+    So it sends nothing: the paths are taken from the injected reader, and the
+    answer is the same one ``adopt_folders`` gives.
+    """
+    source = FakeSource(summaries=(), details={})
+    api = _api(tmp_path, source)
+    folder = tmp_path / "dropped"
+    folder.mkdir()
+    asked = []
+
+    def taken() -> tuple[str, ...]:
+        asked.append(True)
+        return (str(folder),)
+
+    api._dropped_folders = taken
+
+    assert api.adopt_dropped()["started"] == 1
+    assert asked == [True]
+    _finish_reads(api)
+
+
+def test_a_drop_with_no_reader_still_releases_the_window(tmp_path: Path) -> None:
+    """Without a platform to ask there are no paths, and the wait still ends."""
+    source = FakeSource(summaries=(), details={})
+    api = _api(tmp_path, source)
+
+    assert api.adopt_dropped()["ok"]
 
     announced = [event for event in api.events() if event["type"] == "adopted"]
     assert announced == [{"type": "adopted", "payload": {"albums": 0, "folders": 0}}]
@@ -5745,6 +5977,39 @@ def test_a_verdict_on_the_quality_bench_reaches_the_plan_that_writes_the_files(
     assert response["replanned"] == 1, "and the window has to be told the Library moved"
 
 
+def test_a_verdict_on_an_organized_album_offers_the_replan_nothing_else_will_run(
+    tmp_path: Path,
+) -> None:
+    """A verdict re-plans every album except the ones already organized.
+
+    Those are the albums whose names are on the disk, so the word was recorded
+    and the folder went on reading `[Lossy]` with nothing saying why. The
+    response names the album the word would rename, and only when it would: the
+    same word again changes nothing and offers nothing.
+    """
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    api._pipeline = replace(api._pipeline, quality=_FakeSurvey({"marina do acordeao - forro"}))
+    _scan_and_wait(api, library)
+    state = api._album_snapshot()[0]
+    signature = state.unit.unit_signature
+    api._transcoded = api._measure_for_naming([state.unit])
+    assert api.approve(state.unit_id)["ok"]
+    organized = next(album for album in api._album_snapshot() if album.unit_id == state.unit_id)
+    assert organized.applied or organized.organized
+
+    response = api.set_quality_verdict(signature, "honest")
+
+    assert response["ok"] and response["replanned"] == 0, "an organized album is not re-planned"
+    assert [entry["unit_id"] for entry in response["renaming_waits"]] == [state.unit_id]
+    again = api.set_quality_verdict(signature, "honest")
+    assert again["renaming_waits"] == [], "a word that changes no name offers nothing"
+
+
 def test_an_album_restored_from_a_restart_still_applies_with_a_trail(tmp_path: Path) -> None:
     """No write without a trail, whatever produced the plan.
 
@@ -6905,10 +7170,10 @@ def test_an_album_restored_before_the_answer_was_kept_still_says_it_was_asked(
 def test_a_drop_refused_while_files_are_being_renamed_still_answers(tmp_path: Path) -> None:
     """The window waits from the moment something lands on it, and must be let go.
 
-    `receive_drop` in the UI layer calls this and throws the answer away — only
-    the platform knows where a dropped folder is, so the return value has
-    nowhere to go. A refusal that only returns is therefore a refusal nobody
-    hears, and `Reading what you dropped…` would spin in the top bar until the
+    The window asks for the drop to be read and listens for the event, not for
+    the value returned: the same `adopted` event answers a drop that was read
+    on the worker after this call has returned. A refusal that only returns is therefore a
+    refusal nobody hears, and `Reading what you dropped…` would spin in the top bar until the
     window was restarted.
 
     The one job a drop waits for is one that renames the user's files; a scan
@@ -7447,6 +7712,8 @@ def _tagged_album(
     numbers: tuple[str, ...] | None = None,
     album_artist: bool = True,
     fixtures: tuple[str, ...] = ("tone.flac", "tone-long.flac"),
+    genre: str = "",
+    track_artists: tuple[str, ...] = (),
 ) -> Path:
     """An album folder whose files carry everything a name needs.
 
@@ -7465,10 +7732,12 @@ def _tagged_album(
         shutil.copy(FIXTURES / chosen, path)
         tags: dict[str, tuple[str, ...]] = {
             "title": (title,),
-            "artist": (artist,),
+            "artist": ((track_artists[index - 1] if track_artists else artist),),
             "album": (album,),
             "tracknumber": ((numbers[index - 1] if numbers else str(index)),),
         }
+        if genre:
+            tags["genre"] = (genre,)
         if album_artist:
             tags["albumartist"] = (artist,)
         if year:
@@ -7563,31 +7832,105 @@ def test_an_album_the_tags_could_not_name_still_waits_to_be_scanned(tmp_path: Pa
     assert by_folder["quarteto rufo vesperal"]["source"] == "tags"
 
 
-def test_the_tag_proposal_renames_and_does_nothing_else(tmp_path: Path) -> None:
-    """The tag proposal renames, and does nothing else.
+def test_the_tag_proposal_writes_its_tags_back_and_keeps_what_it_did_not_read(
+    tmp_path: Path,
+) -> None:
+    """An arrangement writes the tags its names were made of, and removes nothing else.
 
-    The tags are the source here. Handing them back would let one track's value
-    overwrite another's unseen, and no cover is fetched either. Proven on a
-    folder whose tags disagree with what the release implies: `tracknumber`
-    says 1 and 2, the titles differ from the file names, and still not one
-    `write_tags` is planned.
-
-    The two exceptions are both the file's own picture put somewhere the file
-    is not: the Finder icon and the folder's `cover.jpg`. These fixture files
-    carry no picture at all, so nothing beyond renames may appear here — which
-    is what keeps this test about the tags rather than about the artwork.
+    A tag write replaces every field it manages and removes the ones it is not
+    given. A release read from the files carries only what names the album, so
+    the genre the files hold must survive the write that the arrangement now
+    plans.
     """
     library = tmp_path / "library"
-    _tagged_album(library / "quarteto rufo vesperal")
+    _tagged_album(library / "quarteto rufo vesperal", genre="Samba")
     api = _api(tmp_path, FakeSource())
 
     assert api.open_folder(str(library))["ok"]
     _finish_reads(api)
 
     album = api.album(api.state()["albums"][0]["unit_id"])["album"]
-    kinds = {operation["kind"] for operation in album["operations"]}
-    assert kinds <= {"rename_file", "rename_folder"}, f"the tag path planned {kinds}"
-    assert "rename_folder" in kinds, "it did plan something, so the check above means something"
+    writes = [op for op in album["operations"] if op["kind"] == "write_tags"]
+    assert len(writes) == 2, "both files have their tags written back"
+    for write in writes:
+        tags = write["after"]["tags"]
+        assert tags["genre"] == ["Samba"], "a field the reading did not carry was removed"
+        assert tags["albumartist"] == ["Quarteto Rufo"] and tags["date"][0].startswith("1980")
+        assert "compilation" not in tags
+
+
+def _tones(folder: Path, count: int) -> tuple[str, ...]:
+    """Write ``count`` silent WAV files of different lengths, so each is its own track.
+
+    Two copies of one fixture are one track present twice, which a folder is
+    refused for. The standard library writes these, so the test stays offline
+    and needs no encoder.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    made = []
+    for index in range(count):
+        path = folder / f"tone{index}.wav"
+        with wave.open(str(path), "wb") as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(8000)
+            out.writeframes(b"\x00\x00" * 8000 * (index + 2))
+        made.append(str(path))
+    return tuple(made)
+
+
+def _arranged(tmp_path: Path, folder: str, artists: tuple[str, ...]) -> dict[str, object]:
+    """Arrange a folder whose files credit ``artists`` in turn and carry no year."""
+    library = tmp_path / "library"
+    _tagged_album(
+        library / folder,
+        titles=tuple(f"Faixa {index}" for index in range(1, len(artists) + 1)),
+        album="Coletanea",
+        track_artists=artists,
+        album_artist=False,
+        year="",
+        fixtures=_tones(tmp_path / "tones", len(artists)),
+    )
+    api = _api(tmp_path, FakeSource())
+    assert api.open_folder(str(library))["ok"]
+    _finish_reads(api)
+    return api.album(api.state()["albums"][0]["unit_id"])["album"]
+
+
+def _new_folder_name(album: dict[str, object]) -> str:
+    folders = [op for op in album["operations"] if op["kind"] == "rename_folder"]
+    assert len(folders) == 1, album.get("reason")
+    return Path(folders[0]["after"]["path"]).name
+
+
+def test_a_compilation_read_from_its_tags_is_credited_to_various_artists(tmp_path: Path) -> None:
+    """No artist runs through the files and more than two credits do: a compilation.
+
+    Read by majority, the album was credited to whichever artist sang the most
+    tracks, and its folder named after that one person. The year no file
+    carries is the one the folder's own name states.
+    """
+    album = _arranged(
+        tmp_path, "Coletanea Zorvo 1979", ("Ana Zinco", "Ana Zinco", "Beto Pardo", "Ciro Lume")
+    )
+    assert _new_folder_name(album).startswith("VA - Coletanea (1979)")
+    writes = [op["after"]["tags"] for op in album["operations"] if op["kind"] == "write_tags"]
+    assert {tags["albumartist"][0] for tags in writes} == {"Various Artists"}
+    assert {tags["compilation"][0] for tags in writes} == {"1"}
+    assert sorted(tags["artist"][0] for tags in writes) == [
+        "Ana Zinco",
+        "Ana Zinco",
+        "Beto Pardo",
+        "Ciro Lume",
+    ], "each track keeps its own artist"
+
+
+def test_two_credits_with_nobody_in_common_are_both_credited(tmp_path: Path) -> None:
+    """A split is credited to both, never called a compilation."""
+    album = _arranged(tmp_path, "Lado Zorvo (1979)", ("Ana Zinco", "Ana Zinco", "Beto Pardo"))
+    assert _new_folder_name(album).startswith("Ana Zinco & Beto Pardo - Coletanea (1979)")
+    writes = [op["after"]["tags"] for op in album["operations"] if op["kind"] == "write_tags"]
+    assert all("compilation" not in tags for tags in writes)
 
 
 def test_an_arrangement_offers_the_finder_icon_the_file_already_holds(tmp_path: Path) -> None:
@@ -7598,10 +7941,10 @@ def test_an_arrangement_offers_the_finder_icon_the_file_already_holds(tmp_path: 
     none, reaching nobody. **The folder's `cover.jpg` is the second one**: the
     same picture, written beside the album rather than into it.
 
-    What must not appear is anything that enters one of the files: no
-    `write_tags`, and no `embed_image` that is not the icon. The offline mode
-    whole — names in the configured pattern, a cover the folder can show,
-    covers visible in the Finder, and nothing fetched from anyone.
+    The files already carry the picture, so no `embed_image` appears that is
+    not the icon. The offline mode whole — names in the configured pattern, a
+    cover the folder can show, covers visible in the Finder, and nothing
+    fetched from anyone.
     """
     if sys.platform != "darwin":
         pytest.skip("the Finder's icon is written through the platform's own call")
@@ -7622,11 +7965,10 @@ def test_an_arrangement_offers_the_finder_icon_the_file_already_holds(tmp_path: 
     album = api.album(api.state()["albums"][0]["unit_id"])["album"]
     operations = album["operations"]
     kinds = {operation["kind"] for operation in operations}
-    assert kinds <= {"rename_file", "rename_folder", "embed_image", "write_image"}, kinds
+    assert kinds <= {"rename_file", "rename_folder", "embed_image", "write_image", "write_tags"}
     icons = [op for op in operations if op["kind"] == "embed_image"]
     assert len(icons) == 2, "each file carrying a drawable picture is offered its icon"
     assert all(op["after"].get("icon") for op in icons), "and only ever the icon"
-    assert "write_tags" not in kinds, "the arrangement writes no tag, which is its whole promise"
     covers = [op for op in operations if op["kind"] == "write_image"]
     assert len(covers) == 1, "the folder it lands in gets the picture the files already carry"
     assert Path(covers[0]["target"]).name == "cover.jpg", covers[0]["target"]
@@ -7662,9 +8004,9 @@ def test_an_album_a_scan_already_answered_is_not_re_proposed_by_its_tags(
     """The other way round: the scan's answer supersedes the tags.
 
     An album is scanned because there were doubts about it. So the tags never
-    propose over an album a catalogue has answered — dropping its folder again
-    leaves it waiting to be scanned rather than renamed on a re-reading of its
-    files.
+    propose over an album a catalogue has answered: dropping its folder again
+    brings back the catalogue's answer, as a restart does, rather than a
+    renaming read off its files or a card that says it was never looked up.
     """
     library = tmp_path / "library"
     folder = _tagged_album(library / "quarteto rufo vesperal")
@@ -7677,8 +8019,8 @@ def test_an_album_a_scan_already_answered_is_not_re_proposed_by_its_tags(
     _finish_reads(api)
 
     album = api.state()["albums"][0]
-    assert album["source"] != "tags", "the tags did not propose over the scan"
-    assert album["looked_at"] is False, "and it says so, rather than claiming an answer"
+    assert album["source"] == "discogs", "the tags did not propose over the scan"
+    assert album["looked_at"] is True, "and the card says the scan answered"
 
 
 def test_reopening_the_app_brings_the_album_back_proposed_by_its_tags(
@@ -9361,6 +9703,137 @@ def test_the_card_never_draws_the_back_of_the_sleeve(
     ), "a folder holding a back cover and a booklet still shows the front"
 
 
+def _drawn(tmp_path: Path, shown: object) -> str:
+    """The digest of the picture a card was handed, by URL or by `data:` URI."""
+    said = str(shown)
+    if said.startswith("data:"):
+        drawn = base64.b64decode(said.split(",", 1)[1])
+    else:
+        drawn = (tmp_path / "covers" / Path(said.split("?")[0]).name).read_bytes()
+    return hashlib.sha256(drawn).hexdigest()
+
+
+def _embed_in_every_track(folder: Path, data: bytes, side: int) -> None:
+    picture = Picture()
+    picture.type, picture.mime, picture.depth = 3, "image/jpeg", 24
+    picture.width = picture.height = side
+    picture.data = data
+    for track in sorted(folder.glob("*.flac")):
+        audio = FLAC(track)
+        audio.add_picture(picture)
+        audio.save()
+
+
+def test_a_picture_larger_than_the_cover_does_not_take_the_card(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """A ripper's screenshot twice the size of `cover.jpg` is not the album's face.
+
+    Size alone decided, so a capture of the ripping program saved beside the
+    files took the card from the sleeve. A name that says it is the front
+    comes before size, and the largest decides only among what is left.
+    """
+    library = _library(tmp_path)
+    folder = next(path for path in library.iterdir() if path.is_dir())
+    front = jpeg(600, 600)
+    (folder / "cover.jpg").write_bytes(front)
+    (folder / "EAC.png").write_bytes(jpeg(1188, 1188))
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+
+    shown = api.cover(unit_id)
+
+    assert _drawn(tmp_path, shown) == hashlib.sha256(front).hexdigest()
+
+
+def test_the_tracks_picture_outranks_a_folder_picture_only_size_chose(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """With nothing vouching for the folder's largest picture, the tracks' wins.
+
+    And the other way round: a folder picture the tracks also carry is vouched
+    for by that, and beats a larger one nobody named.
+    """
+    library = _library(tmp_path)
+    folder = next(path for path in library.iterdir() if path.is_dir())
+    sleeve = jpeg(500, 500)
+    _embed_in_every_track(folder, sleeve, 500)
+    (folder / "scan.jpg").write_bytes(jpeg(1400, 1400))
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+
+    assert _drawn(tmp_path, api.cover(unit_id)) == hashlib.sha256(sleeve).hexdigest()
+
+    (folder / "image.jpg").write_bytes(sleeve)
+
+    assert _drawn(tmp_path, api.cover(unit_id)) == hashlib.sha256(sleeve).hexdigest()
+
+
+def test_a_chosen_cover_outranks_every_picture_the_card_would_guess_between(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """What the user chose and this application wrote is a decision on record.
+
+    A larger picture named `front` arriving afterwards is still a guess; the
+    chosen cover is the card's for as long as it is in the folder.
+    """
+    library = _library(tmp_path)
+    chosen = jpeg(700, 700)
+    sleeve = tmp_path / "sleeve.jpg"
+    sleeve.write_bytes(chosen)
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    api._image_picker = lambda: str(sleeve)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.approve(unit_id)["ok"]
+    assert api.plan_anyway(unit_id)["ok"]
+    assert api.choose_cover(unit_id)["ok"]
+    assert api.write_chosen_cover(unit_id)["ok"]
+    landed = next(path for path in library.iterdir() if path.is_dir())
+    (landed / "front.jpg").write_bytes(jpeg(1500, 1500))
+    # Asked of the next launch, where nothing is staged and only the record
+    # can say which picture was chosen.
+    reopened = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    reopened._restore_library()
+    unit_id = reopened.state()["albums"][0]["unit_id"]
+
+    assert _drawn(tmp_path, reopened.cover(unit_id)) == hashlib.sha256(chosen).hexdigest()
+
+
+def test_a_picture_this_application_only_guessed_is_not_a_decision_on_record(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """What the guessing rule wrote is read back as a guess, never as a choice.
+
+    The folder held one side of the disc and nothing else, so that is what the
+    files were given. Read back as a decision, it would outrank the sleeve put
+    in the folder afterwards for as long as the album exists.
+    """
+    library = _library(tmp_path)
+    folder = next(path for path in library.iterdir() if path.is_dir())
+    (folder / "side a.jpg").write_bytes(jpeg(800, 800))
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.approve(unit_id)["ok"]
+    landed = next(path for path in library.iterdir() if path.is_dir())
+    written = FilesystemArtworkStore().describe_embedded(sorted(landed.glob("*.flac"))[0])
+    assert written is not None, "the guess was written into the files, which is the case here"
+    sleeve = jpeg(600, 600)
+    (landed / "cover.jpg").write_bytes(sleeve)
+    reopened = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    reopened._restore_library()
+    unit_id = reopened.state()["albums"][0]["unit_id"]
+
+    assert _drawn(tmp_path, reopened.cover(unit_id)) == hashlib.sha256(sleeve).hexdigest()
+
+
 def test_the_dashboard_says_how_long_it_took(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -10134,3 +10607,91 @@ def test_arranging_by_tags_still_names_the_two_ways_out(tmp_path: Path) -> None:
         arranged["ask_before_leaving"] is True
     ), "leaving an arrangement asked for by name stopped naming the two ways out"
     assert arranged["leaving_takes_back"] is False, "only a re-planned finished album goes back"
+
+
+def _mp3_measured(api: LibraryApi, encoding: str, rate: int) -> None:
+    """Record one verdict, keyed to its audio, for the only file on the shelf."""
+    one = api._album_snapshot()[0].unit.audio_files[0]
+    api._store.record_quality(
+        {
+            one.content_signature: StoredQuality(
+                encoding=encoding,
+                effective_bitrate_kbps=rate,
+                cutoff_hertz=11_000,
+                steepest_drop_db=40.0,
+                findings=(),
+                reason="measured",
+                decay_db=30.0,
+                ceiling_db=-100.0,
+                audio_key=one.audio_key,
+            )
+        }
+    )
+
+
+def test_a_stream_measured_below_what_it_declares_is_named_by_what_it_measured(
+    tmp_path: Path,
+) -> None:
+    """An MP3 whose audio is coarser than its header says is named by its audio.
+
+    The verdict was measured and kept, and never reached a name: the folder
+    went on saying the declared rate. Read back from the store, it now names
+    the stream; and when the stream is measured honest again, the old number
+    goes with the verdict that earned it.
+    """
+    library = tmp_path / "library"
+    _tagged_album(
+        library / "quarteto rufo vesperal", titles=("Tio Comunicador",), fixtures=("tone.mp3",)
+    )
+    api = _api(tmp_path, FakeSource())
+    assert api.open_folder(str(library))["ok"]
+    _finish_reads(api)
+
+    def folder_name() -> str:
+        assert api.open_folder(str(library))["ok"]
+        _finish_reads(api)
+        album = api.album(api.state()["albums"][0]["unit_id"])["album"]
+        return Path(
+            next(op for op in album["operations"] if op["kind"] == "rename_folder")["after"]["path"]
+        ).name
+
+    assert folder_name().endswith("[MP3 128]"), "what the file declares, with nothing measured"
+    _mp3_measured(api, "overstated", 64)
+    assert folder_name().endswith("[MP3 64]")
+    _mp3_measured(api, "lossy", 120)
+    assert folder_name().endswith("[MP3 128]"), "an honest reading takes the old number away"
+
+
+def test_an_album_already_scanned_keeps_its_answer_when_its_folder_is_read_again(
+    tmp_path: Path,
+) -> None:
+    """Dropped or opened again, a scanned album is the scan's answer, not "not scanned".
+
+    The read built every album that was not organized as one nobody had looked
+    up, and put that over the album the scan had answered. The identification
+    stood in the database, so a restart brought it back, and until then the
+    card said `Not scanned`. It now comes back the way a restart brings it.
+    """
+    library = tmp_path / "library"
+    folder = library / "quarteto rufo - vesperal"
+    folder.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", folder / "aaa.flac")
+    shutil.copy(FIXTURES / "tone-long.flac", folder / "bbb.flac")
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    scanned = api.state()["albums"][0]
+    assert scanned["looked_at"]
+
+    api.adopt_folders([str(folder)])
+    _finish_reads(api)
+    dropped = api.state()["albums"][0]
+    assert dropped["looked_at"], "the scan's answer was put back to not scanned"
+    assert dropped["decision"] == scanned["decision"]
+
+    assert api.open_folder(str(library))["ok"]
+    _finish_reads(api)
+    assert api.state()["albums"][0]["looked_at"], "opening the folder is the same gesture"

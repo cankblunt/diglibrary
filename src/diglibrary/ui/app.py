@@ -156,6 +156,20 @@ def run(config_path: Path | None, debug: bool = False) -> None:
             return None
         return str(chosen[0])
 
+    def pick_list() -> str | None:
+        # A list of records to import into the collection: one CSV,
+        # asked for through the platform's own open panel like an image.
+        if not window_box:
+            return None
+        chosen = window_box[0].create_file_dialog(
+            webview.OPEN_DIALOG,
+            allow_multiple=False,
+            file_types=("Lists (*.csv;*.txt)", "All files (*.*)"),
+        )
+        if not chosen:
+            return None
+        return str(chosen[0])
+
     def open_path(path: str) -> None:
         # Revealing a folder is the platform's job, like the folder dialog: the
         # application layer receives it as a plain callable.
@@ -187,6 +201,8 @@ def run(config_path: Path | None, debug: bool = False) -> None:
         application,
         folder_picker=pick_folder,
         image_picker=pick_image,
+        list_picker=pick_list,
+        dropped_folders=drops.take,
         path_opener=open_path,
         icon_maker=add_application_icon,
         keep_awake=awake.set,
@@ -206,21 +222,10 @@ def run(config_path: Path | None, debug: bool = False) -> None:
     )
     window_box.append(window)
 
-    def receive_drop(folders: tuple[str, ...]) -> None:
-        # Only the platform can say where a dropped folder is, so the reading is
-        # done there and the application layer is handed plain paths — the same
-        # arrangement as the folder dialog.
-        # Called even when the drop carried no folder, because the window is
-        # already waiting by then and something has to release it.
-        api.adopt_folders(list(folders))
-
-    def attach_drop() -> None:
-        # After the page has loaded, because there is no body to listen on
-        # before it. Registering is also what switches the native collection of
-        # paths on, so it cannot be skipped and read later.
-        drops.listen(window, receive_drop)
-
-    window.events.loaded += attach_drop
+    # Only the platform can say where a dropped folder is. Switching the
+    # collection on is all that is done here: the page says when a drop has
+    # happened, and the paths are handed over when it asks.
+    drops.listen()
     # Before the window starts: the platform reads this when it first needs it,
     # and what explains a number on these screens is usually in a tooltip.
     tooltips.appear_sooner()

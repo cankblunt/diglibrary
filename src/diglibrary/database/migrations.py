@@ -1133,6 +1133,19 @@ _HOW_MANY_READINGS_NAMED_THE_ALIGNMENT: tuple[str, ...] = (
 )
 
 
+_WHERE_THE_AUDIO_STOPS_FRAME_BY_FRAME: tuple[str, ...] = (
+    # The encoder's low-pass read frame by frame: how much of the file stops at
+    # one frequency, and which frequency. Kept as numbers rather than as a
+    # conclusion so that the rule reading them can move, as with every column
+    # of this table.
+    #
+    # NULL means *measured before this question existed*. `StoredQuality` counts
+    # such a row as incomplete, so the next scan of its album measures it again.
+    "ALTER TABLE track_quality ADD COLUMN edge_share REAL",
+    "ALTER TABLE track_quality ADD COLUMN edge_hertz INTEGER",
+)
+
+
 _PHYSICAL_COLLECTION: tuple[str, ...] = (
     # Records on a shelf. Additive: no existing table or column is touched, so
     # the module can be taken out whole.
@@ -1221,6 +1234,17 @@ _WHAT_A_LIST_BRINGS: tuple[str, ...] = (
 )
 
 
+_THE_ALBUM_BEHIND_AN_OFFER: tuple[str, ...] = (
+    # An offer says which album it is a pressing of and when that album first
+    # came out, and the album itself is offered on a line of its own above its
+    # pressings. Additive: an offer kept before this belongs to no group, and is
+    # drawn as it was until the catalogue is asked about its record again.
+    "ALTER TABLE physical_record_candidates ADD COLUMN group_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE physical_record_candidates ADD COLUMN original_year INTEGER",
+    "ALTER TABLE physical_record_candidates ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="library_foundation", statements=_LIBRARY_FOUNDATION),
     Migration(version=2, name="manual_corrections", statements=_MANUAL_CORRECTIONS),
@@ -1285,4 +1309,10 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=33, name="physical_collection", statements=_PHYSICAL_COLLECTION),
     Migration(version=34, name="what_a_list_brings", statements=_WHAT_A_LIST_BRINGS),
     Migration(version=35, name="playlists_removed", statements=_PLAYLISTS_REMOVED),
+    Migration(version=36, name="the_album_behind_an_offer", statements=_THE_ALBUM_BEHIND_AN_OFFER),
+    Migration(
+        version=37,
+        name="where_the_audio_stops_frame_by_frame",
+        statements=_WHERE_THE_AUDIO_STOPS_FRAME_BY_FRAME,
+    ),
 )

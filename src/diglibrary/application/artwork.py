@@ -4,6 +4,7 @@ import itertools
 import logging
 import os
 import threading
+import unicodedata
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -54,6 +55,17 @@ the rule reads the exclusions and takes the largest of what is left, which also
 settles `albumartsmall` against its `_large` twin without knowing either name.
 """
 
+SAYS_THE_FRONT = ("cover", "front", "folder", "capa", "frente", "albumart")
+"""Words that say a picture in the folder *is* the album's face.
+
+Not a replacement for the exclusions above, and not a list that has to be
+complete: it is a preference among what they leave. The largest picture left is
+often not the sleeve — a ripper's screenshot, a label, one side of the disc, a
+page of the booklet — and none of those is called `cover`. A front with a name
+missing from here loses nothing: it falls back to the largest-picture rule,
+which is what every picture was judged by before.
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class ArtworkPolicy:
@@ -72,6 +84,15 @@ class ArtworkPolicy:
     embed_pixels: int = DEFAULT_EMBED_PIXELS
     parallel_downloads: int = DEFAULT_PARALLEL_DOWNLOADS
     release_group_fallback: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class FolderFront:
+    """The picture chosen as a folder's front, and whether more than its size chose it."""
+
+    facts: ImageFacts
+    path: Path
+    vouched: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +222,8 @@ class ArtworkService:
             return None
         if facts is None:
             return None
-        return self._stage_file(source, facts)
+        staged = self._stage_file(source, facts)
+        return replace(staged, picked_by="user") if staged is not None else None
 
     def _from_archive(self, release_id: str | None, release_group_id: str | None) -> Artwork:
         if not release_id:
@@ -287,8 +309,7 @@ class ArtworkService:
         chosen = self._front_in_folder(folder)
         if chosen is None:
             return artwork
-        facts, path = chosen
-        staged = self._stage_file(path, facts)
+        staged = self._stage_file(chosen.path, chosen.facts)
         if staged is None:
             return artwork
         self._logger.info(
@@ -305,37 +326,68 @@ class ArtworkService:
         except Exception:
             return None
 
-    def front_in_folder(self, folder: Path) -> tuple[ImageFacts, Path] | None:
+    def front_in_folder(
+        self, folder: Path, inside: frozenset[str] = frozenset()
+    ) -> "FolderFront | None":
         """The album's face as it sits in its own folder, for anything that draws it.
 
-        Public because the window's cards need exactly this answer. The first
-        image in alphabetical order is `back.jpg` in every folder that has one,
-        and the front goes by many names, so the *exclusions* are what read
-        reliably — which is the rule below, and the only one.
+        Public because the window's cards need exactly this answer, and the
+        rule is ``_front_in_folder``'s — one rule, read by the card and by the
+        embed that fills an absence.
         """
-        return self._front_in_folder(folder)
+        return self._front_in_folder(folder, inside)
 
-    def _front_in_folder(self, folder: Path) -> tuple[ImageFacts, Path] | None:
-        """Return the largest picture in this folder that does not say it is not the front."""
+    def pictures_in_folder(self, folder: Path) -> tuple[tuple[ImageFacts, Path], ...]:
+        """Every readable picture in the folder, whatever it says it is."""
         assert self._store is not None
-        best: tuple[ImageFacts, Path] | None = None
         try:
             entries = sorted(folder.iterdir())
         except OSError:
-            return None
+            return ()
+        found: list[tuple[ImageFacts, Path]] = []
         for entry in entries:
             if entry.suffix.lower() not in IMAGE_SUFFIXES or not entry.is_file():
-                continue
-            name = entry.stem.casefold()
-            if any(word in name for word in NOT_THE_FRONT) or name == "cd":
                 continue
             try:
                 facts = self._store.describe(entry)
             except Exception:
                 continue
-            if facts is not None and (best is None or facts.pixels > best[0].pixels):
-                best = (facts, entry)
-        return best
+            if facts is not None:
+                found.append((facts, entry))
+        return tuple(found)
+
+    def _front_in_folder(
+        self, folder: Path, inside: frozenset[str] = frozenset()
+    ) -> "FolderFront | None":
+        """Choose the folder's front, saying whether anything vouches for it.
+
+        A picture whose name says it is not the front is never chosen. Of the
+        rest, one whose name says it *is* the front — or carries the album's
+        title, read from the folder's name (``_album_title``) — comes first;
+        then one the tracks also carry (``inside`` holds their digests); then
+        the largest. The order is checked in that
+        sequence and the largest decides only within a step, so a ripper's
+        screenshot twice the size of `cover.jpg` no longer takes the card.
+
+        ``vouched`` is False when only size chose it: the caller then prefers
+        the picture inside the tracks over it.
+        """
+        key = _plain(_album_title(folder.name))
+        best: tuple[tuple[bool, bool, int], ImageFacts, Path] | None = None
+        for facts, entry in self.pictures_in_folder(folder):
+            name = entry.stem.casefold()
+            if any(word in name for word in NOT_THE_FRONT) or name == "cd":
+                continue
+            named = any(word in name for word in SAYS_THE_FRONT) or (
+                len(key) > 3 and key in _plain(entry.stem)
+            )
+            rank = (named, facts.digest in inside, facts.pixels)
+            if best is None or rank > best[0]:
+                best = (rank, facts, entry)
+        if best is None:
+            return None
+        (named, carried, _), facts, entry = best
+        return FolderFront(facts=facts, path=entry, vouched=named or carried)
 
     def _stage_file(self, source: Path, facts: ImageFacts) -> StagedImage | None:
         """Copy a picture out of the album folder, so a rename cannot strand it.
@@ -453,7 +505,7 @@ class ArtworkService:
                 extra={"operation": "artwork.stage.failure", "digest": facts.digest},
             )
             return None
-        return StagedImage(kind=request.kind, path=path, facts=facts)
+        return StagedImage(kind=request.kind, path=path, facts=facts, picked_by="archive")
 
     def _write(self, data: bytes, digest: str, media_type: str) -> Path:
         """Stage one image under its own digest, atomically."""
@@ -519,3 +571,24 @@ def _address(entry: CoverArtEntry, requested_pixels: int) -> str:
         return entry.url
     usable = [size for size in available if size <= requested_pixels] or [min(available)]
     return entry.thumbnails[str(max(usable))]
+
+
+def _plain(text: str) -> str:
+    """Letters and digits only, accents dropped, for comparing a file name to a title."""
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(
+        character for character in decomposed if character.isalnum() and character.isascii()
+    )
+
+
+def _album_title(folder_name: str) -> str:
+    """The title part of `Artist - Title (year) [format]`, or the whole name.
+
+    The artist is left out on purpose: `Artist.jpg` beside an album is usually
+    a photograph of the artist, and matching it would vouch for the wrong picture.
+    """
+    _, _, rest = folder_name.partition(" - ")
+    title = rest or folder_name
+    for mark in (" (", " ["):
+        title = title.split(mark, 1)[0]
+    return title

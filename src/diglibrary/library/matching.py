@@ -135,7 +135,7 @@ TITLE_MATCH_THRESHOLD = 0.8
 """How similar two titles must be to count as the same track when scoring.
 
 Titles are typed by hand on both sides, so exact equality is too strict —
-"Na-Na (Means I Need You)" and "Na Na Means I Need You" are one song. Below
+"Zo-Zo (Means I Miss Zorvo)" and "Zo Zo Means I Miss Zorvo" are one song. Below
 this, agreement is noise: short titles collide too easily.
 """
 

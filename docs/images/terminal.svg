@@ -13,12 +13,12 @@
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
     <text x="24" y="70" fill="#6f7891">#  you type this  ↓</text>
 
-    <text x="24" y="98"><tspan fill="#F2C230">➜</tspan><tspan fill="#eceff4" xml:space="preserve">  cd </tspan><tspan fill="#7fd1b9">~/Downloads/diglibrary-1.7.0</tspan></text>
+    <text x="24" y="98"><tspan fill="#F2C230">➜</tspan><tspan fill="#eceff4" xml:space="preserve">  cd </tspan><tspan fill="#7fd1b9">~/Downloads/diglibrary-1.8.0</tspan></text>
 
     <text x="24" y="130"><tspan fill="#F2C230">➜</tspan><tspan fill="#eceff4" xml:space="preserve">  python3 -m venv .venv</tspan></text>
 
     <text x="24" y="162"><tspan fill="#F2C230">➜</tspan><tspan fill="#eceff4" xml:space="preserve">  .venv/bin/python -m pip install -e .</tspan></text>
-    <text x="24" y="184" fill="#6f7891" xml:space="preserve">   Successfully installed diglibrary-1.7.0 mutagen-1.47 numpy-2.3 …</text>
+    <text x="24" y="184" fill="#6f7891" xml:space="preserve">   Successfully installed diglibrary-1.8.0 mutagen-1.47 numpy-2.3 …</text>
     <text x="24" y="206" fill="#6f7891">   ↑ this line means it worked</text>
 
     <text x="24" y="240"><tspan fill="#F2C230">➜</tspan><tspan fill="#eceff4" xml:space="preserve">  .venv/bin/python -m diglibrary</tspan></text>
