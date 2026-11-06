@@ -80,8 +80,8 @@ REVIEWED_BINARIES: dict[str, str] = {
     "docs/brand/diglibrary-lockup.png": "0d40f89cb9c49f9a12bf424183e1d3c200251c1d4ba4544745bb18554153d947",  # noqa: E501
     "docs/brand/diglibrary-stacked-1024.png": "96f693ecfe88812c624f1f31b23eba3d6b75ccdfa0605e9c3141748b84c0354b",  # noqa: E501
     "docs/images/install.gif": "524f31bb6f9fd4aff98e072325cc6c1b203359aea2abc8abf953f327b1b0296e",
-    "docs/images/screen-library.png": "9520f9dd709acd44cde9b5c2fb6e60d989059edaea4da3029ac3899344b5ff6c",  # noqa: E501
-    "docs/images/screen-mixing.png": "8dd49cfb6240baa0481fcee53be25393398bf8296a6999e273c4d6fe9603a3f7",  # noqa: E501
+    "docs/images/screen-library.png": "2184bc075de6911faea285aaca105be2dd1fe83e1619f17928c5c97db0d4d5f1",  # noqa: E501
+    "docs/images/screen-mixing.png": "d390986b9148eef81e61e6033300283f29cc92195513356e0c7d96c999490819",  # noqa: E501
     "src/diglibrary/desktop/DigLibrary.icns": "ff6053bf880589a9242de81fada1877e697b1fcede34d8170891ba802513394e",  # noqa: E501
     "tests/fixtures/audio/tone-long.flac": "e7c786cf02864778f612031b7db200d6a05eede70c866576891373998de0c319",  # noqa: E501
     "tests/fixtures/audio/tone.aiff": "5f27e31a07c3c16564ade68039e487032e6bef9783d2320ded9fe445e95cb6cf",  # noqa: E501
