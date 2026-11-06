@@ -5,10 +5,11 @@ import logging
 import os
 import threading
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Protocol
 
 from diglibrary.library.artwork import (
     Artwork,
@@ -95,6 +96,33 @@ class FolderFront:
     vouched: bool
 
 
+class PictureLedger(Protocol):
+    """Where the picture each file carries is written down, and read back as evidence."""
+
+    def record_pictures(self, carried: Mapping[Path, str]) -> None:
+        """Write down each file's picture digest, or an empty string for none."""
+
+    def pictures_that_are_not_covers(self) -> frozenset[str]:
+        """The digests carried by two albums that share no recording."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Carried:
+    """What an album's files carry, read once, with the pictures that are not covers."""
+
+    pictures: tuple[tuple[Path, ImageFacts | None], ...]
+    not_covers: frozenset[str]
+
+    @property
+    def covers(self) -> tuple[tuple[ImageFacts, Path], ...]:
+        """Every picture a file carries that may stand for the album."""
+        return tuple(
+            (facts, track)
+            for track, facts in self.pictures
+            if facts is not None and facts.digest not in self.not_covers
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class _Request:
     """One image to fetch: which cover it is, at which address, for which use."""
@@ -125,6 +153,7 @@ class ArtworkService:
         policy: ArtworkPolicy,
         logger: logging.Logger,
         store: ArtworkStore | None = None,
+        ledger: PictureLedger | None = None,
     ) -> None:
         """Create the service from an archive client, a store, and the configured policy."""
         self._client = client
@@ -132,6 +161,10 @@ class ArtworkService:
         self._policy = policy
         self._logger = logger
         self._store = store
+        self._ledger = ledger
+        # The answer changes only when a picture is written down, and the
+        # window's cards ask it once per album on every read of the shelf.
+        self._not_covers: frozenset[str] | None = None
         # Names the temporary files a staging write uses. `count` is atomic
         # under the GIL, which is the whole requirement: two threads must never
         # be handed the same number.
@@ -166,8 +199,9 @@ class ArtworkService:
         """
         if not self._policy.enabled:
             return Artwork()
-        artwork = self._with_local_front(self._from_archive(release_id, release_group_id), tracks)
-        return self._with_folder_embed(artwork, folder, tracks)
+        carried = self._carried(tracks)
+        artwork = self._with_local_front(self._from_archive(release_id, release_group_id), carried)
+        return self._with_folder_embed(artwork, folder, carried)
 
     def local_only(self, tracks: Sequence[Path], folder: Path | None) -> Artwork:
         """Return the artwork that comes from the disk alone, with no network.
@@ -183,8 +217,9 @@ class ArtworkService:
         """
         if not self._policy.enabled:
             return Artwork()
-        local = self._with_local_front(Artwork(), tracks)
-        return self._with_folder_embed(local, folder, tracks)
+        carried = self._carried(tracks)
+        local = self._with_local_front(Artwork(), carried)
+        return self._with_folder_embed(local, folder, carried)
 
     def extract_local_front(self, tracks: Sequence[Path]) -> StagedImage | None:
         """Stage the largest picture embedded in these files, without any network.
@@ -196,11 +231,41 @@ class ArtworkService:
         """
         if not self._policy.enabled or not tracks or self._store is None:
             return None
-        local = self._largest_embedded(tracks)
+        local = _largest(self._carried(tracks))
         if local is None:
             return None
         facts, track = local
         return self._stage_embedded(track, facts)
+
+    def read_pictures(self, tracks: Sequence[Path]) -> int:
+        """Write down which picture each of these files carries, and return how many.
+
+        The launch's half of the evidence: a picture is recognised as a banner
+        only once a second album carrying it has been read, and an album
+        nobody plans again would otherwise never be.
+        """
+        if self._store is None or self._ledger is None:
+            return 0
+        return len(self._read(tracks))
+
+    def pictures_that_are_not_covers(self) -> frozenset[str]:
+        """The pictures that travel between albums sharing no recording, so stand for none."""
+        if self._ledger is None:
+            return frozenset()
+        known = self._not_covers
+        if known is None:
+            try:
+                known = self._ledger.pictures_that_are_not_covers()
+            except Exception:
+                # Evidence that cannot be read is no evidence: every picture
+                # is judged the way it was before there was any.
+                self._logger.exception(
+                    "The pictures that are not covers could not be read.",
+                    extra={"operation": "artwork.not_covers.failure"},
+                )
+                return frozenset()
+            self._not_covers = known
+        return known
 
     def stage_chosen(self, source: Path) -> StagedImage | None:
         """Stage an image the user pointed at, or ``None`` when it is not one.
@@ -245,15 +310,19 @@ class ArtworkService:
         )
         return Artwork(files=files, embedded=embedded)
 
-    def _with_local_front(self, artwork: Artwork, tracks: Sequence[Path]) -> Artwork:
+    def _with_local_front(self, artwork: Artwork, carried: _Carried) -> Artwork:
         """Let the album's own embedded picture take the folder cover when it is larger.
 
         The comparison runs one way only: what goes *into* a track is decided
-        by the planner's own embed comparison, never by this.
+        by the planner's own embed comparison, never by this. A picture that
+        is not a cover never takes it, and the planner is told which ones those
+        are, because it decides what goes into the files and onto their icons.
         """
-        if not tracks or self._store is None:
+        if carried.not_covers:
+            artwork = replace(artwork, not_covers=carried.not_covers)
+        if self._store is None:
             return artwork
-        local = self._largest_embedded(tracks)
+        local = _largest(carried)
         if local is None:
             return artwork
         facts, track = local
@@ -283,7 +352,7 @@ class ArtworkService:
         return replace(artwork, files=(staged, *others))
 
     def _with_folder_embed(
-        self, artwork: Artwork, folder: Path | None, tracks: Sequence[Path] = ()
+        self, artwork: Artwork, folder: Path | None, carried: _Carried
     ) -> Artwork:
         """Let a picture already in the folder be what the tracks get.
 
@@ -304,7 +373,9 @@ class ArtworkService:
         """
         if artwork.embedded is not None or folder is None or self._store is None:
             return artwork
-        if any(self._embedded_facts(track) is not None for track in tracks):
+        # A picture that is not a cover is an absence: the site's banner is
+        # exactly what a sleeve sitting in the folder should replace.
+        if carried.covers:
             return artwork
         chosen = self._front_in_folder(folder)
         if chosen is None:
@@ -317,14 +388,6 @@ class ArtworkService:
             extra={"operation": "artwork.folder_embed"},
         )
         return replace(artwork, embedded=staged)
-
-    def _embedded_facts(self, track: Path) -> ImageFacts | None:
-        """Return what this file already carries, treating an unreadable one as empty."""
-        assert self._store is not None
-        try:
-            return self._store.describe_embedded(track)
-        except Exception:
-            return None
 
     def front_in_folder(
         self, folder: Path, inside: frozenset[str] = frozenset()
@@ -409,17 +472,43 @@ class ArtworkService:
             return None
         return StagedImage(kind=ImageKind.FRONT, path=destination, facts=facts)
 
-    def _largest_embedded(self, tracks: Sequence[Path]) -> tuple[ImageFacts, Path] | None:
+    def _carried(self, tracks: Sequence[Path]) -> _Carried:
+        """Read what each file carries, write it down, and say which pictures are not covers.
+
+        Written down *before* asking, so the album being read is already
+        evidence: the second album to carry a banner is the one that reveals it.
+        """
+        if self._store is None:
+            return _Carried(pictures=(), not_covers=frozenset())
+        pictures = self._read(tracks)
+        carried = {facts.digest for _, facts in pictures if facts is not None}
+        return _Carried(
+            pictures=pictures,
+            not_covers=self.pictures_that_are_not_covers() & carried if carried else frozenset(),
+        )
+
+    def _read(self, tracks: Sequence[Path]) -> tuple[tuple[Path, ImageFacts | None], ...]:
+        """Each readable file with its picture; a file that cannot be read is left out."""
         assert self._store is not None
-        best: tuple[ImageFacts, Path] | None = None
+        pictures: list[tuple[Path, ImageFacts | None]] = []
         for track in tracks:
             try:
-                facts = self._store.describe_embedded(track)
+                pictures.append((track, self._store.describe_embedded(track)))
             except Exception:
                 continue
-            if facts is not None and (best is None or facts.pixels > best[0].pixels):
-                best = (facts, track)
-        return best
+        if self._ledger is not None and pictures:
+            try:
+                self._ledger.record_pictures(
+                    {track: facts.digest if facts is not None else "" for track, facts in pictures}
+                )
+            except Exception:
+                self._logger.exception(
+                    "The pictures the files carry could not be written down.",
+                    extra={"operation": "artwork.pictures.failure"},
+                )
+            else:
+                self._not_covers = None
+        return tuple(pictures)
 
     def _stage_embedded(self, track: Path, facts: ImageFacts) -> StagedImage | None:
         assert self._store is not None
@@ -592,3 +681,12 @@ def _album_title(folder_name: str) -> str:
     for mark in (" (", " ["):
         title = title.split(mark, 1)[0]
     return title
+
+
+def _largest(carried: _Carried) -> tuple[ImageFacts, Path] | None:
+    """The largest picture the album's files carry that may stand for it."""
+    best: tuple[ImageFacts, Path] | None = None
+    for facts, track in carried.covers:
+        if best is None or facts.pixels > best[0].pixels:
+            best = (facts, track)
+    return best

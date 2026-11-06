@@ -1146,6 +1146,44 @@ _WHERE_THE_AUDIO_STOPS_FRAME_BY_FRAME: tuple[str, ...] = (
 )
 
 
+_AN_OPERATION_IS_A_WORD: tuple[str, ...] = (
+    # An operation's kind was a list of the five this application knew, so the
+    # sixth — the Finder tags of an album folder — was refused at insert. The
+    # same reasoning as migration 26 gave the corrections: which kinds exist is
+    # a fact about the code that performs them, and a second copy here can only
+    # drift from it. The column still refuses NULL and an empty string.
+    #
+    # Rebuilt the long way, every column copied by name so an applied trail
+    # keeps its ids, its dates and its `reverted_at`. Nothing references this
+    # table and it has no index of its own.
+    """
+    CREATE TABLE change_operations_open (
+        id INTEGER PRIMARY KEY,
+        change_plan_id INTEGER NOT NULL REFERENCES change_plans(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+        target_path TEXT NOT NULL,
+        before_state TEXT,
+        after_state TEXT NOT NULL,
+        backup_path TEXT,
+        applied_at TEXT,
+        reverted_at TEXT,
+        UNIQUE (change_plan_id, sequence)
+    )
+    """,
+    """
+    INSERT INTO change_operations_open
+        (id, change_plan_id, sequence, kind, target_path, before_state, after_state,
+         backup_path, applied_at, reverted_at)
+    SELECT id, change_plan_id, sequence, kind, target_path, before_state, after_state,
+           backup_path, applied_at, reverted_at
+    FROM change_operations
+    """,
+    "DROP TABLE change_operations",
+    "ALTER TABLE change_operations_open RENAME TO change_operations",
+)
+
+
 _PHYSICAL_COLLECTION: tuple[str, ...] = (
     # Records on a shelf. Additive: no existing table or column is touched, so
     # the module can be taken out whole.
@@ -1245,6 +1283,18 @@ _THE_ALBUM_BEHIND_AN_OFFER: tuple[str, ...] = (
 )
 
 
+_THE_PICTURE_A_FILE_CARRIES: tuple[str, ...] = (
+    # Which picture each file carries, by the digest of its bytes, so a picture
+    # embedded in two albums that share no recording can be told from a cover:
+    # a site's banner travels with every rip that site made, and a sleeve does
+    # not. NULL means *not read yet*, and an empty string *read, and there is
+    # none*: the launch reads the files still NULL, and a scan that finds a file
+    # changed puts it back to NULL, since the picture is one of the things that
+    # change a file.
+    "ALTER TABLE audio_files ADD COLUMN picture_digest TEXT",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="library_foundation", statements=_LIBRARY_FOUNDATION),
     Migration(version=2, name="manual_corrections", statements=_MANUAL_CORRECTIONS),
@@ -1314,5 +1364,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=37,
         name="where_the_audio_stops_frame_by_frame",
         statements=_WHERE_THE_AUDIO_STOPS_FRAME_BY_FRAME,
+    ),
+    Migration(version=38, name="an_operation_is_a_word", statements=_AN_OPERATION_IS_A_WORD),
+    Migration(
+        version=39,
+        name="the_picture_a_file_carries",
+        statements=_THE_PICTURE_A_FILE_CARRIES,
     ),
 )

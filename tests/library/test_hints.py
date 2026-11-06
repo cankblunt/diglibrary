@@ -108,7 +108,7 @@ def test_the_ladder_tries_the_query_without_accents() -> None:
 def test_the_ladder_ends_on_the_most_distinctive_track_title() -> None:
     """The last resort is how a person searches: the artist and a track they know."""
     hints = hints_from_folder_name("Olívio Marfins - Zumbra e Dance (1999) [FLAC]")
-    titles = ("Alô Turma", "Vou Remar Pra Outra Margem", "Lá Vem Ela")
+    titles = ("Alô Turma", "Vou Remar Pra Outra Margem", "Lá Vai Zelina")
 
     queries = query_ladder(hints, titles)
     free_texts = [query.text for query in queries if query.text]

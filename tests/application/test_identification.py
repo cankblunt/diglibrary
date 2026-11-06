@@ -982,7 +982,7 @@ def test_an_answer_nobody_could_check_does_not_end_the_search(tmp_path: Path) ->
             self.searches.append(query)
             if query.text:
                 return (_summary("right", "Forró"),)
-            return (_summary("boxset", "Jubilee - 13 Volumes Box Set"),)
+            return (_summary("boxset", "Jubilee - 13 Volumes Anthology"),)
 
     source = BoxSetThenTheAlbum(
         details={
@@ -990,7 +990,7 @@ def test_an_answer_nobody_could_check_does_not_end_the_search(tmp_path: Path) ->
             "boxset": ReleaseMetadata(
                 source=MetadataSources.DISCOGS,
                 source_release_id="boxset",
-                title="Jubilee - 13 Volumes Box Set",
+                title="Jubilee - 13 Volumes Anthology",
                 artists=(ArtistMetadata(name="Earl Whitcombe"),),
                 tracks=(),
             ),

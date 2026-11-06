@@ -769,6 +769,19 @@ export const STR = {
   planHeadNow: "Now on disk",
   planHeadAfter: "After applying",
   planFolder: "Folder",
+  planFinderTags: "Finder",
+  finderTagsNone: "no tags",
+  finderTagsPlaceholder: "Add a Finder tag",
+  finderTagsFavourites: "Favorites",
+  finderTagsOthers: "All tags",
+  finderTagsCreatePlaceholder: "Type a name to create a Finder tag",
+  finderTagsNoneYet: "No Finder tags on this Mac yet. Type a name to create one.",
+  finderTagCreate: (name) => `+ Create tag “${name}”`,
+  finderTagsAllTip: "Every tag the Finder has",
+  finderTagRemoveTip: "Take this tag off the folder",
+  finderTagKeepTip: "Keep this tag on the folder",
+  finderTagsChange: (added, removed) =>
+    [...added.map((name) => `+ ${name}`), ...removed.map((name) => `− ${name}`)].join(", "),
   planDerived: (name) => `written as ${name}`,
   editFolder:
     "Edit the folder name — what you type here is the name written to disk, "
@@ -962,6 +975,7 @@ export const STR = {
   operationWriteTags: "Write tags",
   operationWriteImage: "Write cover",
   operationEmbedImage: "Embed cover",
+  operationFinderTags: "Finder tags",
   badgeAutomatic: "auto",
   badgeReview: "review",
   badgeOrganized: "✓ organized",

@@ -12,6 +12,13 @@ from pathlib import Path
 from diglibrary.library.artwork import ArtworkStore, ImageFacts, extension_for
 from diglibrary.library.audio import AUDIO_EXTENSIONS
 from diglibrary.library.containers import count_audio_below, names_the_folder
+from diglibrary.library.finder_tags import (
+    parse_tag,
+    read_finder_tags,
+    tags_taken_back,
+    with_tags_changed,
+    write_finder_tags,
+)
 from diglibrary.library.planner import ChangeOperation, ChangePlan, OperationKind
 from diglibrary.library.tags import TagStore
 from diglibrary.library.xattrs import carry_across, movable_names
@@ -378,7 +385,7 @@ class ChangeExecutor:
         problems: list[str] = []
         lost: list[Path] = []
         for operation in plan.operations:
-            if operation.kind is OperationKind.WRITE_TAGS:
+            if operation.kind in (OperationKind.WRITE_TAGS, OperationKind.WRITE_FINDER_TAGS):
                 if disk.holder(operation.target_path) is None:
                     lost.append(disk.origin(operation.target_path))
                 continue
@@ -450,6 +457,10 @@ class ChangeExecutor:
             return ()
         if occupant is not None and store.describe(occupant) is None:
             return (f"Refusing to overwrite something that is not a readable image: {target}.",)
+        for named in operation.after_state.get("displaces") or ():  # type: ignore[attr-defined]
+            other = Path(str(named))
+            if other.exists() and store.describe(other) is None:
+                return (f"Refusing to move something that is not a readable image: {other}.",)
         disk.wrote(target)
         return ()
 
@@ -507,6 +518,8 @@ class ChangeExecutor:
             return self._write_image(operation)
         if operation.kind is OperationKind.EMBED_IMAGE:
             return self._embed_image(operation)
+        if operation.kind is OperationKind.WRITE_FINDER_TAGS:
+            return _write_finder_tags(operation)
         if operation.kind is OperationKind.WRITE_TAGS:
             before = self._tag_store.read(operation.target_path)
             desired = {
@@ -544,7 +557,25 @@ class ChangeExecutor:
             raise ExecutionError(
                 f"Refusing to overwrite something that is not a readable image: {target}."
             )
+        # The other covers this one replaces, under the same name with another
+        # extension. One that has gone since planning has nothing left to take
+        # aside; one that is no longer an image is not this write's to move.
+        displaced: list[dict[str, object]] = []
         try:
+            for named in operation.after_state.get("displaces") or ():  # type: ignore[attr-defined]
+                other = Path(str(named))
+                facts = store.describe(other)
+                if facts is None:
+                    if other.exists():
+                        raise ExecutionError(
+                            f"Refusing to move something that is not a readable image: {other}."
+                        )
+                    continue
+                destination = _backup_path(backup_directory, facts)
+                store.move(other, destination)
+                displaced.append({"path": str(other), "backup": str(destination)})
+            if displaced:
+                before["displaced"] = displaced
             created = store.copy(source, target)
         except Exception:
             # Put back what was moved aside. An operation that raises never
@@ -554,7 +585,12 @@ class ChangeExecutor:
             # out of, and the album would be left with none. The rule the
             # project states is that every write is preceded by a reversible
             # backup; a backup nothing can find is not one.
-            if before:
+            # Copied, as the undo copies, and before the move below: two images
+            # with the same bytes share one backup, and moving it back first
+            # would take it from the other.
+            for entry in displaced:
+                store.copy(Path(str(entry["backup"])), Path(str(entry["path"])))
+            if "backup" in before:
                 store.move(Path(str(before["backup"])), target)
             raise
         return AppliedOperation(
@@ -610,6 +646,9 @@ class ChangeExecutor:
         return AppliedOperation(operation=operation, before_state={"drawn": drawn})
 
     def _undo(self, entry: AppliedOperation) -> None:
+        if entry.operation.kind is OperationKind.WRITE_FINDER_TAGS:
+            _undo_finder_tags(entry)
+            return
         if entry.operation.kind is OperationKind.WRITE_TAGS:
             restored = {
                 name: tuple(values)
@@ -643,6 +682,10 @@ class ChangeExecutor:
             # had. The backup outliving the revert is what the folder's own
             # ceiling is for (`enforce_folder_limit`).
             store.copy(Path(str(backup)), target)
+        for displaced in entry.before_state.get("displaced") or ():  # type: ignore[attr-defined]
+            path = Path(str(displaced["path"]))
+            if not path.exists():
+                store.copy(Path(str(displaced["backup"])), path)
         _remove_created_directories(entry.created_directories)
 
     def _undo_embed_image(self, entry: AppliedOperation) -> None:
@@ -880,6 +923,57 @@ def rerooted_trail(
 def _backup_path(backup_directory: Path, facts: ImageFacts) -> Path:
     """Name a replaced image by its own content, so identical images collapse onto one file."""
     return backup_directory / f"{facts.digest[:16]}{extension_for(facts.media_type)}"
+
+
+def _write_finder_tags(operation: ChangeOperation) -> AppliedOperation:
+    """Add and take off the folder's Finder tags, keeping every other one where it is.
+
+    What the folder carries is read here and not taken from the plan, because a
+    tag put on in the Finder since planning is the user's, and the reversal
+    must give back what was really there.
+    """
+    folder = operation.target_path
+    before = read_finder_tags(folder)
+    if before is None:
+        raise ExecutionError(_vanished(folder))
+    add = tuple(parse_tag(entry) for entry in operation.after_state["add"])  # type: ignore[union-attr]
+    remove = tuple(str(name) for name in operation.after_state["remove"])  # type: ignore[union-attr]
+    written = with_tags_changed(before, add, remove)
+    try:
+        write_finder_tags(folder, written)
+    except OSError as error:
+        raise ExecutionError(str(error)) from error
+    return AppliedOperation(
+        operation=operation,
+        before_state={
+            "finder_tags": [tag.entry for tag in before],
+            "written": [tag.entry for tag in written],
+        },
+    )
+
+
+def _undo_finder_tags(entry: AppliedOperation) -> None:
+    folder = entry.operation.target_path
+    current = read_finder_tags(folder)
+    if current is None:
+        raise ExecutionError(_vanished(folder))
+    before = tuple(parse_tag(item) for item in entry.before_state["finder_tags"])  # type: ignore[union-attr]
+    recorded = entry.before_state.get("written")
+    if recorded is None:
+        # What the write produced is a function of what it found and what it was
+        # told, so a record without it is rebuilt exactly.
+        written = with_tags_changed(
+            before,
+            tuple(parse_tag(item) for item in entry.operation.after_state["add"]),  # type: ignore[union-attr]
+            tuple(str(name) for name in entry.operation.after_state["remove"]),  # type: ignore[union-attr]
+        )
+    else:
+        written = tuple(parse_tag(item) for item in recorded)  # type: ignore[union-attr]
+    restored = tags_taken_back(current, written, before)
+    try:
+        write_finder_tags(folder, restored)
+    except OSError as error:
+        raise ExecutionError(str(error)) from error
 
 
 def _move_across_volumes(source: Path, destination: Path) -> None:

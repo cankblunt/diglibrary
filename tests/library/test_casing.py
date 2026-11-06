@@ -101,9 +101,80 @@ def test_an_article_that_opens_a_credited_name_keeps_its_capital() -> None:
 
 
 def test_an_artist_is_a_proper_noun_from_end_to_end() -> None:
-    assert normalize_artist("Moreira Da Costa", "pt") == "Moreira da Costa"
+    assert normalize_artist("Moreira Da Costa") == "Moreira da Costa"
     assert normalize_artist("Praiano & Os Novos Mineiros") == "Praiano & Os Novos Mineiros"
     assert normalize_artist("Paulo Roberto E Joca") == "Paulo Roberto e Joca"
+    # Every article inside a name keeps its capital, and a preposition does not;
+    # `a` is both, and is the article only after the words that join two names.
+    assert normalize_artist("Rodas Contra The Zunto") == "Rodas Contra The Zunto"
+    assert normalize_artist("Reis of The Plimba") == "Reis of The Plimba"
+    assert normalize_artist("Tenda Unidos A Zorvelim") == "Tenda Unidos a Zorvelim"
+    assert normalize_artist("Zunto e A Plimba") == "Zunto e A Plimba"
+    # Read by the name's own words: an English word keeps `a` an article, and a
+    # name with none is read as Portuguese, the presumed language.
+    assert normalize_artist("Just A Zorvo Band") == "Just A Zorvo Band"
+    assert normalize_artist("Only A Zorvo Band") == "Only a Zorvo Band"
+    # A file's tags list several artists in one value, separated by `;`.
+    assert normalize_artist("Moreira Dias; Da Serra Trio") == "Moreira Dias; Da Serra Trio"
+
+
+def test_a_name_is_not_written_in_the_language_of_the_album_it_is_on() -> None:
+    """`da` is a word of its own in English, and an album's English titles once made it one.
+
+    The name's own words still decide: `on` says the second one is English.
+    """
+    english = replace(
+        _release(),
+        title="What You Zunto",
+        tracks=(
+            TrackMetadata(title="Who Plimbs It", position=1),
+            TrackMetadata(title="When the Vorca Is Over", position=2),
+        ),
+    )
+    for credited, written in (
+        ("Moreira da Costa", "Moreira da Costa"),
+        ("Moreira Da Costa", "Moreira da Costa"),
+        ("Zorvo on Da Bus", "Zorvo on Da Bus"),
+    ):
+        release = replace(english, artists=(ArtistMetadata(name=credited),))
+        assert normalize_release(release).artists[0].name == written
+
+
+def test_an_article_that_ends_the_words_between_two_names_opens_the_second() -> None:
+    from diglibrary.application.contracts import written_credit
+
+    for joined, credit in (
+        ("& The", "Lia & The Plimba Band"),
+        ("And The", "Lia and The Plimba Band"),
+        ("E Os", "Lia e Os Plimba Band"),
+        ("Feat.", "Lia Feat. Plimba Band"),
+    ):
+        release = replace(
+            _release(),
+            artists=(
+                ArtistMetadata(name="Lia", joined_by=joined),
+                ArtistMetadata(name="Plimba Band"),
+            ),
+        )
+        assert written_credit(normalize_release(release).artists) == credit
+
+
+def test_a_credited_name_inside_a_title_is_written_as_the_name_is() -> None:
+    """A folder's name holds the credit and the title, and one name must not read two ways."""
+    names = ["Lia & The Plimba Band", "Praiano e Os Novos Mineiros"]
+    assert normalize_title("Lia & the Plimba Band", names) == "Lia & The Plimba Band"
+    assert normalize_title("Praiano E Os Novos Mineiros - Volume 2", names) == (
+        "Praiano e Os Novos Mineiros - Volume 2"
+    )
+    # Only where the whole name stands: elsewhere an article is an ordinary word.
+    assert normalize_title("Live at the Club With Lia", names) == "Live at the Club with Lia"
+    release = replace(
+        _release(),
+        title="Lia & the Plimba Band",
+        artists=(ArtistMetadata(name="Lia & The Plimba Band"),),
+    )
+    named = normalize_release(release)
+    assert named.title == named.artists[0].name
 
 
 def test_shouting_is_capitals_from_end_to_end() -> None:

@@ -86,6 +86,12 @@ DECLARED: dict[int, str] = {
         "certain. `test_the_backfill_anchors_only_what_one_album_answers_for` "
         "holds both halves."
     ),
+    38: (
+        "Dropping the enumerated CHECK on `change_operations.kind`, by rebuild — "
+        "the list refused the Finder-tag operation the code is written to "
+        "record. Every column is copied by name first, and "
+        "`test_opening_the_operation_kind_keeps_every_applied_trail` holds it."
+    ),
     35: (
         "Drops the saved playlists, because the player and the lists were taken "
         "out of the application and nothing reads them. Losing them is "

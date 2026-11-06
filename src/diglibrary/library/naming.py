@@ -966,20 +966,51 @@ _BRACKETED = re.compile(r"\[([^\[\]]*)\]")
 """One bracketed group of a folder name, which is where a format label sits."""
 
 
-def _is_a_format_segment(content: str, transcoded_word: str) -> bool:
-    """Say whether a bracketed group is this application's own format label.
+def _label_at_start(content: str, transcoded_word: str) -> int:
+    """Return how many characters at the start of a bracketed group are a format label.
 
     Read against the vocabulary ``format_label`` writes with, never a list
     copied here: a codec this project learns tomorrow is recognised the same
-    day. Every comma-separated item must open with a word from it, so
-    ``FLAC, Lossy`` and ``MP3 320`` are format labels and a note such as
-    ``Missing 3 tracks``, written in brackets by the user, is not.
+    day. A label is one word of it, optionally followed by a rate, and several
+    are joined by commas — ``FLAC``, ``MP3 320``, ``FLAC, Lossy``. Whatever
+    follows the last of them is the user's: ``FLAC - 2 missing`` is the label
+    ``FLAC`` and a note. A group that does not open with a label — ``Missing 3
+    tracks`` — answers 0, and is not this application's at all.
     """
-    items = [part.strip() for part in content.split(",")]
-    if not items or not all(items):
-        return False
-    known = {label for _, label in _CODEC_LABELS} | {transcoded_word}
-    return all(any(item == word or item.startswith(f"{word} ") for word in known) for item in items)
+    # Only a lossy word carries a rate, so ``FLAC 1979`` is the label ``FLAC``
+    # and a year the user wrote, never a bitrate this application measured.
+    lossless = {label for prefix, label in _CODEC_LABELS if is_lossless_codec(prefix)}
+    rated = ({label for _, label in _CODEC_LABELS} - lossless) | {transcoded_word}
+
+    def alternatives(words: Iterable[str]) -> str:
+        return "|".join(re.escape(word) for word in sorted(words, key=len, reverse=True))
+
+    rate = rf"(?: (?:\d{{2,4}}|{VARIABLE_BITRATE_LABEL})(?: ?kbps)?)"
+    item = rf"(?:(?:{alternatives(rated)}){rate}?|(?:{alternatives(lossless)}))"
+    found = re.match(rf"\s*{item}(?:\s*,\s*{item})*(?![\w-])", content)
+    return found.end() if found else 0
+
+
+def _format_segment(name: str, transcoded_word: str) -> tuple[int, int] | None:
+    """Return where the format label sits in a folder name, or ``None`` when it has none.
+
+    The last bracketed group that opens with a label, because the template puts
+    the format at the end and a name holding two would have the earlier one
+    inside the album's own title. Only the label is returned — a note the user
+    wrote after it in the same brackets is not part of it.
+    """
+    found = [
+        (match.start(1), match.start(1) + length)
+        for match in _BRACKETED.finditer(name)
+        if (length := _label_at_start(match[1], transcoded_word))
+    ]
+    return found[-1] if found else None
+
+
+def format_in_name(name: str, transcoded_word: str = DEFAULT_TRANSCODED_LABEL) -> str:
+    """Return the format label a folder name carries, without any note beside it."""
+    where = _format_segment(name, transcoded_word)
+    return name[where[0] : where[1]].strip() if where else ""
 
 
 def replace_format_segment(
@@ -995,25 +1026,24 @@ def replace_format_segment(
     computed, and the folder keeps a word about audio that no longer exists.
 
     **Before preserving anything read off the disk, ask whether this
-    application could have put it there.** The format segment is a measurement
+    application could have put it there.** The format label is a measurement
     wearing brackets, so it is always the current one; everything else in the
-    name is the user's and is not touched.
+    name is the user's and is not touched — including a note typed inside the
+    same brackets after the label, as in ``[FLAC - 2 missing]``, which keeps
+    its words while the label in front of it follows the measurement.
 
     A name with no format segment is returned exactly as written. Nothing is
     appended: the brackets may have been taken off on purpose, and adding them
     back would be this function inventing a name nobody asked for.
     """
-    found = [
-        match
-        for match in _BRACKETED.finditer(name)
-        if _is_a_format_segment(match[1], transcoded_word)
-    ]
-    if not found:
+    where = _format_segment(name, transcoded_word)
+    if where is None:
         return name
-    # The last one, because the template puts the format at the end and a name
-    # holding two would have the earlier one inside the album's own title.
-    last = found[-1]
-    return f"{name[: last.start(1)]}{label}{name[last.end(1) :]}"
+    start, end = where
+    # The label is replaced as it stood, so the spaces around it stay the user's.
+    old = name[start:end]
+    lead = old[: len(old) - len(old.lstrip())]
+    return f"{name[:start]}{lead}{label}{name[end:]}"
 
 
 _COLON_BEFORE_SPACE = re.compile(r":\s")

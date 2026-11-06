@@ -867,6 +867,74 @@ def test_opening_the_field_keeps_every_correction_and_its_release(tmp_path, monk
             )
 
 
+def test_opening_the_operation_kind_keeps_every_applied_trail(tmp_path, monkeypatch) -> None:
+    """Migration 38 drops the list of operation kinds, and no recorded trail may be lost.
+
+    The list refused the sixth kind, the Finder tags of an album folder. Every
+    operation already recorded must cross with its ids, its states and its
+    dates, because a reversal reads them; the new kind must become writable, and
+    a kind that is only whitespace must still be refused.
+    """
+    path = tmp_path / "library.sqlite3"
+    older = tuple(migration for migration in MIGRATIONS if migration.version < 38)
+    monkeypatch.setattr("diglibrary.database.connection.MIGRATIONS", older)
+    Database(path, _logger()).initialize()
+    with Database(path, _logger()).connect() as connection:
+        connection.execute(
+            "INSERT INTO album_units (folder_path, unit_signature, track_count) "
+            "VALUES ('/music/quelvo', 'sig', 11)"
+        )
+        connection.execute("INSERT INTO change_plans (id, album_unit_id) VALUES (7, 1)")
+        connection.execute(
+            "INSERT INTO change_operations (id, change_plan_id, sequence, kind, target_path, "
+            "before_state, after_state, backup_path, applied_at, reverted_at) VALUES "
+            "(31, 7, 1, 'rename_folder', '/music/quelvo', '{\"path\": \"/music/quelvo\"}', "
+            "'{\"path\": \"/music/Vimes\"}', NULL, '2001-08-01 10:00:00', "
+            "'2001-08-02 11:00:00')"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO change_operations (change_plan_id, sequence, kind, target_path, "
+                "after_state) VALUES (7, 2, 'write_finder_tags', '/music/Vimes', '{}')"
+            )
+    monkeypatch.undo()
+
+    version = Database(path, _logger()).initialize()
+
+    assert version == MIGRATIONS[-1].version
+    with Database(path, _logger()).connect() as connection:
+        kept = connection.execute(
+            "SELECT id, change_plan_id, sequence, kind, target_path, before_state, "
+            "after_state, backup_path, applied_at, reverted_at FROM change_operations"
+        ).fetchall()
+        assert [tuple(row) for row in kept] == [
+            (
+                31,
+                7,
+                1,
+                "rename_folder",
+                "/music/quelvo",
+                '{"path": "/music/quelvo"}',
+                '{"path": "/music/Vimes"}',
+                None,
+                "2001-08-01 10:00:00",
+                "2001-08-02 11:00:00",
+            )
+        ]
+        connection.execute(
+            "INSERT INTO change_operations (change_plan_id, sequence, kind, target_path, "
+            "after_state) VALUES (7, 2, 'write_finder_tags', '/music/Vimes', '{}')"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO change_operations (change_plan_id, sequence, kind, target_path, "
+                "after_state) VALUES (7, 3, '  ', '/music/Vimes', '{}')"
+            )
+        # The plan still owns its operations: deleting it takes them with it.
+        connection.execute("DELETE FROM change_plans WHERE id = 7")
+        assert connection.execute("SELECT COUNT(*) FROM change_operations").fetchone()[0] == 0
+
+
 def test_the_playlists_go_and_nothing_beside_them_does(tmp_path, monkeypatch) -> None:
     """Migration 35 drops the two tables the player's saved lists lived in, and
     must take nothing else with it."""

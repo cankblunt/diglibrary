@@ -81,6 +81,30 @@ def _write(path: Path, name: str, value: bytes) -> bool:
     )
 
 
+def supported() -> bool:
+    """Return whether this system's extended attributes can be reached at all."""
+    return _LIBC is not None
+
+
+def read_attribute(path: Path, name: str) -> bytes | None:
+    """Return one attribute's bytes, or ``None`` when it is absent or cannot be asked."""
+    return _read(path, name) if _LIBC is not None else None
+
+
+def write_attribute(path: Path, name: str, value: bytes) -> bool:
+    """Write one attribute, and say whether the system accepted it."""
+    return _LIBC is not None and _write(path, name, value)
+
+
+def remove_attribute(path: Path, name: str) -> bool:
+    """Remove one attribute; an attribute that was not there counts as removed."""
+    if _LIBC is None:
+        return False
+    if _LIBC.removexattr(str(path).encode(), name.encode(), _XATTR_NOFOLLOW) == 0:
+        return True
+    return _read(path, name) is None
+
+
 _ICON = ("com.apple.ResourceFork", "com.apple.FinderInfo")
 """The two halves of a custom icon: the picture, and the flag that draws it."""
 

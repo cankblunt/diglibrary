@@ -376,6 +376,51 @@ def _preferred(rows: Sequence[StoredQuality], key: str | None) -> StoredQuality 
     return rows[0]
 
 
+def _last_sighting_in(
+    connection: sqlite3.Connection, unit_id: int, folder: Path
+) -> list[tuple[str, int]]:
+    """`LibraryStore._last_sighting` over a connection the caller already holds."""
+    prefixes = tuple(str(Path(spelling)).rstrip("/") + "/" for spelling in _both_spellings(folder))
+    rows = connection.execute(
+        "SELECT path, file_size_bytes, last_seen_at FROM audio_files "
+        "WHERE album_unit_id = ? AND file_size_bytes IS NOT NULL",
+        (unit_id,),
+    ).fetchall()
+    inside = [row for row in rows if str(Path(row[0])).startswith(prefixes)]
+    if not inside:
+        return []
+    latest = max(row[2] or "" for row in inside)
+    return [(str(row[0]), int(row[1])) for row in inside if (row[2] or "") == latest]
+
+
+def _holds_its_last_sighting(
+    connection: sqlite3.Connection, unit_id: int, was: Path, unit: AlbumUnit
+) -> bool:
+    """Whether a folder holds the files an album's last sighting under ``was`` holds.
+
+    Compared as names inside the folder and weights, which is all a sighting
+    keeps of a file. Accents are compared composed, because the row and the walk
+    may spell them differently. A row with no sighting vouches for nothing.
+    """
+    seen = _last_sighting_in(connection, unit_id, was)
+    if not seen:
+        return False
+    # Composed, then cut: `_last_sighting_in` admits a row under either spelling
+    # of ``was``, and the two are not the same number of characters.
+    folder = unicodedata.normalize("NFC", str(Path(was))).rstrip("/") + "/"
+    before = sorted(
+        (unicodedata.normalize("NFC", str(Path(path)))[len(folder) :], size) for path, size in seen
+    )
+    now = sorted(
+        (
+            unicodedata.normalize("NFC", str(file.path.relative_to(unit.folder_path))),
+            file.file_size_bytes,
+        )
+        for file in unit.audio_files
+    )
+    return before == now
+
+
 def _both_spellings(path: Path | str) -> tuple[str, ...]:
     """Return the ways macOS writes one path, so a lookup by text finds it.
 
@@ -653,26 +698,25 @@ class LibraryStore:
         """
         return frozenset(path for path, _ in self._last_sighting(unit_id, folder))
 
+    def holds_its_last_sighting(self, unit_id: int, was: Path, unit: AlbumUnit) -> bool:
+        """Whether ``unit`` holds the files this album was last seen holding under ``was``.
+
+        What decides whether a folder taking over an organized album's row also
+        takes the word `organized`: a folder renamed by hand does, a fresh copy
+        of the same audio does not. Asked before the row is moved, because
+        moving it carries the sighting along.
+        """
+        with self._database.connect() as connection:
+            return _holds_its_last_sighting(connection, unit_id, was, unit)
+
     def _last_sighting(self, unit_id: int, folder: Path) -> list[tuple[str, int]]:
         """The rows of an album's last walk under one folder, as (path, size).
 
         One reading for both questions asked of it, so *the last sighting* means
         the same thing whether it is weighed or listed.
         """
-        prefixes = tuple(
-            str(Path(spelling)).rstrip("/") + "/" for spelling in _both_spellings(folder)
-        )
         with self._database.connect() as connection:
-            rows = connection.execute(
-                "SELECT path, file_size_bytes, last_seen_at FROM audio_files "
-                "WHERE album_unit_id = ? AND file_size_bytes IS NOT NULL",
-                (unit_id,),
-            ).fetchall()
-        inside = [row for row in rows if str(Path(row[0])).startswith(prefixes)]
-        if not inside:
-            return []
-        latest = max(row[2] or "" for row in inside)
-        return [(str(row[0]), int(row[1])) for row in inside if (row[2] or "") == latest]
+            return _last_sighting_in(connection, unit_id, folder)
 
     def record_audio_sizes(self, weighed: Mapping[Path, tuple[int, datetime]]) -> int:
         """Write down what these files weigh now, and return how many rows took it.
@@ -697,6 +741,10 @@ class LibraryStore:
         rows of the *latest* sighting as a group — so stamping the
         files this happened to reach would split an album down the middle the
         moment one of them could not be read.
+
+        `picture_digest` is forgotten, because the apply that changed the
+        weight is usually the one that changed the picture, and the scan that
+        would otherwise notice compares against the size written here.
         """
         if not weighed:
             return 0
@@ -705,12 +753,75 @@ class LibraryStore:
             for path, (size, changed_at) in weighed.items():
                 spellings = _both_spellings(path)
                 cursor = connection.execute(
-                    "UPDATE audio_files SET file_size_bytes = ?, modified_at = ? "
+                    "UPDATE audio_files SET file_size_bytes = ?, modified_at = ?, "
+                    "picture_digest = NULL "
                     f"WHERE path IN ({_holes(spellings)})",
                     (size, changed_at.isoformat(), *spellings),
                 )
                 moved += int(cursor.rowcount or 0)
         return moved
+
+    def record_pictures(self, carried: Mapping[Path, str]) -> None:
+        """Write down which picture each file carries, by digest; empty for none.
+
+        Updates rows and never inserts one, like ``record_audio_sizes``: a path
+        with no row is a file nobody registered, and it carries no evidence.
+        """
+        if not carried:
+            return
+        with self._database.connect(write=True) as connection:
+            for path, digest in carried.items():
+                spellings = _both_spellings(path)
+                connection.execute(
+                    "UPDATE audio_files SET picture_digest = ? "
+                    f"WHERE path IN ({_holes(spellings)})",
+                    (digest, *spellings),
+                )
+
+    def unread_pictures(self) -> tuple[Path, ...]:
+        """The files on the shelf whose picture has not been read since they changed."""
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT files.path FROM audio_files AS files "
+                "JOIN album_units AS units ON units.id = files.album_unit_id "
+                "WHERE units.cleared_at IS NULL AND files.picture_digest IS NULL "
+                "ORDER BY files.path"
+            ).fetchall()
+        return tuple(Path(row[0]) for row in rows)
+
+    def pictures_that_are_not_covers(self) -> frozenset[str]:
+        """The pictures carried by two albums that share no recording.
+
+        A sleeve belongs to one record, so two albums carrying it are the same
+        record twice, and share their tracks. A site's banner is embedded in
+        everything that site ripped, so it turns up in albums that share
+        nothing. A shared recording is either the same audio (`audio_key`) or
+        the same declared shape (`content_signature`), which can join two
+        different songs: that error makes fewer pictures banners, never more.
+
+        Every album with a row counts, a cleared one too: the albums taken off
+        the shelf still say which pictures travel together.
+        """
+        with self._database.connect() as connection:
+            rows = connection.execute("""
+                WITH carried AS (
+                    SELECT DISTINCT album_unit_id AS unit, picture_digest AS digest
+                    FROM audio_files
+                    WHERE album_unit_id IS NOT NULL
+                      AND picture_digest IS NOT NULL AND picture_digest != ''
+                )
+                SELECT DISTINCT one.digest FROM carried AS one
+                JOIN carried AS other ON other.digest = one.digest AND other.unit > one.unit
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM audio_files AS mine
+                    JOIN audio_files AS theirs
+                      ON theirs.album_unit_id = other.unit
+                     AND (theirs.audio_key = mine.audio_key
+                          OR theirs.content_signature = mine.content_signature)
+                    WHERE mine.album_unit_id = one.unit
+                )
+                """).fetchall()
+        return frozenset(row[0] for row in rows)
 
     def shelf(self) -> tuple[dict[str, object], ...]:
         """Return what every card needs, from columns, without reading one file.
@@ -2908,30 +3019,44 @@ class LibraryStore:
             "ORDER BY id LIMIT 1",
             spellings,
         ).fetchone()
+        adopted_state: str | None = None
         if row is None:
             # The album may simply have been renamed since the last scan, which
             # its audio content still identifies. But a signature match
             # whose folder is still on disk is a second copy of the same album,
             # not the same one moved, and collapsing the two would lose one.
             candidate = connection.execute(
-                "SELECT id, folder_path FROM album_units WHERE unit_signature = ?",
+                "SELECT id, folder_path, state FROM album_units WHERE unit_signature = ?",
                 (unit.unit_signature,),
             ).fetchone()
             if candidate is not None and not Path(candidate[1]).exists():
                 row = (candidate[0],)
+                # **The row is adopted; `organized` is not, unless these are the
+                # files it was said of.** The same audio downloaded again after
+                # the organized folder was deleted has the same signature, and
+                # inheriting the word put *organized* over files no apply had
+                # touched. A folder renamed by hand holds the same names and the
+                # same weights as its last sighting; a fresh copy differs in one.
+                # `identified`, because the identification on record still
+                # stands and the next plan is rendered against these files.
+                if candidate[2] == "organized" and not _holds_its_last_sighting(
+                    connection, candidate[0], Path(candidate[1]), unit
+                ):
+                    adopted_state = "identified"
         if row is not None:
             # `cleared_at = NULL` keeps the promise the ✕ makes: it hides a row,
             # it does not remember a decision, and a scan that reaches the
             # folder again brings the album back.
             connection.execute(
                 "UPDATE album_units SET folder_path = ?, unit_signature = ?, track_count = ?, "
-                "total_duration_ms = ?, cleared_at = NULL, "
+                "total_duration_ms = ?, cleared_at = NULL, state = COALESCE(?, state), "
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (
                     str(unit.folder_path),
                     unit.unit_signature,
                     unit.track_count,
                     unit.total_duration_ms,
+                    adopted_state,
                     row[0],
                 ),
             )
@@ -2983,6 +3108,14 @@ class LibraryStore:
                      bitrate, disc_position, audio_key, last_seen_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (path) DO UPDATE SET
+                    -- Read again at the next launch when the file has changed:
+                    -- an embed changes both, and a stale digest would keep
+                    -- answering for a picture the file no longer carries.
+                    picture_digest = CASE
+                        WHEN excluded.file_size_bytes = audio_files.file_size_bytes
+                         AND excluded.modified_at = audio_files.modified_at
+                        THEN audio_files.picture_digest
+                    END,
                     content_signature = excluded.content_signature,
                     file_size_bytes = excluded.file_size_bytes,
                     modified_at = excluded.modified_at,

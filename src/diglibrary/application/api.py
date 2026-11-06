@@ -114,6 +114,13 @@ from diglibrary.library.extras import (
     with_extra_tracks,
     without_extra_tracks,
 )
+from diglibrary.library.finder_tags import (
+    FinderTag,
+    composed,
+    finder_tag_catalogue,
+    parse_tag,
+    read_finder_tags,
+)
 from diglibrary.library.hints import SearchHints, files_in_track_order, local_track_titles
 from diglibrary.library.integrity import AudioProof, audio_proof
 from diglibrary.library.matching import (
@@ -131,6 +138,7 @@ from diglibrary.library.naming import (
     NamingError,
     NamingPolicy,
     facts_from_properties,
+    format_in_name,
     format_label,
     is_various,
 )
@@ -363,7 +371,8 @@ _MASTER_PATTERNS = (
     (MetadataSources.DISCOGS, re.compile(r"discogs\.com/(?:[^/]+/)?master/(\d+)")),
 )
 
-_WRITE_KINDS = ("write_tags", "rename_file", "rename_folder", "write_image", "embed_image")
+_WRITE_KINDS = tuple(str(kind) for kind in OperationKind)
+"""Every kind of write a scan may lead to: all of them, so a kind added later is named too."""
 
 CONNECTABLE = {
     "discogs": credentials.DISCOGS,
@@ -690,6 +699,8 @@ class LibraryApi:
         self._tags_after = self._watermark()
         self._pipeline = pipeline_factory(self._settings)
         self._albums: dict[int, _AlbumState] = {}
+        # The Finder tags the last `finder_tag_list` offered, by name.
+        self._finder_tags_known: dict[str, FinderTag] = {}
         # The shelf as the database already holds it, drawn before a single file
         # is read. Every album is on screen at once, and an album is read back
         # from disk at the moment it is touched. A row leaves this map the
@@ -1705,6 +1716,49 @@ class LibraryApi:
         # nothing has been written since the last one.
         self._copy_the_database()
         self._enforce_cache_limits()
+        self._read_the_pictures()
+
+    def _read_pictures_of(self, units: Sequence[AlbumUnit]) -> None:
+        """Write down the pictures of every album just scanned, before any is planned.
+
+        Planning reads one album at a time, so two albums arriving together
+        with the same banner would otherwise have the first planned before the
+        second revealed it.
+        """
+        artwork = self._pipeline.artwork if self._pipeline is not None else None
+        if artwork is None or not artwork.enabled:
+            return
+        artwork.read_pictures(tuple(file.path for unit in units for file in unit.audio_files))
+
+    def _read_the_pictures(self) -> None:
+        """Write down the picture of every file on the shelf not read since it changed.
+
+        A picture is recognised as a site's banner only once two albums
+        carrying it have been read, and planning reads one album at a time —
+        so without this the second album of a pair that is never planned again
+        would hide the first for good. After the copy and the ceilings, because
+        it is the slowest of the three and none of them waits on it.
+        """
+        artwork = self._pipeline.artwork if self._pipeline is not None else None
+        if artwork is None or not artwork.enabled:
+            return
+        started = time.monotonic()
+        try:
+            read = artwork.read_pictures(self._store.unread_pictures())
+        except Exception:
+            self._logger.exception(
+                "The pictures the files carry could not be read.",
+                extra={"operation": "api.pictures.failure"},
+            )
+            return
+        self._logger.info(
+            "The pictures the files carry were read.",
+            extra={
+                "operation": "api.pictures.read",
+                "files": read,
+                "seconds": round(time.monotonic() - started, 1),
+            },
+        )
 
     def _copy_the_database(self) -> None:
         """Keep a compressed version of the database from this moment.
@@ -2688,6 +2742,7 @@ class LibraryApi:
         if changed is not None:
             changed.extend(self._what_changed_inside(units, shelved))
         recorded = self._store.record_units(units)
+        self._read_pictures_of(units)
         if moved is not None:
             for entry in moved:
                 if "unit_id" not in entry and entry["now"] in recorded:
@@ -2935,6 +2990,15 @@ class LibraryApi:
                     f"tracks that are not this record's. Nothing was changed."
                 ),
             }
+        # The row follows the folder; `organized` follows it only over the files
+        # it was said of — the rule `_upsert_unit` applies to a dropped folder.
+        # Asked before the move, which carries the sighting with it.
+        row = self._store.unit_by_id(int(unit_id))
+        loses_organized = (
+            row is not None
+            and row.state == "organized"
+            and not self._store.holds_its_last_sighting(int(unit_id), was, found[0])
+        )
         if not self._store.relocate_unit(str(was), str(chosen)):
             # **The database said no, so this says no.** The folder is another
             # row's, and the audio already said it is the same record — so this
@@ -2956,6 +3020,14 @@ class LibraryApi:
                     "twin_id": twin_id,
                 },
             }
+        if loses_organized:
+            self._store.set_unit_state(int(unit_id), "identified")
+            if state is not None:
+                state = self._state_on_record(found[0], int(unit_id), "identified")
+                with self._albums_lock:
+                    self._albums[int(unit_id)] = state
+            else:
+                stored = replace(stored, state="identified")
         if state is None:
             # It answers again, so it is read back the way every other album is —
             # its identification, its plan and its corrections were never about
@@ -5230,6 +5302,7 @@ class LibraryApi:
         track_titles: dict[str, str] | None = None,
         track_artists: dict[str, str] | None = None,
         track_files: dict[str, str] | None = None,
+        finder_tags: list[str] | None = None,
     ) -> dict[str, object]:
         """Apply the user's corrections to names and titles, and re-plan.
 
@@ -5254,6 +5327,11 @@ class LibraryApi:
         What is re-planned is every correction that *stands*, read back from the
         database, and not the ones this call happened to carry. A withdrawal is
         an absence, and an absence cannot be sent.
+
+        ``finder_tags`` is the whole set of Finder tags the folder should carry,
+        by name. A name the Finder already has keeps its colour, and any other
+        is a new tag without one; the set equal to the folder's own withdraws
+        the choice.
         """
         state = self._albums.get(unit_id)
         if state is None:
@@ -5303,6 +5381,10 @@ class LibraryApi:
             refusal = self._record_pairings(state, track_files)
             if refusal is not None:
                 return refusal
+        if finder_tags is not None:
+            refusal = self._record_finder_tags(state, finder_tags)
+            if refusal is not None:
+                return refusal
 
         # **A folder name that was not sent is not a folder name withdrawn.**
         # Confirming a pairing and keeping one spelling send what they are
@@ -5345,6 +5427,7 @@ class LibraryApi:
         # standing after the writes above, so a field emptied here is simply not
         # among them and the catalogue's own value is what gets planned.
         folder, standing_titles, standing_artists = self._stored_corrections(state.unit_id)
+        wanted_tags = self._stored_finder_tags(state.unit_id)
         release = state.outcome.candidate.release if state.outcome.candidate else None
         pinned, _ = self._stored_pairings(state.unit_id, release)
         # **Offline, with the pictures this album already has** — the same way
@@ -5356,6 +5439,7 @@ class LibraryApi:
             state.unit,
             state.outcome.candidate,
             folder_name=folder,
+            finder_tags=wanted_tags,
             track_titles=standing_titles or None,
             track_artists=standing_artists or None,
             transcoded=self._transcoded_for(state.unit),
@@ -5735,6 +5819,7 @@ class LibraryApi:
         if state.outcome.candidate is None:
             return state.outcome
         folder, titles, artists = self._stored_corrections(state.unit_id)
+        wanted_tags = self._stored_finder_tags(state.unit_id)
         candidate, pinned, _ = self._planned_from(
             state.unit_id, state.unit, state.outcome.candidate
         )
@@ -5743,6 +5828,7 @@ class LibraryApi:
                 state.unit,
                 candidate,
                 folder_name=folder,
+                finder_tags=wanted_tags,
                 track_titles=titles or None,
                 track_artists=artists or None,
                 transcoded=self._transcoded_for(state.unit),
@@ -7037,11 +7123,14 @@ class LibraryApi:
         The staged image from the plan is preferred — it is what will be
         written — and the picture already embedded in the first track is the
         fallback, so the grid shows the library the user actually has.
+
+        Only while the plan is still to be written: once it has run, its staged
+        picture is what *was* written, and a cover chosen since has replaced it.
         """
         state = self._bring_in(unit_id)
         if state is None:
             return None
-        staged = self._staged_cover(state.outcome.plan)
+        staged = None if state.written else self._staged_cover(state.outcome.plan)
         if staged is not None:
             return _data_uri(staged)
         return self._embedded_cover(state.unit, state.unit_id)
@@ -7331,6 +7420,7 @@ class LibraryApi:
         try:
             newer_than = self._store.highest_unit_id()
             recorded = self._store.record_units(units)
+            self._read_pictures_of(units)
             arrived_same_audio.extend(self._same_audio_on_shelf(recorded, newer_than))
             # What is already on record first, and only then the decoding. They
             # are two different questions and the second one is the only one that
@@ -7820,6 +7910,7 @@ class LibraryApi:
         if not self._store.corrections(unit_id):
             return outcome
         folder, titles, artists = self._stored_corrections(unit_id)
+        wanted_tags = self._stored_finder_tags(unit_id)
         # Added tracks go in before anything is aligned, so the aligner, the
         # planner and the naming all work on a release that simply has them.
         # Read against the release the *catalogue* published, which is what
@@ -7834,7 +7925,12 @@ class LibraryApi:
         # own tags would come out of it planning tag writes and an embedded
         # cover, which an arrangement never does.
         if not (
-            folder or titles or artists or pinned or candidate.release != outcome.candidate.release
+            folder
+            or titles
+            or artists
+            or wanted_tags is not None
+            or pinned
+            or candidate.release != outcome.candidate.release
         ):
             return outcome
         return replace(
@@ -7842,6 +7938,7 @@ class LibraryApi:
                 unit,
                 candidate,
                 folder_name=folder,
+                finder_tags=wanted_tags,
                 track_titles=titles or None,
                 track_artists=artists or None,
                 taken_names=taken_names,
@@ -7955,12 +8052,14 @@ class LibraryApi:
         if not by_hand and (state.applied or state.organized):
             return False
         folder, titles, artists = self._stored_corrections(state.unit_id)
+        wanted_tags = self._stored_finder_tags(state.unit_id)
         pinned, _ = self._stored_pairings(state.unit_id, state.outcome.candidate.release)
         state.outcome = replace(
             self._pipeline.workflow.refine(
                 state.unit,
                 state.outcome.candidate,
                 folder_name=folder,
+                finder_tags=wanted_tags,
                 track_titles=titles or None,
                 track_artists=artists or None,
                 transcoded=self._transcoded_for(state.unit),
@@ -8190,6 +8289,82 @@ class LibraryApi:
             for assignment in alignment.assignments
             if (mine := by_path.get(assignment.file.path))
         }
+
+    def finder_tag_list(self) -> dict[str, object]:
+        """Return every Finder tag that exists, for the folder's row in the plan.
+
+        Read again on every call, because a tag the user has just created in the
+        Finder must be offered the next time a dialog opens. The Finder's
+        favourites come first in its own order, and the rest alphabetically.
+        """
+        folders = [
+            state.unit.folder_path
+            for state in self._albums.values()
+            if not state.unit.is_loose_track
+        ]
+        favourites, others = finder_tag_catalogue(folders)
+        self._finder_tags_known = {tag.name: tag for tag in (*favourites, *others)}
+        return {
+            "ok": True,
+            "favourites": [_finder_tag(tag) for tag in favourites],
+            "others": [_finder_tag(tag) for tag in others],
+        }
+
+    def _record_finder_tags(
+        self, state: "_AlbumState", names: Sequence[str]
+    ) -> dict[str, object] | None:
+        """Store the Finder tags chosen for the album's folder, or say why not.
+
+        Each tag is stored with its colour — the folder's own where it carries
+        it, the Finder's otherwise — so a plan rebuilt at the next launch, before
+        any list has been read, still writes the colour that was chosen. A name
+        nothing carries is a tag the user is creating, so it has no colour; one
+        that differs from an existing tag only in case is that tag, so a second
+        spelling of one word is not made by a slip of the shift key.
+        """
+        current = None if state.unit.is_loose_track else read_finder_tags(state.unit.folder_path)
+        if current is None:
+            return {"ok": False, "error": "This folder cannot carry Finder tags here."}
+        known = {
+            **self._finder_tags_known,
+            **{tag.name: tag for tag in current},
+        }
+        by_case = {name.casefold(): tag for name, tag in known.items()}
+        wanted: list[FinderTag] = []
+        for raw in names:
+            name = composed(str(raw).strip())
+            if not name:
+                continue
+            if "\n" in name or "\r" in name:
+                # The attribute separates a name from its colour with a line break.
+                return {"ok": False, "error": "A Finder tag's name is one line."}
+            tag = known.get(name) or by_case.get(name.casefold()) or FinderTag(name)
+            if all(chosen.name != tag.name for chosen in wanted):
+                wanted.append(tag)
+        if {tag.name for tag in wanted} == {tag.name for tag in current}:
+            self._store.clear_correction(state.unit_id, "finder_tags", None)
+            return None
+        self._store.record_correction(
+            state.unit_id,
+            "finder_tags",
+            json.dumps([tag.entry for tag in wanted]),
+            json.dumps([tag.entry for tag in current]),
+        )
+        return None
+
+    def _stored_finder_tags(self, unit_id: int) -> tuple[FinderTag, ...] | None:
+        """Return the Finder tags chosen for this album's folder, or ``None`` when none were."""
+        row = next(
+            (row for row in self._store.corrections(unit_id) if row["field"] == "finder_tags"),
+            None,
+        )
+        if row is None:
+            return None
+        try:
+            entries = json.loads(str(row["value"]))
+        except ValueError:
+            return None
+        return tuple(parse_tag(entry) for entry in entries if isinstance(entry, str) and entry)
 
     def _stored_corrections(
         self, unit_id: int
@@ -8639,6 +8814,11 @@ class LibraryApi:
         it belongs to.
         """
         landed = replace(plan, operations=tuple(entry.operation for entry in trail))
+        # The chosen tags are on the folder now, and the choice is spent. Kept,
+        # it would put back on the next `Plan this album again` a tag the user
+        # had taken off in the Finder since.
+        if any(entry.operation.kind is OperationKind.WRITE_FINDER_TAGS for entry in trail):
+            self._store.clear_correction(state.unit_id, "finder_tags", None)
         self._follow_the_root(landed)
         self._follow_the_rename(landed)
         self._follow_the_album(state, landed)
@@ -8988,18 +9168,44 @@ class LibraryApi:
             return "verified" if not wrong else f"differs: {', '.join(sorted(wrong))}"
         if operation.kind is OperationKind.WRITE_IMAGE:
             facts = self._artwork_store.describe(_settled(operation.target_path, later))
-            return "verified" if facts and facts.digest == after["digest"] else "differs"
+            # A cover under another extension that this write took aside and
+            # that is still there is a folder with two covers.
+            stayed = any(
+                _settled(Path(str(named)), later).exists()
+                for named in after.get("displaces") or ()  # type: ignore[attr-defined]
+            )
+            return (
+                "verified"
+                if facts and facts.digest == after["digest"] and not stayed
+                else "differs"
+            )
         # A Finder icon carries no digest to compare: it is drawn by the system
         # from the file's own picture, so what can be verified is that the file
         # now draws one. Reading `after["digest"]` on this operation would
         # raise KeyError, and the certificate would report `unreadable` about
         # an icon that had been written.
-        if after.get("icon"):
+        if operation.kind is OperationKind.EMBED_IMAGE and after.get("icon"):
             settled = _settled(operation.target_path, later)
             drawn = self._artwork_store.shows_its_cover_in_the_finder(settled)
             return "verified" if drawn else "missing"
-        facts = self._artwork_store.describe_embedded(_settled(operation.target_path, later))
-        return "verified" if facts and facts.digest == after["digest"] else "differs"
+        if operation.kind is OperationKind.EMBED_IMAGE:
+            facts = self._artwork_store.describe_embedded(_settled(operation.target_path, later))
+            return "verified" if facts and facts.digest == after["digest"] else "differs"
+        # What was asked of the folder, not the whole set: a tag the user put on
+        # in the Finder between planning and applying is kept, and is not a
+        # write that failed.
+        if operation.kind is OperationKind.WRITE_FINDER_TAGS:
+            carried = read_finder_tags(_settled(operation.target_path, later))
+            if carried is None:
+                return "missing"
+            names = {tag.name for tag in carried}
+            added = {parse_tag(str(entry)).name for entry in after["add"]}  # type: ignore[attr-defined]
+            removed = {composed(str(name)) for name in after["remove"]}  # type: ignore[attr-defined]
+            return "verified" if added <= names and not removed & names else "differs"
+        # A kind with no check of its own is not certified as something else.
+        # This line once read every remaining operation as an embedded cover,
+        # and the first kind added after the cover was certified as one.
+        return f"unverifiable: nothing checks a {operation.kind}"
 
     def _persist_outcome(
         self, state: _AlbumState, method: str = "text_search"
@@ -9231,8 +9437,12 @@ class LibraryApi:
                         if operation.kind is OperationKind.EMBED_IMAGE
                         and operation.after_state.get("icon")
                     ),
+                    # Pictures, not operations: one folder write can replace
+                    # `cover.jpg` and take a `cover.png` aside as well.
                     "replaces": sum(
-                        1 for operation in state.cover_plan.operations if operation.before_state
+                        bool(set(operation.before_state) - {"displaced"})
+                        + len(operation.before_state.get("displaced") or ())  # type: ignore[arg-type]
+                        for operation in state.cover_plan.operations
                     ),
                     "width": next(
                         (
@@ -9509,6 +9719,13 @@ class LibraryApi:
         # rather than in the window so that what is offered and what counts as
         # a correction cannot drift apart.
         payload["planned_folder"] = _planned_folder_name(state.unit, outcome.plan)
+        # The folder's Finder tags as they stand, read now. `None` where the
+        # folder cannot carry any — another system, or a single loose track —
+        # and the window then draws no row for them.
+        now_tags = None if state.unit.is_loose_track else read_finder_tags(state.unit.folder_path)
+        payload["finder_tags_now"] = (
+            [_finder_tag(tag) for tag in now_tags] if now_tags is not None else None
+        )
         # An arrangement's provenance, and an identification read against the
         # tags. The first says where an arranged name came from and which files
         # dissented; the second, on an album a catalogue answered, says in one
@@ -9688,6 +9905,14 @@ class LibraryApi:
         except Exception:
             inside = None
         artwork = self._pipeline.artwork
+        # A site's banner is not the album's face, so the card treats the
+        # track as carrying no picture rather than drawing it.
+        if (
+            inside is not None
+            and artwork is not None
+            and inside.digest in artwork.pictures_that_are_not_covers()
+        ):
+            inside = None
         pictures = (
             artwork.pictures_in_folder(unit.folder_path)
             if artwork is not None and not unit.is_loose_track
@@ -10182,7 +10407,6 @@ def _candidate(candidate: MatchCandidate) -> dict[str, object]:
 
 _YEAR_IN_NAME = re.compile(r"\((\d{4})\)")
 _EDITION_IN_NAME = re.compile(r"[-\u2013\u2014]?\s*\bEd\.?\s*(\d{4})\b", re.IGNORECASE)
-_FORMAT_IN_NAME = re.compile(r"\[([^\]]+)\]\s*$")
 
 
 def _album_reports(
@@ -10224,9 +10448,8 @@ def _album_report(
         edition=change(
             _captured(_EDITION_IN_NAME, before_name), _captured(_EDITION_IN_NAME, after_name)
         ),
-        container_format=change(
-            _captured(_FORMAT_IN_NAME, before_name), _captured(_FORMAT_IN_NAME, after_name)
-        ),
+        # The label alone: a note the user wrote in the same brackets is not a format.
+        container_format=change(format_in_name(before_name), format_in_name(after_name)),
         tracks=tracks,
         tags=_tag_runs(entries),
         artwork=_artwork_runs(entries),
@@ -10402,6 +10625,23 @@ def _tag_runs(entries: Sequence[Mapping[str, object]]) -> tuple[Run, ...]:
             runs.append(Run("\n"))
         runs.append(Run(f"{name}: ", Ink.MUTED))
         runs.extend(change(was or "(none)", now or "(none)"))
+    # The folder's Finder tags, in the same column: they are tags too, written
+    # on the folder rather than inside the files.
+    for entry in entries:
+        if entry["kind"] != str(OperationKind.WRITE_FINDER_TAGS):
+            continue
+        after = _after_state(entry)
+        added = [parse_tag(str(item)).name for item in after.get("add") or ()]  # type: ignore[attr-defined]
+        removed = [composed(str(item)) for item in after.get("remove") or ()]  # type: ignore[attr-defined]
+        if runs:
+            runs.append(Run("\n"))
+        runs.append(Run("Finder: ", Ink.MUTED))
+        if added:
+            runs.append(Run(" ".join(f"+{name}" for name in added), Ink.ADDED))
+        if removed:
+            if added:
+                runs.append(Run(" "))
+            runs.append(Run(" ".join(f"-{name}" for name in removed), Ink.REMOVED))
     return tuple(runs)
 
 
@@ -11484,14 +11724,28 @@ def _parse_group_link(url: str) -> tuple[MetadataSourceId, str] | None:
     return None
 
 
+def _finder_tag(tag: FinderTag) -> dict[str, object]:
+    return {"name": tag.name, "color": tag.color}
+
+
 def _operation(operation: ChangeOperation) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "sequence": operation.sequence,
         "kind": str(operation.kind),
         "target": str(operation.target_path),
         "after": dict(operation.after_state),
         "before": dict(operation.before_state),
     }
+    # The Finder tags decoded here, so the window reads names and colours and
+    # never the attribute's own string form.
+    if operation.kind is OperationKind.WRITE_FINDER_TAGS:
+        after: Mapping[str, object] = operation.after_state
+        payload["finder_tags"] = {
+            "result": [_finder_tag(parse_tag(str(entry))) for entry in after["result"]],  # type: ignore[attr-defined]
+            "added": [_finder_tag(parse_tag(str(entry))) for entry in after["add"]],  # type: ignore[attr-defined]
+            "removed": [composed(str(name)) for name in after["remove"]],  # type: ignore[attr-defined]
+        }
+    return payload
 
 
 def _not_looked_at(unit: AlbumUnit) -> IdentificationOutcome:

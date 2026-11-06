@@ -17,7 +17,7 @@ from diglibrary.application.api import (
     PathOpener,
     _Pipeline,
 )
-from diglibrary.application.artwork import ArtworkPolicy, ArtworkService
+from diglibrary.application.artwork import ArtworkPolicy, ArtworkService, PictureLedger
 from diglibrary.application.bench import QualityBench
 from diglibrary.application.collection import CollectionService
 from diglibrary.application.contracts import MetadataSources
@@ -215,7 +215,9 @@ def create_application(config_path: Path) -> Application:
         providers=providers,
         acquisition=acquisition,
         slskd=slskd,
-        artwork=_create_artwork_service(config, logger, artwork_store),
+        artwork=_create_artwork_service(
+            config, logger, artwork_store, LibraryStore(database, logger)
+        ),
         artwork_store=artwork_store,
         naming=config.naming,
     )
@@ -391,7 +393,10 @@ def create_api(
 
 
 def _create_artwork_service(
-    config: ApplicationConfig, logger: logging.Logger, store: ArtworkStore
+    config: ApplicationConfig,
+    logger: logging.Logger,
+    store: ArtworkStore,
+    ledger: PictureLedger,
 ) -> ArtworkService:
     """Assemble the cover-art service over the Cover Art Archive.
 
@@ -434,6 +439,7 @@ def _create_artwork_service(
         ),
         logger,
         store,
+        ledger,
     )
 
 

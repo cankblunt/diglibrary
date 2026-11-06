@@ -1684,3 +1684,112 @@ def test_the_shelf_and_the_album_read_back_agree_about_who_was_asked(
     row = next(row for row in store.shelf() if row["unit_id"] == unit_id)
 
     assert row["catalogue_asked"] is store.catalogue_answered_for(unit_id) is True
+
+
+def test_an_organized_album_renamed_by_hand_is_still_organized(tmp_path: Path) -> None:
+    """The adoption by audio exists for this: the folder moved and its files did not."""
+    library = tmp_path / "library"
+    unit = _album(library, "Artist - Album (1999) [FLAC]")
+    store = _store(tmp_path)
+    unit_id = store.record_unit(unit)
+    store.set_unit_state(unit_id, "organized")
+
+    (library / "Artist - Album (1999) [FLAC]").rename(library / "Renamed in the Finder")
+    assert store.record_unit(_rescan(library, "Renamed in the Finder")) == unit_id
+
+    assert store.unit_by_id(unit_id).state == "organized"
+
+
+@pytest.mark.parametrize("difference", ["names", "weights"])
+def test_a_copy_that_adopts_an_organized_row_does_not_inherit_organized(
+    tmp_path: Path, difference: str
+) -> None:
+    """The same audio, downloaded again, is not the files the last apply wrote.
+
+    The organized folder is gone, so a fresh copy of the same rip adopts its
+    row by signature — and with it the word `organized`, which then described
+    files nobody had touched: the card said *organized* over a folder still
+    named as the download left it. Names and weights are what the last
+    sighting holds of the files; when the newcomer differs in either, the row
+    keeps its history and drops the word.
+    """
+    library = tmp_path / "library"
+    unit = _album(library, "Artist - Album (1999) [FLAC]")
+    store = _store(tmp_path)
+    unit_id = store.record_unit(unit)
+    store.set_unit_state(unit_id, "organized")
+
+    shutil.rmtree(library / "Artist - Album (1999) [FLAC]")
+    copy = _album(tmp_path / "downloads", "[1999] Album")
+    if difference == "names":
+        for file in sorted((copy.folder_path).glob("*.flac")):
+            file.rename(file.with_name("raw " + file.name))
+    else:
+        with (copy.folder_path / "track0.flac").open("ab") as handle:
+            handle.write(b"\0" * 64)
+    copy = _rescan(tmp_path / "downloads", "[1999] Album")
+    assert copy.unit_signature == unit.unit_signature, "the same audio, by its shape"
+
+    assert store.record_unit(copy) == unit_id, "the row and its history are kept"
+    stored = store.unit_by_id(unit_id)
+    assert stored.folder_path == copy.folder_path
+    assert stored.state == "identified"
+
+
+def _one_track_album(library: Path, folder_name: str, source: str) -> AlbumUnit:
+    folder = library / folder_name
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copy(FIXTURES / source, folder / "track.flac")
+    return _rescan(library, folder_name)
+
+
+def test_a_picture_in_two_albums_that_share_no_recording_is_not_a_cover(tmp_path: Path) -> None:
+    """A site's banner travels with every rip the site made; a sleeve stays with its record."""
+    store = _store(tmp_path)
+    library = tmp_path / "library"
+    first = _one_track_album(library, "Ana Vale - Rio", "tone.flac")
+    second = _one_track_album(library, "Beto Lume - Mar", "tone-long.flac")
+    store.record_units((first, second))
+    store.record_pictures(
+        {first.audio_files[0].path: "banner", second.audio_files[0].path: "banner"}
+    )
+
+    assert store.pictures_that_are_not_covers() == frozenset({"banner"})
+
+
+def test_the_same_record_twice_keeps_its_sleeve(tmp_path: Path) -> None:
+    """Two copies of one album share their recordings, so their shared picture is the sleeve."""
+    store = _store(tmp_path)
+    library = tmp_path / "library"
+    first = _one_track_album(library, "Ana Vale - Rio", "tone.flac")
+    again = _one_track_album(library, "Ana Vale - Rio (Ed. 2010)", "tone.flac")
+    store.record_units((first, again))
+    store.record_pictures(
+        {first.audio_files[0].path: "sleeve", again.audio_files[0].path: "sleeve"}
+    )
+
+    assert store.pictures_that_are_not_covers() == frozenset()
+
+
+def test_a_file_whose_bytes_changed_has_its_picture_read_again(tmp_path: Path) -> None:
+    """Both paths that change a file forget its picture: the scan and an apply's weighing."""
+    store = _store(tmp_path)
+    library = tmp_path / "library"
+    unit = _one_track_album(library, "Ana Vale - Rio", "tone.flac")
+    store.record_unit(unit)
+    track = unit.audio_files[0].path
+    assert store.unread_pictures() == (track,)
+
+    store.record_pictures({track: "sleeve"})
+    assert store.unread_pictures() == ()
+    store.record_unit(_rescan(library, "Ana Vale - Rio"))
+    assert store.unread_pictures() == (), "an unchanged file keeps what was read"
+
+    store.record_audio_sizes({track: (track.stat().st_size + 1, unit.audio_files[0].modified_at)})
+    assert store.unread_pictures() == (track,)
+
+    store.record_pictures({track: "sleeve"})
+    with track.open("ab") as handle:
+        handle.write(b"\0" * 16)
+    store.record_unit(_rescan(library, "Ana Vale - Rio"))
+    assert store.unread_pictures() == (track,)

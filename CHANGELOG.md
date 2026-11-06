@@ -4,6 +4,25 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.9.0
+
+### Added
+
+- An album's plan can set Finder tags on its folder, chosen in the album's dialog from the tags the Finder already has, or created there by typing a name the Finder does not have yet. Reverting the plan takes off only the tags the apply put on.
+
+### Changed
+
+- An artist's name is cased by its own words rather than by the language of the release. An article that opens a name keeps its capital between two credited names and inside a title, a preposition inside a name is lowered, and a semicolon separates two names as `&` does.
+- A cover chosen for an album becomes the folder's only cover: writing it sets aside a cover saved under another extension, and reverting brings that one back. An ordinary run leaves both in place.
+
+### Fixed
+
+- A picture carried by albums that share no recording, such as a download site's banner, is no longer taken for a cover, whether for the folder, the files, the Finder icon or the Library card.
+- After an apply writes a cover, the card shows that cover instead of the picture the plan had staged before it ran.
+- A note typed inside the format brackets of a folder name, as in `[FLAC - 2 missing]`, is kept; only the format label in front of it follows the measurement.
+- An album downloaded again after its organized copy left the disk no longer arrives reading `organized` over files nothing has written. It arrives identified, with its history, rating and identification kept; a folder that was only renamed keeps `organized`.
+- A card whose folder was deleted shows `not where it was` as soon as a gesture on it finds the folder gone, instead of keeping its last badge until the shelf is read again.
+
 ## 1.8.0
 
 ### Added

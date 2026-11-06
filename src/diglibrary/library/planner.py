@@ -20,6 +20,7 @@ from diglibrary.library.artwork import (
     is_worth_writing,
 )
 from diglibrary.library.casing import normalize_release, normalize_track
+from diglibrary.library.finder_tags import FinderTag, read_finder_tags, with_tags_changed
 from diglibrary.library.matching import TrackAlignment
 from diglibrary.library.models import AlbumUnit
 from diglibrary.library.naming import (
@@ -54,6 +55,7 @@ class OperationKind(StrEnum):
     RENAME_FOLDER = "rename_folder"
     WRITE_IMAGE = "write_image"
     EMBED_IMAGE = "embed_image"
+    WRITE_FINDER_TAGS = "write_finder_tags"
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +153,7 @@ class ChangePlanner:
         measured_rates: Mapping[str, int] | None = None,
         write_tags: bool = True,
         user_titles: frozenset[int] = frozenset(),
+        finder_tags: Sequence[FinderTag] | None = None,
     ) -> ChangePlan:
         """Return the operations that would bring ``unit`` in line with ``release``.
 
@@ -185,6 +188,11 @@ class ChangePlanner:
         without the difference ever being shown. That path renames, and makes
         the Finder icon from the picture each file already carries, which
         invents nothing.
+
+        ``finder_tags`` is the set of Finder tags the user chose for the album's
+        folder, in order. What it differs by from the folder's own becomes one
+        operation, written after the folder has its final name; ``None`` says
+        nothing about the tags, and the folder keeps what it carries.
         """
         if artwork is not None and not artwork.is_empty and self._artwork_store is None:
             raise ValueError("Cover art was fetched but no artwork store was injected.")
@@ -380,6 +388,21 @@ class ChangePlanner:
             sequence += 1
             operations.append(folder_operation)
 
+        if finder_tags is not None and not unit.is_loose_track:
+            tag_operation = _finder_tag_operation(
+                sequence + 1,
+                (
+                    Path(str(folder_operation.after_state["path"]))
+                    if folder_operation is not None
+                    else album_folder
+                ),
+                album_folder,
+                finder_tags,
+            )
+            if tag_operation is not None:
+                sequence += 1
+                operations.append(tag_operation)
+
         # Image operations come last, so every path they use is already final and
         # no rename can invalidate one.
         # The arrangement is asked first, because it is the narrower mode. It
@@ -424,6 +447,7 @@ class ChangePlanner:
                     track_paths,
                     sequence + len(covers),
                     {},
+                    not_covers=artwork.not_covers if artwork is not None else frozenset(),
                 )
             )
         # Entered even when nothing was fetched, because a picture block that
@@ -612,6 +636,12 @@ class ChangePlanner:
         in one of them and wrong in the other two is an album showing two
         pictures: the folder's `cover.jpg`, the picture inside each track, and
         the Finder icon that is the only one macOS draws for a FLAC.
+
+        The folder's cover is one file, whatever its extension. A chosen JPEG
+        written as `cover.jpg` beside a `cover.png` leaves the folder with two
+        covers, and the one that was replaced is what another program reads.
+        So the write also takes aside every other image under the cover's name,
+        named in ``displaces``, and the revert puts each one back.
         """
         store = self._artwork_store
         if store is None:
@@ -623,14 +653,24 @@ class ChangePlanner:
         name = self._policy.image_name(staged.kind, staged.extension)
         for folder in sorted({file.path.parent for file in unit.audio_files}):
             present = folder / name
+            after = _image_state(staged)
+            before = _existing_state(present, store.describe(present))
+            displaced = [
+                (other, facts)
+                for other in _other_covers(folder, name)
+                if (facts := store.describe(other)) is not None
+            ]
+            if displaced:
+                after["displaces"] = [str(other) for other, _ in displaced]
+                before["displaced"] = [_existing_state(other, facts) for other, facts in displaced]
             sequence += 1
             operations.append(
                 ChangeOperation(
                     sequence=sequence,
                     kind=OperationKind.WRITE_IMAGE,
                     target_path=present,
-                    after_state=_image_state(staged),
-                    before_state=_existing_state(present, store.describe(present)),
+                    after_state=after,
+                    before_state=before,
                 )
             )
         track_paths = tuple((file.path, file.path) for file in unit.audio_files)
@@ -689,7 +729,12 @@ class ChangePlanner:
         embedded = artwork.embedded
         for source, destination in track_paths:
             existing = store.describe_embedded(source)
-            if embedded is not None and is_worth_embedding(existing, embedded.facts):
+            # A picture that is not a cover is compared as no picture at all,
+            # and still recorded as what was there, so the revert puts it back.
+            standing = (
+                None if existing is not None and existing.digest in artwork.not_covers else existing
+            )
+            if embedded is not None and is_worth_embedding(standing, embedded.facts):
                 after = _image_state(embedded)
             elif existing is not None and store.misdeclares_embedded(source):
                 # Repairing the label on a picture, which is not the same
@@ -727,7 +772,9 @@ class ChangePlanner:
         }
         # `sequence` has already advanced once per operation appended above;
         # adding the count again would number the icons from a hole.
-        return operations + self._finder_icons(store, track_paths, sequence, incoming)
+        return operations + self._finder_icons(
+            store, track_paths, sequence, incoming, not_covers=artwork.not_covers
+        )
 
     def _cover_operations(
         self,
@@ -785,6 +832,7 @@ class ChangePlanner:
         sequence: int,
         incoming: Mapping[Path, Path],
         replacing: bool = False,
+        not_covers: frozenset[str] = frozenset(),
     ) -> list[ChangeOperation]:
         """Offer the small cover the Finder draws to the files that have none.
 
@@ -801,6 +849,9 @@ class ChangePlanner:
         written, so the icon is drawn from what the file will actually hold —
         including a file that had no picture at all until this very run, which
         would otherwise have had to wait for the next one to be given its icon.
+
+        A file whose own picture is in ``not_covers`` is drawn only from a
+        picture arriving in this run: the banner it carries is not its cover.
         """
         operations: list[ChangeOperation] = []
         for source, destination in track_paths:
@@ -812,7 +863,7 @@ class ChangePlanner:
             if store.shows_its_cover_in_the_finder(source) and not replacing:
                 continue
             arriving = incoming.get(destination)
-            drawable = store.can_show_its_cover_in_the_finder(source) or (
+            drawable = _carries_a_cover(store, source, not_covers) or (
                 arriving is not None and store.image_can_be_drawn(arriving)
             )
             if not drawable:
@@ -939,6 +990,39 @@ class ChangePlanner:
         )
 
 
+def _finder_tag_operation(
+    sequence: int, final_folder: Path, folder: Path, wanted: Sequence[FinderTag]
+) -> ChangeOperation | None:
+    """Return the operation that gives the folder the tags chosen for it, if any differ.
+
+    Recorded as what to add and what to take off rather than as the whole set,
+    so a tag put on in the Finder between planning and applying is kept.
+    """
+    current = read_finder_tags(folder)
+    if current is None:
+        return None
+    have = {tag.name for tag in current}
+    names = {tag.name for tag in wanted}
+    add = [tag for tag in wanted if tag.name not in have]
+    remove = [tag.name for tag in current if tag.name not in names]
+    if not add and not remove:
+        return None
+    return ChangeOperation(
+        sequence=sequence,
+        kind=OperationKind.WRITE_FINDER_TAGS,
+        target_path=final_folder,
+        # `result` is what the folder would carry if nothing changes it first: the
+        # screen's word for the result. The executor writes from `add` and
+        # `remove` against what the folder carries when it runs.
+        after_state={
+            "add": [tag.entry for tag in add],
+            "remove": remove,
+            "result": [tag.entry for tag in with_tags_changed(current, add, remove)],
+        },
+        before_state={"finder_tags": [tag.entry for tag in current]},
+    )
+
+
 def folder_name_is_free(destination: Path, source: Path, taken_names: frozenset[str]) -> bool:
     """Report whether a folder name is available to this album.
 
@@ -993,6 +1077,24 @@ def _holds_an_image(folder: Path) -> bool:
         )
     except OSError:
         return True
+
+
+def _other_covers(folder: Path, name: str) -> tuple[Path, ...]:
+    """The images in ``folder`` under the cover's name with another extension."""
+    stem = Path(name).stem.lower()
+    try:
+        return tuple(
+            sorted(
+                entry
+                for entry in folder.iterdir()
+                if entry.is_file()
+                and entry.stem.lower() == stem
+                and entry.suffix.lower() in _IMAGE_SUFFIXES
+                and entry.name.lower() != name.lower()
+            )
+        )
+    except OSError:
+        return ()
 
 
 def _what_did_not_pair(alignment: TrackAlignment) -> tuple[str, ...]:
@@ -1189,6 +1291,15 @@ def _moved(path: Path, disc_folders: dict[Path, Path]) -> Path:
     """Return where a file will be once its disc folder has been renamed."""
     destination = disc_folders.get(path.parent)
     return destination / path.name if destination is not None else path
+
+
+def _carries_a_cover(store: ArtworkStore, track: Path, not_covers: frozenset[str]) -> bool:
+    """Report whether the file's own picture could be drawn as its icon and is a cover."""
+    if not_covers:
+        own = store.describe_embedded(track)
+        if own is not None and own.digest in not_covers:
+            return False
+    return store.can_show_its_cover_in_the_finder(track)
 
 
 def _relocated(path: Path, album_folder: Path, final_folder: Path) -> Path:

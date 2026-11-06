@@ -144,6 +144,13 @@ class Artwork:
 
     files: tuple[StagedImage, ...] = ()
     embedded: StagedImage | None = None
+    not_covers: frozenset[str] = frozenset()
+    """Digests of pictures the album's files carry that stand for no album.
+
+    A picture embedded in two albums sharing no recording is a site's banner,
+    not a sleeve. It is an absence to the embed comparison, and it is never
+    drawn as a file's icon.
+    """
 
     @property
     def is_empty(self) -> bool:

@@ -2,7 +2,7 @@
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 from enum import StrEnum
@@ -21,6 +21,7 @@ from diglibrary.application.contracts import (
 )
 from diglibrary.library.artwork import Artwork
 from diglibrary.library.containers import numbers_deny_one_album
+from diglibrary.library.finder_tags import FinderTag
 from diglibrary.library.hints import (
     SearchHints,
     derive_hints,
@@ -732,6 +733,7 @@ class IdentificationWorkflow:
         track_files: Mapping[str, int] | None = None,
         offline: bool = False,
         artwork: Artwork | None = None,
+        finder_tags: Sequence[FinderTag] | None = None,
     ) -> IdentificationOutcome:
         """Re-plan an identified album around the user's corrections.
 
@@ -767,6 +769,9 @@ class IdentificationWorkflow:
         given, and they must be carried through: re-planning without them would
         name a proven transcode by its container, so correcting one track title
         would drop the album's own verdict from its folder.
+
+        ``finder_tags`` is the set of Finder tags the user chose for the folder,
+        planned with like every other correction.
         """
         hints = derive_hints(unit, self._tag_store)
         titles = local_track_titles(unit, self._tag_store)
@@ -828,6 +833,7 @@ class IdentificationWorkflow:
             transcoded=transcoded,
             measured_rates=measured_rates,
             user_titles=user_titles,
+            finder_tags=finder_tags,
         )
         # An album paired by hand stays in review, however confident the
         # release is and however completely the plan closes. A hand pairing is
@@ -853,6 +859,7 @@ class IdentificationWorkflow:
                 transcoded=transcoded,
                 measured_rates=measured_rates,
                 user_titles=user_titles,
+                finder_tags=finder_tags,
             ),
             # Carried, not merely computed: the pairing is what the plan table
             # shows in its `now on disk` column, and an outcome without it
@@ -972,6 +979,7 @@ class IdentificationWorkflow:
         measured_rates: Mapping[str, int] | None = None,
         write_tags: bool = True,
         user_titles: frozenset[int] = frozenset(),
+        finder_tags: Sequence[FinderTag] | None = None,
     ) -> ChangePlan | None:
         """Plan what did pair and leave the rest alone, or ``None``.
 
@@ -998,6 +1006,7 @@ class IdentificationWorkflow:
             measured_rates=measured_rates,
             write_tags=write_tags,
             user_titles=user_titles,
+            finder_tags=finder_tags,
         )
         return partial if partial.is_applicable else None
 

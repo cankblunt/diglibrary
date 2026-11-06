@@ -562,6 +562,7 @@ NAMELESS_COLUMNS: dict[str, tuple[str, ...]] = {
         "first_seen_at",
         "last_seen_at",
         "audio_key",
+        "picture_digest",
     ),
     "change_operations": ("kind", "applied_at", "reverted_at"),
     "change_plans": ("state", "created_at", "applied_at", "reverted_at", "run_id"),

@@ -57,6 +57,16 @@
      merged with it: the interface keeps one amber of its own, and the logo keeps
      the yellow it was drawn in. Eight pixels apart in the header is exactly
      where two nearly-identical yellows would read as a mistake. */
+  /* The Finder's own tag colours, by the number its attribute stores, in the
+     shades it draws them on a dark window. Used by the tags' dots and nothing
+     else. */
+  --finder-gray: #98989d;
+  --finder-green: #32d74b;
+  --finder-purple: #bf5af2;
+  --finder-blue: #0a84ff;
+  --finder-yellow: #ffd60a;
+  --finder-red: #ff453a;
+  --finder-orange: #ff9f0a;
   --brand-yellow: #f2c230;
   --brand-cream: #ebddc4;
   /* How much room the lists take, which is set in Settings. Compact is the
@@ -1048,6 +1058,11 @@ main { padding: 20px; }
    reads as a disabled control. Dimmed enough that the changes carry the eye,
    and no further. */
 .plan-row.is-unchanged { opacity: 0.82; }
+/* Opacity carries down to everything in the row, the Finder tags' list too,
+   which then lets the names of the rows under it show through. A row being
+   worked in is not dimmed. */
+.plan-row.is-unchanged:has(.finder-field:focus-within),
+.plan-row.is-unchanged:has(.finder-menu:not([hidden])) { opacity: 1; }
 .plan-row.is-missing .plan-now { color: var(--warn); }
 /* A pairing offered rather than settled, in the amber this window already
    spends on "look at this" — the same `--warn` as a partial run in History.
@@ -3754,3 +3769,108 @@ body.is-dropping .drop-veil {
 .collection-offers { padding-top: 0; }
 .collection-mapping { margin: 0 var(--space-5); width: calc(100% - 2 * var(--space-5)); }
 .collection-import-summary { padding: var(--space-3) var(--space-5) 0; }
+
+/* The folder's Finder tags, on the row under its name. Drawn as the Finder
+   draws them — a dot for the colour, then the name — so a tag reads the same
+   here as in the sidebar. An added tag wears the amber that says *this
+   changes*; one taken off stays, struck through, until it is applied. */
+.finder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 4px 3px 0;
+  padding: var(--chip-pad);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: var(--text-step-down);
+  line-height: var(--row-line);
+  vertical-align: middle;
+}
+.plan-now .finder-chip { color: var(--muted); }
+.finder-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.finder-color-1 { background: var(--finder-gray); }
+.finder-color-2 { background: var(--finder-green); }
+.finder-color-3 { background: var(--finder-purple); }
+.finder-color-4 { background: var(--finder-blue); }
+.finder-color-5 { background: var(--finder-yellow); }
+.finder-color-6 { background: var(--finder-red); }
+.finder-color-7 { background: var(--finder-orange); }
+.finder-chip.is-added { border-color: var(--warn); color: var(--warn); }
+.finder-chip.is-removed .finder-chip-name { text-decoration: line-through; color: var(--muted); }
+.finder-chip.is-removed { opacity: 0.7; }
+.finder-chip-button {
+  border: none;
+  background: none;
+  padding: 0 0 0 2px;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.finder-chip-button:hover { color: var(--text); }
+.finder-field {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 3px 26px 0 6px;
+  border: 1px solid var(--muted-line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.finder-field:focus-within { border-color: var(--accent); }
+.finder-input {
+  flex: 1 0 8ch;
+  min-width: 8ch;
+  margin-bottom: 3px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+.finder-input:focus { outline: none; }
+.finder-open {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.finder-open:hover { color: var(--text); }
+.finder-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 240px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--muted-line);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.finder-option { padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.finder-option .finder-chip { border-color: transparent; background: none; margin: 0; padding: 0; }
+.finder-option.is-lit, .finder-option:hover { background: var(--line); }
+.finder-menu-rule { height: 1px; margin: 4px 0; background: var(--line); }
+.finder-menu-hint {
+  margin-top: 4px;
+  padding: 4px 8px 2px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-step-down);
+}
+
+/* Alone in the menu, the hint is the whole answer and needs no rule above it. */
+.finder-menu-hint:first-child {
+  margin-top: 0;
+  border-top: 0;
+}
+
+.finder-create { color: var(--text); }

@@ -7,7 +7,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from diglibrary.application.artwork import ArtworkPolicy, ArtworkService
+from diglibrary.database.connection import Database
+from diglibrary.database.library_store import LibraryStore
 from diglibrary.library.artwork import FilesystemArtworkStore, ImageKind, describe_bytes
+from diglibrary.library.audio import MutagenAudioProbe
+from diglibrary.library.scanner import LibraryScanner
 from diglibrary.metadata.coverart import CoverArtEntry
 
 FRONT = CoverArtEntry(
@@ -499,3 +503,73 @@ def test_files_that_already_carry_a_picture_are_left_alone(
     service = _service(FakeArchive(release=(), images={}), tmp_path)
 
     assert service.fetch(None, None, (track,), folder=folder).embedded is None
+
+
+def _ledger(root: Path) -> LibraryStore:
+    database = Database(root / "library.sqlite3", logging.getLogger("test.artwork"))
+    database.initialize()
+    return LibraryStore(database, logging.getLogger("test.artwork"))
+
+
+def _ripped(library: Path, folder_name: str, source: str, picture: bytes) -> Path:
+    """One album of one track, carrying the picture its rip embedded."""
+    folder = library / folder_name
+    folder.mkdir(parents=True)
+    track = folder / "track.flac"
+    shutil.copy(Path(__file__).parent.parent / "fixtures" / "audio" / source, track)
+    image = library / "picture.jpg"
+    image.write_bytes(picture)
+    FilesystemArtworkStore().embed(track, image)
+    image.unlink()
+    return folder
+
+
+def test_a_banner_in_two_albums_takes_no_cover_and_the_folder_sleeve_replaces_it(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """The second album carrying a site's banner reveals it, and the sleeve beside it wins.
+
+    Wired through the store that runs: the reading writes the evidence down,
+    and the same service asks it back.
+    """
+    banner = jpeg(700, 700)
+    library = tmp_path / "library"
+    first = _ripped(library, "Ana Vale - Rio Aberto (1978) [FLAC]", "tone.flac", banner)
+    second = _ripped(library, "Beto Lume - Bandeira Alta (1978) [FLAC]", "tone-long.flac", banner)
+    (second / "Beto Lume - Bandeira Alta.jpg").write_bytes(jpeg(1200, 1200))
+    ledger = _ledger(tmp_path)
+    ledger.record_units(LibraryScanner(MutagenAudioProbe(), logging.getLogger("t")).scan(library))
+    service = ArtworkService(
+        FakeArchive(),  # type: ignore[arg-type]
+        tmp_path / "staging",
+        ArtworkPolicy(),
+        logging.getLogger("test.artwork"),
+        FilesystemArtworkStore(),
+        ledger,
+    )
+
+    alone = service.local_only((first / "track.flac",), first)
+    assert [image.facts.pixels for image in alone.files] == [
+        700 * 700
+    ], "the first album to carry a banner has nothing to be compared with"
+
+    revealed = service.local_only((second / "track.flac",), second)
+
+    digest = describe_bytes(banner)
+    assert digest is not None
+    assert revealed.not_covers == frozenset({digest.digest})
+    assert revealed.files == (), "the banner never takes the folder cover"
+    assert revealed.embedded is not None and revealed.embedded.facts.pixels == 1200 * 1200
+    assert service.pictures_that_are_not_covers() == frozenset({digest.digest})
+
+
+def test_without_a_ledger_every_picture_is_judged_as_before(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """No evidence is no evidence: the service answers as it always did."""
+    tracks = _tracks(tmp_path, jpeg(640, 640))
+
+    artwork = _service(FakeArchive(), tmp_path).fetch(None, tracks=tracks)
+
+    assert artwork.not_covers == frozenset()
+    assert [image.facts.width for image in artwork.files] == [640]

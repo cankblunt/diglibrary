@@ -953,6 +953,7 @@ function albumActions(album) {
 async function sendToBench(unitId) {
   const response = await api().send_to_bench(unitId);
   if (!response.ok) {
+    noteFolderGone(unitId, response);
     toastError(response.error);
     return;
   }
@@ -1144,9 +1145,31 @@ async function forgetAlbum(unitId) {
   toast(STR.forgotten);
 }
 
+/** Put on the card what a gesture was just told: this album's folder is gone.
+ *
+ * `folder_missing` reaches the shelf only with a dashboard read, so a folder
+ * deleted in the Finder after the last one left the card wearing `✓ organized`
+ * while every gesture on it answered that the folder is not there. The answer
+ * is the server's, so the window only carries it to the card: no rule about
+ * folders is worked out here. Counted as a shelf write, because a read already
+ * in flight is a picture from before the folder went and would draw the old
+ * badge back.
+ */
+function noteFolderGone(unitId, response) {
+  if (!response?.folder_is_gone) return;
+  const card = state.albums.find((one) => one.unit_id === unitId);
+  if (!card || card.folder_missing) return;
+  state.shelfWrites += 1;
+  card.folder_missing = true;
+  renderGrid();
+}
+
 async function openAlbumFolder(unitId) {
   const result = await api().open_album(unitId);
-  if (!result.ok) toastError(result.error);
+  if (!result.ok) {
+    noteFolderGone(unitId, result);
+    toastError(result.error);
+  }
 }
 
 // Each of these acts on `state.openAlbum`, so each stops when the album it was
@@ -2036,7 +2059,14 @@ async function openDownload(id) {
 
 // --- album dialog ---------------------------------------------------------
 
-const READING_ORDER = ["rename_folder", "rename_file", "write_tags", "write_image", "embed_image"];
+const READING_ORDER = [
+  "rename_folder",
+  "write_finder_tags",
+  "rename_file",
+  "write_tags",
+  "write_image",
+  "embed_image",
+];
 
 /** Order the plan for reading, from the folder inwards.
  *
@@ -2147,6 +2177,13 @@ function operationLine(operation) {
       const tags = operation.after.tags || {};
       detail.textContent = `${basename(operation.target)}: ${Object.keys(tags).join(", ")}`;
     }
+  } else if (operation.kind === "write_finder_tags") {
+    kind.textContent = STR.operationFinderTags;
+    const change = operation.finder_tags || { added: [], removed: [] };
+    detail.textContent = STR.finderTagsChange(
+      change.added.map((tag) => tag.name),
+      change.removed,
+    );
   } else if (operation.kind === "write_image") {
     kind.textContent = STR.operationWriteImage;
     detail.textContent = `${basename(operation.target)} (${operation.after.width}×${operation.after.height})`;
@@ -2517,6 +2554,8 @@ function renderPlanEditor(album, offered) {
       // follows from them.
     }),
   );
+  const tagsRow = finderTagsRow(album, offered);
+  if (tagsRow) body.append(tagsRow);
   // The wrong-record quieting, asked once for the whole editor.
   const wrongRecord = nothingMatchedHere(album);
   for (const track of releaseRowsToDraw(album)) {
@@ -3170,6 +3209,341 @@ function matchBadge(album, { compact = false } = {}) {
  * the pencil is asked for it: a row of live inputs per track is as many chances
  * to change a title with a stray click, and an edit here is a write to disk.
  */
+// --- the folder's Finder tags ----------------------------------------------
+
+/** Ask for every Finder tag that exists, for the field to suggest from. */
+async function loadFinderTagList() {
+  state.finderTagList = null;
+  try {
+    const response = await api().finder_tag_list();
+    if (response.ok) state.finderTagList = response;
+  } catch (error) {
+    state.finderTagList = null;
+  }
+  // The dialog drew before the list arrived; an empty field now says which it is.
+  const field = $("plan-editor").querySelector(".finder-input");
+  if (field && field.placeholder) {
+    field.placeholder = finderTagsNoneExist()
+      ? STR.finderTagsCreatePlaceholder
+      : STR.finderTagsPlaceholder;
+  }
+}
+
+/** Compare names the way a person reads them: no case, no accents. */
+function foldedTagName(name) {
+  return String(name).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+/** One tag as the Finder draws it: the colour's dot, then the name. */
+function finderChip(tag, { added = false, removed = false } = {}) {
+  const chip = document.createElement("span");
+  chip.className = "finder-chip";
+  if (added) chip.classList.add("is-added");
+  if (removed) chip.classList.add("is-removed");
+  // The colour by the number the attribute stores; the stylesheet names it.
+  if (tag.color >= 1 && tag.color <= 7) {
+    const dot = document.createElement("span");
+    dot.className = `finder-dot finder-color-${tag.color}`;
+    chip.append(dot);
+  }
+  const name = document.createElement("span");
+  name.className = "finder-chip-name";
+  name.textContent = tag.name;
+  chip.append(name);
+  return chip;
+}
+
+/** The row under the folder's: its Finder tags now, and the field that sets them.
+ *
+ * What the folder carries is read by the server when the dialog is drawn, and
+ * what it will carry is the plan's own answer — never worked out here. A tag
+ * the plan takes off stays on screen, struck through, with the way back beside
+ * it; one it adds is drawn in the colour that says *this changes*.
+ */
+function finderTagsRow(album, offered) {
+  const now = album.finder_tags_now;
+  if (!Array.isArray(now)) return null;
+  const operation = (offered || []).find((entry) => entry.kind === "write_finder_tags");
+  const change = operation ? operation.finder_tags : null;
+  const after = change ? change.result : now;
+  const added = new Set(change ? change.added.map((tag) => tag.name) : []);
+  const removed = new Set(change ? change.removed : []);
+  const names = after.map((tag) => tag.name);
+
+  const row = document.createElement("tr");
+  row.className = "plan-row";
+  if (!change) row.classList.add("is-unchanged");
+
+  const caption = document.createElement("td");
+  caption.className = "plan-label";
+  caption.textContent = STR.planFinderTags;
+
+  const before = document.createElement("td");
+  before.className = "plan-now";
+  if (now.length) before.append(...now.map((tag) => finderChip(tag)));
+  else before.textContent = STR.finderTagsNone;
+
+  const arrow = document.createElement("td");
+  arrow.className = "plan-arrow";
+  arrow.textContent = change ? "→" : "";
+
+  const next = document.createElement("td");
+  next.className = "plan-after";
+  const field = document.createElement("div");
+  field.className = "finder-field";
+  for (const tag of after) {
+    const chip = finderChip(tag, { added: added.has(tag.name) });
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "finder-chip-button";
+    drop.textContent = "✕";
+    drop.title = STR.finderTagRemoveTip;
+    drop.addEventListener("click", () =>
+      sendFinderTags(names.filter((name) => name !== tag.name)),
+    );
+    chip.append(drop);
+    field.append(chip);
+  }
+  for (const tag of now.filter((entry) => removed.has(entry.name))) {
+    const chip = finderChip(tag, { removed: true });
+    const keep = document.createElement("button");
+    keep.type = "button";
+    keep.className = "finder-chip-button";
+    keep.textContent = "↺";
+    keep.title = STR.finderTagKeepTip;
+    keep.addEventListener("click", () => sendFinderTags([...names, tag.name]));
+    chip.append(keep);
+    field.append(chip);
+  }
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "finder-input";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  // Where the Finder has no tag at all, the field says what typing in it does —
+  // only once the list has been read, since it is still on its way when the
+  // dialog first draws.
+  if (!names.length) {
+    input.placeholder = finderTagsNoneExist()
+      ? STR.finderTagsCreatePlaceholder
+      : STR.finderTagsPlaceholder;
+  }
+  const open = document.createElement("button");
+  open.type = "button";
+  open.className = "finder-open";
+  open.textContent = "▾";
+  open.title = STR.finderTagsAllTip;
+  const menu = document.createElement("div");
+  menu.className = "finder-menu";
+  menu.hidden = true;
+  field.append(input, open, menu);
+  next.append(field);
+  wireFinderField({ input, open, menu, names });
+
+  const word = document.createElement("td");
+  word.className = "plan-word";
+  row.append(caption, before, arrow, next, word);
+  return row;
+}
+
+/** Whether the list was read and the Finder has no tag at all; unread is not empty. */
+function finderTagsNoneExist() {
+  const list = state.finderTagList;
+  return Boolean(list) && !list.favourites.length && !list.others.length;
+}
+
+/** The tags still to offer: the Finder's favourites, then the rest, minus what is chosen. */
+function finderTagOptions(chosen) {
+  const list = state.finderTagList || { favourites: [], others: [] };
+  const taken = new Set(chosen);
+  return {
+    favourites: list.favourites.filter((tag) => !taken.has(tag.name)),
+    others: list.others.filter((tag) => !taken.has(tag.name)),
+  };
+}
+
+/** Type a name, see it suggested, take it with Tab or Return — the Finder's own gesture. */
+function wireFinderField({ input, open, menu, names }) {
+  let shown = [];
+  let lit = 0;
+  const close = () => {
+    menu.hidden = true;
+    menu.replaceChildren();
+    shown = [];
+  };
+  const option = (tag, index) => {
+    const line = document.createElement("div");
+    line.className = "finder-option";
+    if (index === lit) line.classList.add("is-lit");
+    if (tag.create) {
+      line.classList.add("finder-create");
+      line.textContent = STR.finderTagCreate(tag.name);
+    } else {
+      line.append(finderChip(tag));
+    }
+    // `mousedown`, so the field keeps its focus and the menu is still there to
+    // be clicked.
+    line.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      take(tag.name);
+    });
+    return line;
+  };
+  // The favourites and the rest under their own headings, and a name to create
+  // apart below them, so a new tag never reads as one the Finder already has.
+  const draw = (favourites, others, create = [], empty = "") => {
+    menu.replaceChildren();
+    shown = [...favourites, ...others, ...create];
+    if (!shown.length) {
+      close();
+      if (!empty) return;
+      // Nothing to offer is said, not drawn as a menu that does not open.
+      const hint = document.createElement("div");
+      hint.className = "finder-menu-hint";
+      hint.textContent = empty;
+      menu.append(hint);
+      menu.hidden = false;
+      return;
+    }
+    lit = Math.min(lit, shown.length - 1);
+    let index = 0;
+    const sections = [
+      [STR.finderTagsFavourites, favourites],
+      [STR.finderTagsOthers, others],
+    ];
+    for (const [title, tags] of sections) {
+      if (!tags.length) continue;
+      const heading = document.createElement("div");
+      heading.className = "context-heading";
+      heading.textContent = title;
+      menu.append(heading);
+      for (const tag of tags) menu.append(option(tag, index++));
+    }
+    if (create.length && index) {
+      const rule = document.createElement("div");
+      rule.className = "finder-menu-rule";
+      menu.append(rule);
+    }
+    for (const tag of create) menu.append(option(tag, index++));
+    menu.hidden = false;
+  };
+  const suggest = () => {
+    const typed = foldedTagName(input.value.trim());
+    if (!typed) {
+      close();
+      return;
+    }
+    const { favourites, others } = finderTagOptions(names);
+    const every = [...favourites, ...others];
+    // Within each heading a name that starts with what was typed comes before
+    // one that only holds it, and eight lines in all are offered.
+    const matching = (tags) => [
+      ...tags.filter((tag) => foldedTagName(tag.name).startsWith(typed)),
+      ...tags.filter(
+        (tag) =>
+          !foldedTagName(tag.name).startsWith(typed) && foldedTagName(tag.name).includes(typed),
+      ),
+    ];
+    const liked = matching(favourites).slice(0, 8);
+    const rest = matching(others).slice(0, 8 - liked.length);
+    // A name the Finder does not have, in any case, is offered as a new tag,
+    // after every existing one, so Return over a partial name still takes the
+    // tag it matches. Case only: an accent makes another word.
+    const name = input.value.trim().normalize("NFC");
+    const spelled = name.toLowerCase();
+    const exists = [...every, ...names.map((chosen) => ({ name: chosen }))].some(
+      (tag) => tag.name.normalize("NFC").toLowerCase() === spelled,
+    );
+    const create = exists ? [] : [{ name, color: 0, create: true }];
+    // Return takes the first tag that starts with what was typed, as the
+    // Finder does, whichever heading it sits under; the headings only order
+    // what is shown.
+    const first = [...liked, ...rest].findIndex((tag) =>
+      foldedTagName(tag.name).startsWith(typed),
+    );
+    lit = Math.max(first, 0);
+    draw(liked, rest, create);
+  };
+  const take = (name) => {
+    close();
+    input.value = "";
+    sendFinderTags([...names, name]);
+  };
+  input.addEventListener("input", suggest);
+  input.addEventListener("blur", close);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!shown.length) return;
+      event.preventDefault();
+      lit = (lit + (event.key === "ArrowDown" ? 1 : shown.length - 1)) % shown.length;
+      [...menu.querySelectorAll(".finder-option")].forEach((line, index) =>
+        line.classList.toggle("is-lit", index === lit),
+      );
+      return;
+    }
+    if (event.key === "Enter" || event.key === "Tab") {
+      // Return over an empty field does nothing, and Tab then moves on as it
+      // always does.
+      if (!shown.length || !input.value.trim()) {
+        if (event.key === "Enter") event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      take(shown[lit].name);
+      return;
+    }
+    if (event.key === "Escape" && !menu.hidden) {
+      // The menu closes; the dialog stays.
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (event.key === "Backspace" && !input.value && names.length) {
+      event.preventDefault();
+      sendFinderTags(names.slice(0, -1));
+    }
+  });
+  open.addEventListener("mousedown", (event) => event.preventDefault());
+  open.addEventListener("click", () => {
+    if (!menu.hidden) {
+      close();
+      return;
+    }
+    input.focus();
+    const { favourites, others } = finderTagOptions(names);
+    lit = 0;
+    draw(favourites, others, [], finderTagsNoneExist() ? STR.finderTagsNoneYet : "");
+  });
+}
+
+/** Send the whole set of tags the folder should carry, and redraw from the answer.
+ *
+ * Through `whileCorrecting`, like every gesture that changes the plan, so
+ * `Approve & apply` pressed straight after it applies the plan it produced. The
+ * caret goes back to the field, so the next tag can be typed at once.
+ */
+function sendFinderTags(names) {
+  return whileCorrecting(async () => {
+    let response;
+    try {
+      response = await api().correct(state.openAlbum.unit_id, null, null, null, null, names);
+    } catch (error) {
+      toastError(String(error));
+      return false;
+    }
+    if (!response.ok) {
+      toastError(response.error);
+      return false;
+    }
+    renderAlbumDialog(response.album);
+    const field = $("plan-editor").querySelector(".finder-input");
+    if (field) field.focus();
+    await refresh();
+    return true;
+  });
+}
+
 function planRow({
   key,
   label,
@@ -3973,10 +4347,14 @@ function renderAlbumDialog(album) {
   const shown = offeringPart ? album.partial_operations || [] : album.operations;
   renderPlanEditor(album, shown);
   // The names live in the editor above; this list carries what has no name to
-  // edit — the tags, and the pictures.
+  // edit — the tags, and the pictures. The folder's Finder tags have a row of
+  // their own up there too, so they are not said a second time here.
   const rest = $("plan-editor").hidden
     ? shown
-    : shown.filter((operation) => !operation.kind.startsWith("rename_"));
+    : shown.filter(
+        (operation) =>
+          !operation.kind.startsWith("rename_") && operation.kind !== "write_finder_tags",
+      );
   const operations = $("album-operations");
   // Named once because two things read it: the line below, and the note above
   // the rows, which is drawn much further down.
@@ -4339,6 +4717,7 @@ async function openAlbum(unitId, { openShared = false } = {}) {
     // dialog it cannot have is the one built around a folder; what it can have
     // is the two repairs, which otherwise live only in the card's menu.
     if (response.folder_is_gone) {
+      noteFolderGone(unitId, response);
       showAlbumGone(unitId, response);
       return false;
     }
@@ -4352,6 +4731,10 @@ async function openAlbum(unitId, { openShared = false } = {}) {
     state.adopted = null;
     findStatus("", false);
   }
+  // Asked again on every opening, so a tag created in the Finder since the last
+  // one is offered. Not awaited: the dialog does not wait for a list it only
+  // needs once somebody types.
+  loadFinderTagList();
   renderAlbumDialog(response.album);
   // Opened by the badge, which offers the chance to resolve rather than only
   // to be told.
@@ -4958,7 +5341,11 @@ async function applyAutomatic() {
  */
 function editedCorrections() {
   if (!state.openAlbum || $("plan-editor").hidden) return false;
-  return [...$("plan-editor").querySelectorAll("input")].some(
+  // Not the Finder tags' field: what is typed there is a search, and a tag is
+  // sent the moment it is chosen.
+  return [...$("plan-editor").querySelectorAll("input")]
+    .filter((input) => !input.classList.contains("finder-input"))
+    .some(
     (input) => (input.value || "").trim() !== (input.dataset.applied || "").trim(),
   );
 }
@@ -7316,6 +7703,7 @@ async function sendAlbumToBench() {
     api().send_to_bench(album.unit_id),
   );
   if (!response.ok) {
+    noteFolderGone(album.unit_id, response);
     toastError(response.error);
     return;
   }

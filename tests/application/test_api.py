@@ -153,6 +153,7 @@ def _api(
             policy=ArtworkPolicy(),
             logger=logger,
             store=artwork_store,
+            ledger=store,
         )
         workflow = IdentificationWorkflow(
             metadata=MetadataService(  # type: ignore[arg-type]
@@ -1289,6 +1290,37 @@ def test_withdrawing_an_edit_gives_the_album_its_word_back(tmp_path: Path) -> No
     assert withdrawn["album"]["operations"] == [], "the plan changes nothing again"
     assert withdrawn["album"]["organized"] is True, "so the album is organized again"
     assert api._store.unit_by_id(unit_id).state == "organized"
+
+
+def test_a_note_typed_inside_the_format_brackets_reaches_the_disk(tmp_path: Path) -> None:
+    """``[FLAC - 1 missing]`` keeps its note; only the label is the measurement's.
+
+    The bracket was taken whole as this application's label, so the note typed
+    after the codec was replaced by the bare label on every apply, with the
+    dialog showing nothing but the plan's own name.
+    """
+    from diglibrary.application.api import _album_reports
+
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    typed = "Marina do Acordeão - Forró (1955) [FLAC - 1 missing]"
+
+    corrected = api.correct(unit_id, typed)
+
+    folder = next(op for op in corrected["album"]["operations"] if op["kind"] == "rename_folder")
+    assert Path(folder["after"]["path"]).name == typed
+    assert api.approve(unit_id)["ok"]
+    assert (library / typed).is_dir()
+    report = _album_reports(api._store.change_log(), {}, {}, {})[0]
+    assert (
+        "".join(run.text for run in report.container_format) == "FLAC"
+    ), "the report's format column reads the label, not the note beside it"
 
 
 def test_a_run_says_what_it_read_and_left_exactly_as_it_was(tmp_path: Path) -> None:
@@ -9724,6 +9756,34 @@ def _embed_in_every_track(folder: Path, data: bytes, side: int) -> None:
         audio.save()
 
 
+def test_a_banner_two_albums_share_is_drawn_on_neither_card(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """A picture carried by two albums that share no recording is not either album's face.
+
+    The second scan is what reveals it, and the first album's card follows:
+    the evidence is about the picture, not about the album that was read last.
+    """
+    library = tmp_path / "library"
+    banner = jpeg(700, 700)
+    for name, source in (
+        ("ana vale - rio aberto", "tone.flac"),
+        ("beto lume - mar", "tone-long.flac"),
+    ):
+        folder = library / name
+        folder.mkdir(parents=True)
+        shutil.copy(FIXTURES / source, folder / "aaa.flac")
+        _embed_in_every_track(folder, banner, 700)
+    release = _release("r1", (400,))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+
+    cards = [api.cover(int(album["unit_id"])) for album in api.state()["albums"]]
+
+    assert len(cards) == 2
+    assert cards == [None, None], "a site's banner is not drawn as the album's face"
+
+
 def test_a_picture_larger_than_the_cover_does_not_take_the_card(
     tmp_path: Path, jpeg: Callable[[int, int], bytes]
 ) -> None:
@@ -9803,6 +9863,77 @@ def test_a_chosen_cover_outranks_every_picture_the_card_would_guess_between(
     unit_id = reopened.state()["albums"][0]["unit_id"]
 
     assert _drawn(tmp_path, reopened.cover(unit_id)) == hashlib.sha256(chosen).hexdigest()
+
+
+def test_the_card_draws_the_chosen_cover_once_it_is_written_not_the_one_the_run_wrote(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """After a chosen cover is written, the card is asked again and draws it.
+
+    The album's own plan, applied earlier in the same session, still holds the
+    picture it staged. That picture was *what will be written* only until the
+    plan ran; read after it, it is the cover the user has just replaced, and the
+    card went back to it the moment the window forgot the one it was drawing.
+    """
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    _embed(folder / "aaa.flac", jpeg(640, 640))
+    (folder / "seed.jpg").unlink()
+    chosen = jpeg(700, 700)
+    sleeve = tmp_path / "sleeve.jpg"
+    sleeve.write_bytes(chosen)
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    api._image_picker = lambda: str(sleeve)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.approve(unit_id)["ok"]
+    assert (
+        api._staged_cover(api._albums[unit_id].outcome.plan) is not None
+    ), "the run wrote a cover of its own, which is the case here"
+    assert api.choose_cover(unit_id)["ok"]
+    assert api.write_chosen_cover(unit_id)["ok"]
+
+    assert _drawn(tmp_path, api.cover(unit_id)) == hashlib.sha256(chosen).hexdigest()
+
+
+def test_a_chosen_cover_is_the_only_cover_in_the_folder_and_the_revert_brings_the_old_one_back(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes], png: Callable[[int, int], bytes]
+) -> None:
+    """A chosen `cover.jpg` takes the folder's `cover.png` aside, and a revert returns it.
+
+    The folder's cover is one file whatever its extension. Written beside a
+    `cover.png`, the chosen picture left the folder with two covers, and the
+    one it replaced was what any other program reading the folder still found.
+    """
+    library = _library(tmp_path)
+    folder = next(path for path in library.iterdir() if path.is_dir())
+    banner = png(500, 500)
+    (folder / "cover.png").write_bytes(banner)
+    sleeve = tmp_path / "sleeve.jpg"
+    sleeve.write_bytes(jpeg(700, 700))
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    api._image_picker = lambda: str(sleeve)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+
+    waiting = api.choose_cover(unit_id)["album"]["cover_choice"]
+    plan_id = api._albums[unit_id].cover_plan_id
+    written = api.write_chosen_cover(unit_id)
+
+    assert waiting["replaces"] >= 1, "the review counts the cover it takes aside"
+    assert written["ok"], written.get("error")
+    assert (folder / "cover.jpg").read_bytes() == sleeve.read_bytes()
+    assert not (folder / "cover.png").exists(), "and the folder is left with one cover"
+    assert plan_id is not None
+    assert api._store.proofs(plan_id)["writes"]["ok"], "and the read-back certifies it"
+
+    reverted = api.revert(plan_id)
+
+    assert reverted["ok"], reverted.get("error")
+    assert (folder / "cover.png").read_bytes() == banner, "the revert puts it back"
+    assert not (folder / "cover.jpg").exists()
 
 
 def test_a_picture_this_application_only_guessed_is_not_a_decision_on_record(
@@ -10695,3 +10826,87 @@ def test_an_album_already_scanned_keeps_its_answer_when_its_folder_is_read_again
     assert api.open_folder(str(library))["ok"]
     _finish_reads(api)
     assert api.state()["albums"][0]["looked_at"], "opening the folder is the same gesture"
+
+
+def test_the_same_audio_downloaded_again_after_its_organized_copy_was_deleted_is_not_organized(
+    tmp_path: Path,
+) -> None:
+    """A fresh download takes the row of the copy it repeats, and not its word.
+
+    The organized folder is gone, so the new folder adopts that album's row by
+    its audio. Inheriting `organized` drew the card finished over files still
+    named as the download left them — and the ✕ could not help, because it
+    keeps the row and the next drop brings the same word back.
+    """
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.approve(unit_id)["ok"]
+    (organized,) = [path for path in library.iterdir() if path.is_dir()]
+    shutil.rmtree(organized)
+
+    fresh = tmp_path / "downloads" / "marina do acordeao - forro"
+    fresh.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", fresh / "aaa.flac")
+    shutil.copy(FIXTURES / "tone-long.flac", fresh / "bbb.flac")
+
+    for gesture in ("drop", "✕ and drop again"):
+        if gesture != "drop":
+            assert api.forget_album(unit_id)["ok"]
+        api.adopt_folders([str(fresh)])
+        _finish_reads(api)
+        again = [event for event in api.events() if event["type"] == "adopted"][-1]["payload"]
+        assert again["unit_ids"] == [unit_id], gesture
+        album = api.album(unit_id)["album"]
+        assert not album["organized"], gesture
+        assert album["applicable"], f"{gesture}: there is something to write to these files"
+
+
+@pytest.mark.parametrize("in_memory", [True, False])
+def test_relocate_onto_a_fresh_copy_of_an_organized_album_does_not_carry_organized(
+    tmp_path: Path, in_memory: bool
+) -> None:
+    """`Relocate…` is the other door by which a folder takes an album's row.
+
+    The audio decides that it is the same record, and only that: the folder
+    pointed at holds the download as it arrived, so the word the row held about
+    the files it replaced is not true of these. A folder renamed by hand is the
+    case it is still true of, and it stays organized.
+    """
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.approve(unit_id)["ok"]
+    (organized,) = [path for path in library.iterdir() if path.is_dir()]
+
+    renamed = organized.with_name("renamed in the Finder")
+    organized.rename(renamed)
+    kept = api.relocate_album(unit_id, str(renamed))
+    assert kept["ok"], kept.get("error")
+    assert kept["album"]["organized"], "the same files, in a folder renamed by hand"
+
+    shutil.rmtree(renamed)
+    fresh = tmp_path / "downloads" / "marina do acordeao - forro"
+    fresh.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", fresh / "aaa.flac")
+    shutil.copy(FIXTURES / "tone-long.flac", fresh / "bbb.flac")
+    if not in_memory:
+        with api._albums_lock:
+            api._albums.pop(unit_id)
+
+    answered = api.relocate_album(unit_id, str(fresh))
+
+    assert answered["ok"], answered.get("error")
+    assert not answered["album"]["organized"]
+    assert answered["album"]["applicable"], "there is something to write to these files"
+    assert api._store.unit_by_id(unit_id).state == "identified"

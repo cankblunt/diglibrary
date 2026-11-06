@@ -81,6 +81,8 @@ word.
 _PRESUMED = "pt"
 
 _ARTICLES = frozenset({"o", "a", "os", "as", "the", "el", "la", "los", "las"})
+_NAME_JOINERS = frozenset({"e", "and", "y", "&", "+"})
+"""The words after which a Portuguese or Spanish `a` inside a name is an article."""
 
 _MARKERS = {
     "pt": frozenset(
@@ -126,7 +128,7 @@ _DASHES = "\u2013\u2014"
 _TOKEN = re.compile(rf"[^\W_]+(?:['{_APOSTROPHE}{_STAND_INS}][^\W_]+)*")
 _INITIALISM = re.compile(r"(?<![^\W_])(?:[^\W\d_]\.){2,}")
 _BREAK = re.compile(rf"\s[-{_DASHES}]\s|[:/()\[\]{{}}{_DASHES}!?¿¡“”«»\"•·]")
-_ARTIST_BREAK = re.compile(rf"\s[-{_DASHES}]\s|[:/()\[\]{{}}{_DASHES}!?¿¡“”«»\"•·&,+]")
+_ARTIST_BREAK = re.compile(rf"\s[-{_DASHES}]\s|[:/()\[\]{{}}{_DASHES}!?¿¡“”«»\"•·&,+;]")
 _DISAMBIGUATOR = re.compile(r"\s\(\d+\)$")
 
 
@@ -210,13 +212,17 @@ def normalize_title(
     return _normalize(text, frozenset(_folded_names(proper_names)), fallback, artist=False)
 
 
-def normalize_artist(name: str, fallback: str | None = None) -> str:
+def normalize_artist(name: str) -> str:
     """Return an artist's name under the same rule, with its articles kept.
 
     A name is a proper noun from end to end, so every article in it belongs to
-    one (`Fulano & Os Amigos`); and `&`, `,` and `+` open a new name.
+    one (`Fulano & Os Amigos`); and `&`, `,`, `+` and `;` open a new name
+    (`;` is how a file's tags list several artists in one value). Only the
+    name's own words say which language it is in: a name is the same name on
+    every release, and asking the release made `Fulano da Silva` read
+    `Fulano Da Silva` on an album whose titles are English.
     """
-    return _normalize(name, frozenset(), fallback, artist=True)
+    return _normalize(name, frozenset(), None, artist=True)
 
 
 def is_shouted(text: str) -> bool:
@@ -235,6 +241,7 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
         return text
     breaks = _ARTIST_BREAK if artist else _BREAK
     kept = [match.span() for match in _INITIALISM.finditer(text)]
+    credited = _name_spans(text, names)
     languages = _part_languages(text, breaks)
     pieces: list[str] = []
     cursor = 0
@@ -251,7 +258,9 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
         # `Carry It On`.
         edge = _opens_a_part(text[:start], breaks) or _closes_a_part(text[end:], breaks)
         language = languages(start) or fallback or _PRESUMED
-        pieces.append(_cased(word, text[start:], edge, language, names, artist))
+        inside = any(low <= start and end <= high for low, high in credited)
+        in_a_name = (artist or inside) and not _a_preposition(word, text[:start], language)
+        pieces.append(_cased(word, text[start:], edge, language, names, in_a_name))
     pieces.append(text[cursor:])
     return "".join(pieces)
 
@@ -305,14 +314,14 @@ def _cased(
     edge: bool,
     language: str | None,
     names: frozenset[str],
-    artist: bool,
+    in_a_name: bool,
 ) -> str:
     folded = word.casefold()
     elided = folded[:2] in ("d'", f"d{_APOSTROPHE}") and len(folded) > 2
     key = "d'" if elided else folded
     if edge or not _small_anywhere(key):
         return _capitalized(word, elided)
-    if key in _ARTICLES and (artist or _opens_a_name(rest, word, names)):
+    if key in _ARTICLES and (in_a_name or _opens_a_name(rest, word, names)):
         return _capitalized(word, elided)
     elsewhere = _CONTENT_ELSEWHERE.get(key, frozenset())
     if not elsewhere or (language is not None and key in _SMALL[language]):
@@ -320,6 +329,20 @@ def _cased(
     if language in elsewhere:
         return _capitalized(word, elided)
     return word
+
+
+def _a_preposition(word: str, before: str, language: str | None) -> bool:
+    """Whether a Portuguese or Spanish `a` in the middle of a name is the preposition.
+
+    Every article inside a name keeps its capital and a preposition does not,
+    and `a` is both. After the words that join two names it opens the second
+    (`Fulano e A Banda`); after any other word it is read as the preposition
+    (`Unidos a Zorvelim`). English `a` is only an article.
+    """
+    if word.casefold() != "a" or language not in ("pt", "es"):
+        return False
+    previous = before.split()[-1:]
+    return bool(previous) and previous[0].casefold() not in _NAME_JOINERS
 
 
 def _small_anywhere(folded: str) -> bool:
@@ -362,6 +385,28 @@ def _opens_a_name(rest: str, word: str, names: frozenset[str]) -> bool:
     folded = rest.casefold()
     after = folded[len(word) :].lstrip()
     return any(_starts_with_name(candidate, names) for candidate in (folded, after))
+
+
+def _name_spans(text: str, names: frozenset[str]) -> list[tuple[int, int]]:
+    """Where a credited name stands whole inside ``text``, so it is written as the name.
+
+    `Fulano & The Band` credited and `Fulano & the Band` as the album's title
+    would otherwise put two spellings of one name side by side in a folder's
+    name. Positions are read off the folded text, so a title that folding
+    lengthens (`ß`) is not searched rather than searched at the wrong places.
+    """
+    folded = unicodedata.normalize("NFC", text).casefold()
+    if len(folded) != len(text):
+        return []
+    spans = []
+    for name in names:
+        start = folded.find(name)
+        while start >= 0:
+            end = start + len(name)
+            if not folded[start - 1 : start].isalnum() and not folded[end : end + 1].isalnum():
+                spans.append((start, end))
+            start = folded.find(name, start + 1)
+    return spans
 
 
 def _starts_with_name(text: str, names: frozenset[str]) -> bool:
@@ -428,7 +473,7 @@ def _folded_names(names: Iterable[str]) -> Iterable[str]:
 def _artist(artist: ArtistMetadata, fallback: str | None) -> ArtistMetadata:
     return replace(
         artist,
-        name=normalize_artist(artist.name, fallback),
+        name=normalize_artist(artist.name),
         joined_by=_joining(artist.joined_by, fallback),
     )
 
@@ -440,8 +485,15 @@ def _joining(words: str | None, fallback: str | None) -> str | None:
     `Banda Do Bairro Com Fulano` — so they answer to the same rule; `Feat.` and
     `Presents` are not joining words in any of the three and keep their capital.
     Framed by a word on each side so that neither end reads as the start of a
-    name, then unframed, which the rule allows because it moves only case.
+    name, then unframed, which the rule allows because it moves only case. An
+    article that ends them opens the next name and is written as part of it:
+    `Fulano & The Band`, `Fulano e Os Amigos`.
     """
     if not words or not words.strip():
         return words
-    return _normalize(f"x {words} x", frozenset(), fallback, artist=False)[2:-2]
+    joined = _normalize(f"x {words} x", frozenset(), fallback, artist=False)[2:-2]
+    last = next(reversed(list(_TOKEN.finditer(joined))), None)
+    if last is not None and last.group().casefold() in _ARTICLES and joined[: last.start()].strip():
+        start, end = last.span()
+        joined = joined[:start] + _first_up(joined[start:end]) + joined[end:]
+    return joined

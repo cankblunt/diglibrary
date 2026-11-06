@@ -20,6 +20,7 @@ from diglibrary.library.naming import (
     TrackFacts,
     existing_designator,
     existing_kind,
+    format_in_name,
     format_label,
     is_various,
     odd_track_labels,
@@ -849,6 +850,26 @@ def test_the_catalogues_own_row_number_does_not_reach_a_folder_name() -> None:
             "FLAC",
             "Someone - Onstage [Deluxe] (1980) [FLAC]",
         ),
+        # A note typed inside the format's own brackets is the user's: it stays,
+        # and the label in front of it still follows the measurement.
+        (
+            "Someone - Record (1980) [FLAC - 1 missing]",
+            "FLAC",
+            "Someone - Record (1980) [FLAC - 1 missing]",
+        ),
+        (
+            "Someone - Record [FLAC - 1 missing]",
+            "FLAC, Lossy",
+            "Someone - Record [FLAC, Lossy - 1 missing]",
+        ),
+        ("Someone - Record [MP3 320 - 2 missing]", "FLAC", "Someone - Record [FLAC - 2 missing]"),
+        ("Someone - Record [Lossy incomplete]", "FLAC", "Someone - Record [FLAC incomplete]"),
+        ("Someone - Record [FLAC, incomplete]", "Lossy", "Someone - Record [Lossy, incomplete]"),
+        # A lossless word takes no rate, so a number after it is the user's.
+        ("Someone - Record [FLAC 1979]", "Lossy", "Someone - Record [Lossy 1979]"),
+        ("Someone - Record [FLAC 24 bit]", "FLAC", "Someone - Record [FLAC 24 bit]"),
+        # A codec's name run into another word is not a label at all.
+        ("Someone - Record [FLACX]", "MP3", "Someone - Record [FLACX]"),
     ],
 )
 def test_a_corrected_name_keeps_its_words_and_not_this_apps_format(
@@ -862,6 +883,20 @@ def test_a_corrected_name_keeps_its_words_and_not_this_apps_format(
     disk, ask whether this application could have put it there.
     """
     assert replace_format_segment(written, label) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("Someone - Record (1980) [FLAC]", "FLAC"),
+        ("Someone - Record (1980) [FLAC, MP3 320 - 1 missing]", "FLAC, MP3 320"),
+        ("Someone - Record (1980) [FLAC] [3 tracks missing]", "FLAC"),
+        ("Someone - Record (1980) [3 tracks missing]", ""),
+        ("Someone - Record (1980)", ""),
+    ],
+)
+def test_the_format_a_name_carries_is_the_label_without_the_note(name: str, label: str) -> None:
+    assert format_in_name(name) == label
 
 
 def _curated(

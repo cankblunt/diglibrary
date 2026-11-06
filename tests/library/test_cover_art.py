@@ -732,6 +732,48 @@ def test_a_cover_that_cannot_be_written_leaves_the_old_one_where_it_was(
     assert backups == [], "and nothing is orphaned in the backup folder"
 
 
+def test_a_cover_that_cannot_be_written_puts_back_the_covers_it_took_aside(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes], png: Callable[[int, int], bytes]
+) -> None:
+    """A `cover.png` taken aside for a chosen `cover.jpg` comes back if the write fails.
+
+    The same reasoning as the cover it replaces: the move happens before the
+    operation can be recorded, so a failure leaves nothing that could revert it.
+    """
+    album = tmp_path / "album"
+    album.mkdir()
+    other = album / "cover.png"
+    other.write_bytes(png(500, 500))
+    staged = tmp_path / "staged.jpg"
+    staged.write_bytes(jpeg(1200, 1200))
+    executor = _executor(tmp_path)
+
+    class RefusingStore(FilesystemArtworkStore):
+        def copy(self, source: Path, destination: Path) -> tuple[Path, ...]:
+            if destination.parent == album and destination.suffix == ".jpg":
+                raise ArtworkError("the drive filled up")
+            return super().copy(source, destination)
+
+    executor._artwork_store = RefusingStore()
+    operation = ChangeOperation(
+        sequence=1,
+        kind=OperationKind.WRITE_IMAGE,
+        target_path=album / "cover.jpg",
+        after_state={
+            "source": str(staged),
+            "digest": "whatever",
+            "kind": "front",
+            "displaces": [str(other)],
+        },
+    )
+
+    with pytest.raises(ArtworkError):
+        executor._write_image(operation)
+
+    assert other.read_bytes() == png(500, 500), "the cover it took aside is back"
+    assert not (album / "cover.jpg").exists()
+
+
 def test_two_discs_carrying_the_same_cover_both_get_it_back_on_a_revert(
     tmp_path: Path, jpeg: Callable[[int, int], bytes]
 ) -> None:
@@ -780,3 +822,71 @@ def test_two_discs_carrying_the_same_cover_both_get_it_back_on_a_revert(
         shared,
         shared,
     ], "each disc gets its own cover back, and the digest proves the bytes are its own"
+
+
+def test_a_banner_is_never_drawn_as_a_files_icon(tmp_path: Path) -> None:
+    """A picture that stands for no album is not the file's cover, so not its icon either."""
+    if sys.platform != "darwin":
+        pytest.skip("The Finder icon is written through the macOS frameworks.")
+    library = _library(tmp_path, "misnamed folder")
+    store = FilesystemArtworkStore()
+    image = tmp_path / "banner.jpg"
+    image.write_bytes(_a_picture_the_system_can_draw())
+    banner = describe_bytes(image.read_bytes())
+    assert banner is not None
+    for track in sorted((library / "misnamed folder").glob("*.flac")):
+        store.embed(track, image)
+
+    drawn = _plan(_rescan(library), Artwork()).operations
+    refused = _plan(_rescan(library), Artwork(not_covers=frozenset({banner.digest}))).operations
+
+    assert len([o for o in drawn if o.after_state.get("icon")]) == 2
+    assert [o for o in refused if o.after_state.get("icon")] == []
+
+
+def test_a_banner_is_replaced_inside_the_files_and_comes_back_on_a_revert(
+    tmp_path: Path, jpeg: Callable[[int, int], bytes]
+) -> None:
+    """Above the floor a picture is kept, unless it is a banner: then it counts as none.
+
+    What it was is still recorded, so taking the plan back puts the banner back.
+    """
+    library = _library(tmp_path, "misnamed folder")
+    store = FilesystemArtworkStore()
+    image = tmp_path / "banner.jpg"
+    image.write_bytes(jpeg(700, 700))
+    banner = describe_bytes(image.read_bytes())
+    assert banner is not None
+    for track in sorted((library / "misnamed folder").glob("*.flac")):
+        store.embed(track, image)
+    artwork = _artwork(tmp_path, jpeg, front=(1200, 1200), embed=(500, 500))
+
+    kept = _plan(_rescan(library), artwork)
+    assert [o for o in kept.operations if o.kind is OperationKind.EMBED_IMAGE] == []
+
+    plan = _plan(
+        _rescan(library),
+        Artwork(
+            files=artwork.files, embedded=artwork.embedded, not_covers=frozenset({banner.digest})
+        ),
+    )
+    replacements = [
+        o
+        for o in plan.operations
+        if o.kind is OperationKind.EMBED_IMAGE and not o.after_state.get("icon")
+    ]
+    assert len(replacements) == 2 and all(o.after_state["width"] == 500 for o in replacements)
+
+    executor = _executor(tmp_path)
+    result = executor.apply(plan)
+    tracks = sorted((library / ALBUM_NAME).glob("*.flac"))
+    assert {store.describe_embedded(track).digest for track in tracks} == {  # type: ignore[union-attr]
+        artwork.embedded.facts.digest  # type: ignore[union-attr]
+    }
+
+    executor.revert(result)
+
+    given_back = sorted((library / "misnamed folder").glob("*.flac"))
+    assert {store.describe_embedded(track).digest for track in given_back} == {  # type: ignore[union-attr]
+        banner.digest
+    }
