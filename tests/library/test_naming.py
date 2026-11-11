@@ -15,6 +15,7 @@ from diglibrary.application.contracts import (
 from diglibrary.library.audio import AudioProperties
 from diglibrary.library.naming import (
     NAMING_STYLES,
+    FolderReading,
     NamingError,
     NamingPolicy,
     TrackFacts,
@@ -24,6 +25,7 @@ from diglibrary.library.naming import (
     format_label,
     is_various,
     odd_track_labels,
+    read_folder_name,
     replace_format_segment,
     sanitize_component,
 )
@@ -1074,3 +1076,67 @@ def test_qualities_are_named_best_first() -> None:
 
 def test_a_transcode_keeps_its_word_whatever_was_measured() -> None:
     assert format_label([_stream("flac")], (True,), "Lossy", [192]) == "Lossy"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        (
+            "Orchard Duo - Quiet Harbour Tapes (1977) [FLAC]",
+            FolderReading(
+                "Orchard Duo - Quiet Harbour Tapes (1977)",
+                "Orchard Duo",
+                "Quiet Harbour Tapes",
+                "1977",
+            ),
+        ),
+        # A note inside the label's brackets, and one in brackets of its own.
+        (
+            "Artist - Album (Ed. 1993) (1979) [FLAC - 2 missing]",
+            FolderReading("Artist - Album (Ed. 1993) (1979)", "Artist", "Album (Ed. 1993)", "1979"),
+        ),
+        (
+            "Artist - Album (1991) [FLAC] [missing track 4]",
+            FolderReading("Artist - Album (1991)", "Artist", "Album", "1991"),
+        ),
+        (
+            "Artist - X (2001) [MP3 320, MP3 128]",
+            FolderReading("Artist - X (2001)", "Artist", "X", "2001"),
+        ),
+        # A year inside a designator stays where it was written.
+        (
+            "Artist - Single Name (Single - 1976) [FLAC]",
+            FolderReading(
+                "Artist - Single Name (Single - 1976)", "Artist", "Single Name (Single - 1976)", ""
+            ),
+        ),
+        # Only the first separator divides credit from title.
+        (
+            "Artist - Side A - Side B (Single - 2024) [FLAC]",
+            FolderReading(
+                "Artist - Side A - Side B (Single - 2024)",
+                "Artist",
+                "Side A - Side B (Single - 2024)",
+                "",
+            ),
+        ),
+        # No separator: no credit is guessed, the whole remainder is the title.
+        (
+            "Artist- Album (2015) [FLAC]",
+            FolderReading("Artist- Album (2015)", "", "Artist- Album", "2015"),
+        ),
+        # A bracket that is not a format label is part of the name.
+        (
+            "Artist - Album [Live]",
+            FolderReading("Artist - Album [Live]", "Artist", "Album [Live]", ""),
+        ),
+    ],
+)
+def test_a_folder_name_is_read_back_as_written_without_its_format(
+    name: str, expected: FolderReading
+) -> None:
+    assert read_folder_name(name) == expected
+
+
+def test_a_folder_name_that_is_only_a_format_reads_as_nothing() -> None:
+    assert read_folder_name("[FLAC]") is None

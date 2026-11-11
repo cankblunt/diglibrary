@@ -2896,6 +2896,41 @@ class LibraryStore:
                 """).fetchall()
         return {row[0]: (row[1], row[2]) for row in rows}
 
+    def last_applied_renames(self, unit_id: int) -> tuple[tuple[str, Path, Path], ...]:
+        """Return the renames still standing from the album's latest applied plan.
+
+        Each is ``(kind, before, after)``, in the plan's own order. The latest
+        applied plan that renamed anything, so a later apply of artwork alone
+        does not hide the names. An operation reverted since is left out, which
+        is also what makes a wholly reverted plan answer nothing.
+        """
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT o.kind, o.target_path, o.after_state
+                FROM change_operations o
+                WHERE o.change_plan_id = (
+                    SELECT p.id FROM change_plans p
+                    WHERE p.album_unit_id = ? AND p.state = 'applied'
+                      AND EXISTS (
+                          SELECT 1 FROM change_operations r
+                          WHERE r.change_plan_id = p.id
+                            AND r.kind IN ('rename_file', 'rename_folder')
+                            AND r.applied_at IS NOT NULL AND r.reverted_at IS NULL
+                      )
+                    ORDER BY p.id DESC LIMIT 1
+                )
+                  AND o.kind IN ('rename_file', 'rename_folder')
+                  AND o.applied_at IS NOT NULL AND o.reverted_at IS NULL
+                ORDER BY o.sequence
+                """,
+                (unit_id,),
+            ).fetchall()
+        return tuple(
+            (kind, Path(target), Path(str(json.loads(after)["path"])))
+            for kind, target, after in rows
+        )
+
     def plan_unit(self, plan_id: int) -> int | None:
         """Return the album a plan belongs to."""
         with self._database.connect() as connection:

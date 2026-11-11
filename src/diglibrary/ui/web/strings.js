@@ -769,6 +769,9 @@ export const STR = {
   planHeadNow: "Now on disk",
   planHeadAfter: "After applying",
   planFolder: "Folder",
+  namesAppliedHeading: "Names given by the last apply",
+  namesAppliedWas: "How it was",
+  namesAppliedNow: "How it is now",
   planFinderTags: "Finder",
   finderTagsNone: "no tags",
   finderTagsPlaceholder: "Add a Finder tag",
@@ -789,8 +792,8 @@ export const STR = {
   editTitle:
     "Edit the track title — what you type here is written into the file's tag "
     + "and into its file name, and it outranks the catalogue.",
-  // Only on a compilation, which is the only kind of album that writes a track's
-  // artist into its file name. The sentence says the one thing the
+  // On a compilation, which writes a track's whole credit into its file name.
+  // The sentence says the one thing the
   // field does not look like it does: the name keeps the credit whole, and the
   // tag gets it as separate artists, because that is what a player groups by.
   editArtist:
@@ -798,6 +801,13 @@ export const STR = {
     + "file name exactly as you write it, and it outranks the catalogue. In the "
     + "tag it is stored as separate artists, split at every “,” and “&”, so a "
     + "player can group by each of them.",
+  // The same field on a track whose guests are written as `(feat. …)`. The
+  // sentence says what the file name does with what is typed, which is not
+  // what a compilation's name does with it.
+  editGuests:
+    "Edit who this track is credited to. In the file name the album's artist "
+    + "is left out and everyone after them is written as (feat. …); in the tag "
+    + "every artist is stored, split at every “,” and “&”.",
   planNoArtist: "no artist",
   historyAlbum: "Artist - Album",
   historyWhen: "Applied",
@@ -1169,7 +1179,7 @@ export const STR = {
     + "Nothing on disk is touched either way.",
   tipReject: "Say this identification is wrong. The files are left untouched and the album drops out of the run.",
   tipHold: "Keep this album out of the automatic run and decide about it yourself later.",
-  tipAlbumMore: "The ways back in: scan or plan this album again, or arrange it by its own tags.",
+  tipAlbumMore: "Rarer gestures for this album, such as reading its key and tempo.",
   // Walking the shelf from inside the dialog, and saying the position.
   // The words name the shelf on purpose: what these move through is the list
   // the Library is drawing, filter and search and order included.

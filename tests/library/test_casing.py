@@ -79,7 +79,7 @@ def test_only_case_ever_moves() -> None:
 def test_a_word_that_is_a_word_in_another_language_follows_the_album() -> None:
     """Where the part says nothing, the release's language is asked; failing that, Portuguese."""
     assert normalize_title("Orquestra Da Serra") == "Orquestra da Serra"
-    assert normalize_title("No Money No Love", fallback="en") == "No Money No Love"
+    assert normalize_title("No Lantern No Road", fallback="en") == "No Lantern No Road"
     assert normalize_title("Sons Da Mata", fallback="en") == "Sons Da Mata"
     assert normalize_title("O Que For Melhor") == "O Que For Melhor"
 
@@ -265,3 +265,32 @@ def test_the_words_between_two_credited_names_answer_to_the_rule() -> None:
 )
 def test_a_capital_no_name_is_spelled_with_is_lowered(typed, written) -> None:
     assert normalize_title(typed) == written
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # The shapes the title repair lowers are an artist's real spelling here.
+        "ZNorvão",
+        "Os Zorvos MC's",
+        "Os Zorvos MC\u2019s",
+        "Plimbo ZiléZilé",
+    ],
+)
+def test_an_artist_s_name_keeps_the_capitals_a_title_would_lose(name) -> None:
+    assert normalize_artist(name) == name
+
+
+def test_a_credited_name_inside_a_title_keeps_its_capitals_too() -> None:
+    assert normalize_title("Canto Com ZNorvão", ["ZNorvão"]) == "Canto com ZNorvão"
+    assert (
+        normalize_title("Canto Com ZNorvão") == "Canto com Znorvão"
+    ), "uncredited, it is a title's own word and the repair still reaches it"
+
+
+def test_a_release_s_artists_keep_their_capitals_on_the_way_to_a_name() -> None:
+    release = replace(
+        _release(),
+        artists=(ArtistMetadata(name="ZNorvão"),),
+    )
+    assert normalize_release(release).artists[0].name == "ZNorvão"

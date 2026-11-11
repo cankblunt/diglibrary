@@ -980,15 +980,16 @@ def test_an_album_in_review_is_offered_the_way_out_in_the_row() -> None:
     that answers it — arrange this album by its own tags — must not be behind
     the menu.
 
-    Hung on `review`, which is this application's own word for *look at this
-    yourself*, so no threshold is invented here and none has to be maintained.
+    Which albums are offered it is decided by `offersArrangeByTags`, and
+    `test_arrange_by_tags_is_offered.py` runs that function over every case.
+    This one checks only that the footer asks it.
     """
     assert 'id="album-arrange-tags"' in MARKUP, "the way out left the footer"
     hidden = re.search(r'\$\("album-arrange-tags"\)\.hidden = ([^;]+);', SCRIPT)
     assert hidden, "nothing decides when the way out is drawn"
-    assert 'album.decision !== "review"' in hidden.group(1), (
-        "the way out is drawn by some other rule than the one word this "
-        f"application uses for not being convinced: {hidden.group(1)!r}"
+    assert hidden.group(1).strip() == "!offersArrangeByTags(album)", (
+        "the way out is drawn by some other rule than the one function that "
+        f"decides it: {hidden.group(1)!r}"
     )
     assert re.search(r'\$\("album-arrange-tags"\)\.addEventListener', SCRIPT), (
         "the button is drawn and wired to nothing, which is the deadest thing "
@@ -3021,3 +3022,18 @@ def test_the_match_sentence_names_which_half_is_open() -> None:
         "3 paired both ways · 2 files without a track · 1 track without a file",
     ]
     assert "of" not in said[0].split(" · ")[0], "no total that reads as a count of the files"
+
+
+def test_the_credit_field_is_offered_where_the_server_says_a_name_carries_one() -> None:
+    """Which tracks carry a credit is the naming rule's answer, sent as `credited`.
+
+    A compilation writes the whole credit and a track with guests writes them as
+    `(feat. …)`; the window reassembling either rule from `is_various` would be
+    a second copy of it, and the field would go missing on exactly the tracks the
+    new rule names.
+    """
+    found = re.search(r"\n\s*credit: ([^\n?]+)\n\s*\?", SCRIPT)
+    assert found, "nothing decides which tracks offer a credit field"
+    assert (
+        found.group(1).strip() == "track.credited"
+    ), f"the credit field is decided by something other than the server: {found.group(1)!r}"

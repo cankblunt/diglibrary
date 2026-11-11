@@ -646,11 +646,16 @@ function sortAlbums(albums) {
   const by = {
     recent,
     oldest: (a, b) => a.unit_id - b.unit_id,
-    artist: (a, b) => text(a.artist).localeCompare(text(b.artist)) || recent(a, b),
-    album: (a, b) => text(a.title || a.folder).localeCompare(text(b.title || b.folder)) || recent(a, b),
+    // By the names the shelf shows, or the order reads as shuffled.
+    artist: (a, b) =>
+      text(onDiskName(a).artist).localeCompare(text(onDiskName(b).artist)) || recent(a, b),
+    album: (a, b) =>
+      text(onDiskName(a).title).localeCompare(text(onDiskName(b).title)) || recent(a, b),
     // No year sorts last rather than as zero, which would put every album the
     // sources could not date at the top of a list about years.
-    year: (a, b) => (b.year || -Infinity) - (a.year || -Infinity) || recent(a, b),
+    year: (a, b) =>
+      (Number(onDiskName(b).year) || -Infinity) - (Number(onDiskName(a).year) || -Infinity) ||
+      recent(a, b),
     rating_best: byRating(true),
     rating_worst: byRating(false),
   };
@@ -1237,6 +1242,8 @@ async function scanOneFromMenu(unitId) {
  * what an organized album looks like, it is not repeated.
  */
 function fullNameFor(album) {
+  // An organized album is named by its folder, so the folder is the full name.
+  if (album.named_on_disk) return album.folder;
   const named = [album.artist, album.title].filter(Boolean).join(" — ");
   if (!named) return album.folder;
   // An organized album's folder *is* its credit and title, plus the year and
@@ -1253,6 +1260,19 @@ function fullNameFor(album) {
     .filter(Boolean)
     .every((piece) => sameWords(album.folder, piece));
   return saidAlready ? album.folder : `${named}\n${album.folder}`;
+}
+
+/** The name the shelf shows for an album: its folder's, once it is organized.
+ *
+ * The server reads the folder (`named_on_disk`) and the window never splits a
+ * folder name itself. Before the album is organized the folder is still the
+ * name it arrived with, so the catalogue's credit and title are shown.
+ * `title` falls back to the folder, which is what an album nothing named has.
+ */
+function onDiskName(album) {
+  const disk = album.named_on_disk;
+  if (disk) return { artist: disk.artist, title: disk.title, year: disk.year };
+  return { artist: album.artist || "", title: album.title || album.folder, year: album.year || "" };
 }
 
 /** Whether one name already says everything another one says.
@@ -1330,10 +1350,11 @@ function card(album) {
   body.className = "card-body";
   const title = document.createElement("div");
   title.className = "card-title";
-  title.textContent = album.title || album.folder;
+  const shown = onDiskName(album);
+  title.textContent = shown.title;
   const sub = document.createElement("div");
   sub.className = "card-sub";
-  sub.textContent = [album.artist, album.year].filter(Boolean).join(" · ") || STR.tracks(album.tracks);
+  sub.textContent = [shown.artist, shown.year].filter(Boolean).join(" · ") || STR.tracks(album.tracks);
   // No third line with the folder on disk: on an organized album it would
   // repeat the two lines above it. Nothing is lost — an album no source has
   // named already shows its folder as the title, and the folder is on the
@@ -1496,12 +1517,13 @@ function listRow(album) {
     coverObserver.observe(row);
   }
 
+  const shown = onDiskName(album);
   const artist = document.createElement("td");
-  artist.textContent = album.artist || "";
+  artist.textContent = shown.artist;
   const title = document.createElement("td");
-  title.textContent = album.title || album.folder;
+  title.textContent = shown.title;
   const year = document.createElement("td");
-  year.textContent = album.year || "";
+  year.textContent = shown.year;
   // Which folder on disk this row is about — the column that lets a result be
   // taken back to the Finder.
   const folder = document.createElement("td");
@@ -2405,6 +2427,60 @@ async function expandCandidate(candidate, body) {
  * the album's own plan: an album is never applied in part, and a plan that
  * only partly matches shows its blockers instead of a smaller offer.
  */
+/** The names the last apply gave, beside the names they replaced.
+ *
+ * Drawn only while the editor is not: once the plan on screen has run, or the
+ * album is organized and asleep, the editor is hidden because its rows would be
+ * edits made against the past — and with it went the only place the folder's
+ * new name could be read. Read-only; `Plan this album again` brings the editor
+ * back. The pairs come from the server (`names_applied`), which reads them off
+ * the plan that was applied.
+ */
+function renderNamesApplied(album) {
+  const fold = $("names-applied-fold");
+  const table = $("names-applied");
+  const rows = album.names_applied || [];
+  fold.hidden = rows.length === 0 || !$("plan-editor").hidden;
+  if (fold.hidden) {
+    table.replaceChildren();
+    return;
+  }
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const [text, className] of [
+    ["", "plan-label"],
+    [STR.namesAppliedWas, ""],
+    ["", "plan-arrow"],
+    [STR.namesAppliedNow, ""],
+  ]) {
+    const cell = document.createElement("th");
+    cell.textContent = text;
+    if (className) cell.className = className;
+    headRow.appendChild(cell);
+  }
+  head.appendChild(headRow);
+  const body = document.createElement("tbody");
+  for (const pair of rows) {
+    const row = document.createElement("tr");
+    row.className = "plan-row";
+    const caption = document.createElement("td");
+    caption.className = "plan-label";
+    caption.textContent = pair.kind === "folder" ? STR.planFolder : "";
+    const was = document.createElement("td");
+    was.className = "plan-now";
+    was.textContent = pair.was;
+    const arrow = document.createElement("td");
+    arrow.className = "plan-arrow";
+    arrow.textContent = "→";
+    const now = document.createElement("td");
+    now.className = "plan-after";
+    now.textContent = pair.now;
+    row.append(caption, was, arrow, now);
+    body.appendChild(row);
+  }
+  table.replaceChildren(head, body);
+}
+
 function renderPlanEditor(album, offered) {
   const editor = $("plan-editor");
   editor.replaceChildren();
@@ -2645,17 +2721,18 @@ function renderPlanEditor(album, offered) {
                 files: everyFile,
               },
         dataset: { key: `track-${track.position}`, position: track.position, field: "title" },
-        // A compilation writes a credit into each file name, and the
-        // catalogue's credit is not always the one wanted. So the credit is a
-        // field of its own beside the title — never a raw name field, which
-        // would leave the app guessing which half is which. It is offered
-        // empty too: a compilation track the catalogue credits to nobody is
-        // exactly the one worth naming.
-        credit: album.is_various
+        // A compilation writes a credit into each file name, and a track with
+        // guests writes them as `(feat. …)`; the catalogue's credit is not
+        // always the one wanted. So the credit is a field of its own beside the
+        // title — never a raw name field, which would leave the app guessing
+        // which half is which. Which tracks carry one is the server's answer,
+        // `credited`. On a compilation it is offered empty too: a track the
+        // catalogue credits to nobody is exactly the one worth naming.
+        credit: track.credited
           ? {
               key: `track-${track.position}-artist`,
               value: credits.get(track.position) || track.artist || "",
-              hint: STR.editArtist,
+              hint: album.is_various ? STR.editArtist : STR.editGuests,
               placeholder: STR.planNoArtist,
               dataset: {
                 key: `track-${track.position}-artist`,
@@ -4104,9 +4181,13 @@ function approveIsClosed(album) {
 function renderAlbumDialog(album) {
   state.openAlbum = album;
   renderSharedAudio(album);
-  $("album-title").textContent = album.title
-    ? `${album.artist} — ${album.title}`
-    : album.folder;
+  // An organized album is titled by its folder, without the format label: the
+  // name to look for in the Finder, a corrected one included.
+  $("album-title").textContent = album.named_on_disk
+    ? album.named_on_disk.name
+    : album.title
+      ? `${album.artist} — ${album.title}`
+      : album.folder;
   // The edition's own facts — format, country, label. Every edition of one
   // album shares a title and a year, so without these the header reads
   // identically before and after "Use this".
@@ -4346,6 +4427,7 @@ function renderAlbumDialog(album) {
   // written, so there is no second surface to disagree.
   const shown = offeringPart ? album.partial_operations || [] : album.operations;
   renderPlanEditor(album, shown);
+  renderNamesApplied(album);
   // The names live in the editor above; this list carries what has no name to
   // edit — the tags, and the pictures. The folder's Finder tags have a row of
   // their own up there too, so they are not said a second time here.
@@ -4545,10 +4627,7 @@ function renderAlbumDialog(album) {
   // History's `Revert` for the files.
   $("album-reject").disabled =
     album.applied || album.organized_on_record || beingLookedUp;
-  // The way out of an identification nothing believes, in the row rather than
-  // only behind the ⋯. `review` is this application's own word for not being
-  // convinced, so this hangs off it and invents no threshold.
-  $("album-arrange-tags").hidden = album.decision !== "review" || album.written;
+  $("album-arrange-tags").hidden = !offersArrangeByTags(album);
   // Which of the two is the invitation. While no catalogue has been asked
   // about this album, what is on offer was worked out from its own tags on the
   // way in, and the gesture that would change that is the scan — so the scan
@@ -4652,6 +4731,26 @@ async function stepThroughShelf(step) {
  * Built when the menu opens rather than kept as buttons, so each entry's rule
  * sits here beside the state it reads.
  */
+/** Whether the footer offers `Arrange by its own tags` for this album.
+ *
+ * The footer is the gesture's only home since the ⋯ entry was removed, so an
+ * album this returns false for has no way to be arranged by its tags at all.
+ * Offered wherever a catalogue named the album and its files have not been
+ * written: in `review`, which is this application's own word for not being
+ * convinced, and in `automatic` too, because a confident identification can
+ * still name the wrong record. Not after the files are written — an
+ * automatic album that is organized, or applied this session, is finished with.
+ * `review` keeps its earlier rule and stays offered over an organized album.
+ * Not for `unidentified`, which was never offered it: no catalogue named the
+ * album, so there is no identification for the gesture to set aside.
+ */
+function offersArrangeByTags(album) {
+  if (album.written) return false;
+  if (album.decision === "review") return true;
+  if (album.decision === "automatic") return !album.organized;
+  return false;
+}
+
 function albumMoreItems() {
   const album = state.openAlbum || {};
   const unscanned = album.looked_at === false;
@@ -11862,9 +11961,8 @@ function openMeasurePicker({ keepSearch = false } = {}) {
         box.checked = picked.has(album.unit_id);
         const name = document.createElement("span");
         name.className = "measure-row-name";
-        name.textContent = album.artist
-          ? `${album.artist} — ${album.title || album.folder}`
-          : album.title || album.folder;
+        const shown = onDiskName(album);
+        name.textContent = shown.artist ? `${shown.artist} — ${shown.title}` : shown.title;
         row.append(box, name);
         if (known.has(album.unit_id)) {
           const already = document.createElement("span");

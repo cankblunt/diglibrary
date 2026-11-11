@@ -235,7 +235,7 @@ brew install chromaprint
 Baixe o ZIP da
 [versão mais recente](https://github.com/cankblunt/diglibrary/releases/latest) e
 dê dois cliques nele. Você fica com uma pasta chamada algo como
-`diglibrary-1.9.0`, normalmente em **Downloads**. Deixe-a lá ou mova para onde
+`diglibrary-1.10.0`, normalmente em **Downloads**. Deixe-a lá ou mova para onde
 você guarda as suas coisas — só lembre onde.
 
 ### 4. Apontar o Terminal para essa pasta
@@ -245,7 +245,7 @@ janela do Terminal** — ele escreve o caminho por você — e aperte Return
 (Enter).
 
 ```bash
-cd ~/Downloads/diglibrary-1.9.0
+cd ~/Downloads/diglibrary-1.10.0
 ```
 
 ### 5. Criar um lugar para ele morar

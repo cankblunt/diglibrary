@@ -140,7 +140,9 @@ from diglibrary.library.naming import (
     facts_from_properties,
     format_in_name,
     format_label,
+    guest_credit,
     is_various,
+    read_folder_name,
 )
 from diglibrary.library.planner import ChangeOperation, ChangePlan, ChangePlanner, OperationKind
 from diglibrary.library.report import AlbumReport, Ink, Run, change, write_change_report
@@ -9476,6 +9478,11 @@ class LibraryApi:
             # earlier one are the same thing about the album; which session did
             # it is a fact about a run, and lives in `applied`.
             "organized": state.organized or state.applied,
+            "named_on_disk": _named_on_disk(
+                state.unit.folder_path,
+                organized=state.organized or state.applied,
+                loose=state.unit.is_loose_track,
+            ),
             "applicable": bool(outcome.plan is not None and outcome.plan.is_applicable),
             "title": release.title if release else None,
             "artist": (written_credit(release.artists) if release else None),
@@ -9685,6 +9692,8 @@ class LibraryApi:
         # different word here*. Two titles that differ by one real word are
         # several edits apart, which no rule over letters may settle.
         backing = _witness_backing_user_titles(outcome.verification)
+        release = normalize_release(outcome.candidate.release) if outcome.candidate else None
+        various = release is not None and is_various(release)
         payload["release_tracks"] = (
             [
                 {
@@ -9692,6 +9701,14 @@ class LibraryApi:
                     "title": corrected_titles.get(track.position, track.title),
                     # The credit as this track's file name writes it.
                     "artist": corrected_credits.get(track.position, _written_credit(track)),
+                    # Whether this track's file name carries a credit, so the
+                    # window offers the field to correct it: every track of a
+                    # compilation, a track whose name gives its guests as
+                    # `(feat. …)`, and one whose credit was corrected, so that
+                    # a correction that took the guests away can be withdrawn.
+                    "credited": various
+                    or guest_credit(release, track) is not None
+                    or track.position in corrected_credits,
                     **_user_spelling_offer(
                         mine.get(track.position),
                         track.title,
@@ -9701,16 +9718,16 @@ class LibraryApi:
                 }
                 # In the case the plan writes, since an untouched field is what
                 # gets written.
-                for track in normalize_release(outcome.candidate.release).tracks
+                for track in release.tracks
             ]
-            if outcome.candidate
+            if release is not None
             else []
         )
-        # Only a compilation puts a track's artist into its file name, so only a
-        # compilation offers one to type. The window is told the fact rather
-        # than deriving it: the rule that decides the name has to be the rule
-        # that decides the field, or the field appears where the name has
-        # nowhere to put what it holds.
+        # Whether the album is a compilation, which decides more than the credit
+        # field: each track's `credited` above is what decides the field. The
+        # window is told the facts rather than deriving them: the rule that
+        # decides the name has to be the rule that decides the field, or the
+        # field appears where the name has nowhere to put what it holds.
         payload["is_various"] = (
             is_various(outcome.candidate.release) if outcome.candidate else False
         )
@@ -9719,6 +9736,13 @@ class LibraryApi:
         # rather than in the window so that what is offered and what counts as
         # a correction cannot drift apart.
         payload["planned_folder"] = _planned_folder_name(state.unit, outcome.plan)
+        # The names the last apply changed, as they were and as they are now, so
+        # an organized album can be found on disk under the name it was given.
+        payload["names_applied"] = (
+            _names_applied(self._store.last_applied_renames(state.unit_id), state.unit.folder_path)
+            if (state.organized or state.applied) and not state.unit.is_loose_track
+            else []
+        )
         # The folder's Finder tags as they stand, read now. `None` where the
         # folder cannot carry any — another system, or a single loose track —
         # and the window then draws no row for them.
@@ -11624,6 +11648,63 @@ def _opener_that_says_so(opener: PathOpener | None, logger: logging.Logger) -> P
     return opened
 
 
+def _named_on_disk(folder: Path, *, organized: bool, loose: bool) -> dict[str, str] | None:
+    """What an organized album's folder is called, read back as credit, title and year.
+
+    **What the card names is what the Finder shows.** The catalogue's credit and
+    title are what the plan proposed; once the album is organized, the folder
+    holds whatever was written — a corrected name included — so a card drawn
+    from the catalogue names an album that is nowhere on disk. Read from the
+    folder name this row records, so the answer follows the folder only as far
+    as the row does.
+
+    ``None`` for an album not yet organized, where the folder is still the name
+    it arrived with, and for a loose track, which has no folder of its own.
+    """
+    if not organized or loose:
+        return None
+    reading = read_folder_name(folder.name)
+    if reading is None:
+        return None
+    return {
+        "name": reading.name,
+        "artist": reading.artist,
+        "title": reading.title,
+        "year": reading.year,
+    }
+
+
+def _names_applied(
+    renames: Sequence[tuple[str, Path, Path]], folder_now: Path
+) -> list[dict[str, str]]:
+    """Pair each name the last apply changed with the name it carries now.
+
+    The album's own folder — the outermost one renamed — is given the name its
+    row holds today rather than the one the plan wrote, because that is the
+    name on disk if it was renamed again in the Finder and found since. A disc
+    folder and a file keep the plan's own after-name.
+
+    Folders first, then files in the order of their new names, which is the
+    order the Finder lists them in.
+    """
+    folders = [(before, after) for kind, before, after in renames if kind == "rename_folder"]
+    outermost = min(folders, key=lambda pair: len(pair[0].parts), default=None)
+    rows = [
+        {
+            "kind": "folder",
+            "was": before.name,
+            "now": folder_now.name if (before, after) == outermost else after.name,
+        }
+        for before, after in folders
+    ]
+    files = sorted(
+        ((before, after) for kind, before, after in renames if kind == "rename_file"),
+        key=lambda pair: pair[1].name.casefold(),
+    )
+    rows.extend({"kind": "file", "was": before.name, "now": after.name} for before, after in files)
+    return rows
+
+
 def _shelf_summary(row: Mapping[str, object], origin_of: Callable[[int], str]) -> dict[str, object]:
     """Describe one album from the database's columns alone.
 
@@ -11650,6 +11731,11 @@ def _shelf_summary(row: Mapping[str, object], origin_of: Callable[[int], str]) -
         "source": row.get("source"),
         "confidence": row.get("confidence") or 0.0,
         "organized": row.get("state") == "organized",
+        "named_on_disk": _named_on_disk(
+            Path(str(row["folder_path"])),
+            organized=row.get("state") == "organized",
+            loose=Path(str(row["folder_path"])).is_file(),
+        ),
         "folder_missing": not Path(str(row["folder_path"])).is_dir(),
         "decision": "review",
         "looked_at": named,

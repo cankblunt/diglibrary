@@ -4,6 +4,21 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.10.0
+
+### Added
+
+- A track that credits guests beside the album's artist names them in its file name, after the title: `01. Title (feat. A & B).flac`. The tags keep the whole credit, as before, and the credit can be edited on the track. An album already organized receives it only when it is planned again.
+
+### Changed
+
+- An organized album is shown on the shelf and in its dialog under the name of its folder, and the dialog shows the names the last apply gave beside the names they replaced.
+- An album identified with confidence and not yet written offers Arrange by its own tags in its dialog.
+
+### Fixed
+
+- An artist's name keeps its own capitals. A second capital at the start of a name, or one beside an accented letter, is no longer lowered as a slip; the words of a title still are.
+
 ## 1.9.0
 
 ### Added

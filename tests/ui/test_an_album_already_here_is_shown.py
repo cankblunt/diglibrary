@@ -78,7 +78,7 @@ def _run(body: str) -> dict:
         + constant.group(0)
         + "\n".join(
             _function(source, name)
-            for name in ("sortAlbums", "floatToTheTop", "announceKnown", "pointOut")
+            for name in ("sortAlbums", "onDiskName", "floatToTheTop", "announceKnown", "pointOut")
         )
         + ";\n(async () => {\n"
         + body

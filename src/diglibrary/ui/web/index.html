@@ -1055,6 +1055,14 @@
             data-str="coverDiscard">Not this one</button>
         </div>
 
+        <!-- What the last apply named this album and its files, once the
+             names on disk are no longer the plan's to edit: the name to look
+             for in the Finder. Read-only; Plan this album again edits. -->
+        <details id="names-applied-fold" class="fold" open hidden>
+          <summary data-str="namesAppliedHeading">Names given by the last apply</summary>
+          <table id="names-applied" class="plan-table"></table>
+        </details>
+
         <!-- One surface, not two: what will be written is what can be
              edited, so there is no second form to forget to send. -->
         <details id="plan-details" class="fold">

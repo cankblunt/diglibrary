@@ -247,7 +247,13 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
     cursor = 0
     for match in _TOKEN.finditer(text):
         start, end = match.span()
-        word = _repaired(match.group())
+        inside = any(low <= start and end <= high for low, high in credited)
+        # A name keeps its own capitals. The shapes the repair lowers were
+        # measured as slips in titles, and in artists' names the same shapes
+        # were the name's real spelling every time — `ZNorvão`, `Os Zorvos
+        # MC's`. So the repair reaches a title's own words and never an
+        # artist's name, nor a credited name standing whole inside a title.
+        word = match.group() if artist or inside else _repaired(match.group())
         pieces.append(text[cursor:start])
         cursor = end
         if _left_alone(word, text, start, end, kept):
@@ -258,7 +264,6 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
         # `Carry It On`.
         edge = _opens_a_part(text[:start], breaks) or _closes_a_part(text[end:], breaks)
         language = languages(start) or fallback or _PRESUMED
-        inside = any(low <= start and end <= high for low, high in credited)
         in_a_name = (artist or inside) and not _a_preposition(word, text[:start], language)
         pieces.append(_cased(word, text[start:], edge, language, names, in_a_name))
     pieces.append(text[cursor:])
@@ -266,7 +271,11 @@ def _normalize(text: str, names: frozenset[str], fallback: str | None, *, artist
 
 
 def _repaired(word: str) -> str:
-    """Undo the two capitals inside a word that no name is spelled with.
+    """Undo the two capitals inside a title's word that are slips, not spelling.
+
+    Asked of a title's own words only: an artist's name is spelled however its
+    artist spells it, and both shapes turn up in names as the spelling the
+    catalogue publishes — a stylised capital, a doubled name.
 
     A capital inside a word is usually deliberate — `McZorvo`, `ZunZun`,
     `iPhone` — and is left alone. Two shapes are not. A second capital held

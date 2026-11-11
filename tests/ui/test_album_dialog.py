@@ -63,6 +63,7 @@ const state = {
 };
 let editorHidden = true;
 function renderPlanEditor() { $("plan-editor").hidden = editorHidden; }
+function renderNamesApplied() {}
 function renderAlbumSteps() {}
 function renderEssentials() {}
 function renderRating() {}
@@ -126,7 +127,12 @@ def _dialog() -> str:
             # with `approveAlbum`, so the rule travels with the dialog.
             rule = re.search(r"^function approveIsClosed\(album\) \{.*?\n\}", source, re.M | re.S)
             assert rule, "no approveIsClosed() beside the dialog; this guard reads the wrong file"
-            return rule.group(0) + "\n" + "\n".join(kept)
+            # So does the footer's `Arrange by its own tags`.
+            offers = re.search(
+                r"^function offersArrangeByTags\(album\) \{.*?\n\}", source, re.M | re.S
+            )
+            assert offers, "no offersArrangeByTags() in app.js; this guard reads the wrong file"
+            return rule.group(0) + "\n" + offers.group(0) + "\n" + "\n".join(kept)
     raise AssertionError("renderAlbumDialog never closes; this guard reads the wrong file")
 
 
@@ -146,6 +152,7 @@ def _fold(album: dict[str, object], names_on_screen: bool) -> dict[str, object]:
         + ' reason: $("album-reason").textContent,'
         + ' reasonHidden: $("album-reason").hidden,'
         + ' proofHidden: $("album-proof").hidden,'
+        + ' arrangeHidden: $("album-arrange-tags").hidden,'
         + ' hover: $("album-operations").children.map((c) => c.title) }));'
     )
     answer = subprocess.run(
@@ -277,3 +284,18 @@ def test_the_proof_line_stops_deferring_to_a_sentence_that_lost_the_lengths() ->
     fold = _fold(album, names_on_screen=False)
 
     assert fold["proofHidden"] is False, "the lengths are said nowhere else on this screen"
+
+
+def test_a_reverted_confident_album_is_offered_arrange_by_its_tags() -> None:
+    """A confident identification, applied and reverted, keeps a way out.
+
+    The footer is the only place `Arrange by its own tags` lives. An album the
+    catalogue named with full confidence comes back `automatic` and unwritten
+    after a revert, and the dialog must still draw the button; once its files
+    are organized, it must not.
+    """
+    reverted = dict(_EMPTY_ALBUM, decision="automatic", organized=False, written=False)
+    organized = dict(_EMPTY_ALBUM, decision="automatic", organized=True, written=False)
+
+    assert _fold(reverted, names_on_screen=False)["arrangeHidden"] is False
+    assert _fold(organized, names_on_screen=False)["arrangeHidden"] is True

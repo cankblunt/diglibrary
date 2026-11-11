@@ -10910,3 +10910,62 @@ def test_relocate_onto_a_fresh_copy_of_an_organized_album_does_not_carry_organiz
     assert not answered["album"]["organized"]
     assert answered["album"]["applicable"], "there is something to write to these files"
     assert api._store.unit_by_id(unit_id).state == "identified"
+
+
+def test_an_organized_album_is_named_by_its_folder_and_shows_what_the_apply_renamed(
+    tmp_path: Path,
+) -> None:
+    """The shelf names an organized album by the folder on disk, typed name included.
+
+    The catalogue's credit and title are what the plan proposed. A folder name
+    typed over them is what was written, so a card drawn from the catalogue
+    names an album the Finder does not hold. And once applied, the plan's rows
+    are no longer drawn, so the names the apply gave are sent beside the names
+    they replaced. Asked in the same session and after a restart, because the
+    shelf is drawn from two different places.
+    """
+    library = _library(tmp_path)
+    release = _release("r1", (400, 900))
+    source = FakeSource(summaries=(release,), details={"r1": release})
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    typed = "Somebody Else - A Typed Name (1999) [FLAC]"
+    assert api.correct(unit_id, folder_name=typed)["ok"]
+    assert api.approve(unit_id)["ok"]
+    assert [path.name for path in library.iterdir()] == [typed]
+
+    expected = {
+        "name": "Somebody Else - A Typed Name (1999)",
+        "artist": "Somebody Else",
+        "title": "A Typed Name",
+        "year": "1999",
+    }
+    shelf = api.state()["albums"][0]
+    assert shelf["named_on_disk"] == expected
+    album = api.album(unit_id)["album"]
+    assert album["named_on_disk"] == expected
+    folder_rows = [row for row in album["names_applied"] if row["kind"] == "folder"]
+    assert folder_rows == [{"kind": "folder", "was": "marina do acordeao - forro", "now": typed}]
+    assert {row["was"] for row in album["names_applied"] if row["kind"] == "file"} == {
+        "aaa.flac",
+        "bbb.flac",
+    }
+
+    reopened = _api(tmp_path, source)
+    _finish(reopened._restore_job, "restore")
+    assert reopened.state()["albums"][0]["named_on_disk"] == expected
+    assert reopened.album(unit_id)["album"]["names_applied"] == album["names_applied"]
+
+
+def test_an_album_not_yet_organized_is_named_by_the_catalogue(tmp_path: Path) -> None:
+    """Before the apply the folder is still the name it arrived with."""
+    library = _library(tmp_path)
+    release = _release("r1", (400, 900))
+    source = FakeSource(summaries=(release,), details={"r1": release})
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+
+    assert api.state()["albums"][0]["named_on_disk"] is None
+    assert api.album(unit_id)["album"]["names_applied"] == []

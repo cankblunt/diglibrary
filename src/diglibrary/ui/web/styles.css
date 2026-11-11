@@ -472,6 +472,12 @@ main { padding: 20px; }
   font: inherit;
   color: inherit;
   transition: transform 0.12s ease, border-color 0.12s ease;
+  /* A column, so a card stretched to the height of a neighbour whose title
+     takes two lines keeps its cover at the top and its foot at the bottom: a
+     `<button>` otherwise centres what it holds, and the cover would slide. */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 .card:hover { transform: translateY(-2px); border-color: var(--muted); }
 
@@ -492,12 +498,22 @@ main { padding: 20px; }
   background: linear-gradient(135deg, #23252d, #191b21);
 }
 
-.card-body { padding: 10px 12px 12px; }
+.card-body {
+  padding: 10px 12px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+/* Up to two lines, then an ellipsis: most titles fit whole even at the
+   narrowest card, and the full name is on the card's hover. */
 .card-title {
   font-weight: 600;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 .card-sub {
   color: var(--muted);
@@ -535,7 +551,10 @@ main { padding: 20px; }
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 4px 6px;
-  margin-top: 8px;
+  /* Pushed to the bottom of the card, so the feet of one row line up whatever
+     the titles above them take; the padding is the gap it keeps at least. */
+  margin-top: auto;
+  padding-top: 8px;
 }
 
 .badge {

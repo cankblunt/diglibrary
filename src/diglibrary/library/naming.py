@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
-from diglibrary.application.contracts import ReleaseMetadata, written_credit
+from diglibrary.application.contracts import ReleaseMetadata, TrackMetadata, written_credit
 from diglibrary.library.artwork import ImageKind
 from diglibrary.library.audio import AudioProperties, is_lossless_codec
 from diglibrary.library.genres import spell_genres
@@ -607,6 +607,57 @@ def _every_track_is_somebody_else(release: ReleaseMetadata) -> bool:
     return len(set().union(*with_a_credit)) > 1
 
 
+_CREDIT_JOINS = (", ", " & ")
+"""How a credit read as one tag value may follow the album's artist with more."""
+
+
+def guest_credit(release: ReleaseMetadata, track: TrackMetadata) -> str | None:
+    """Return who else this track credits, for a `(feat. …)` in its file name.
+
+    Only on an album that is not a compilation — a compilation writes the whole
+    credit before the title instead — and only where the album's own artist
+    **leads** the track's credit. A track led by somebody else (`Ojel Varn With
+    Zed Marrowby`) is not that artist's track with a guest, and saying so would turn
+    the credit around; a track that does not credit the album's artist at all
+    is named as before.
+
+    Read from the track's artists, which the catalogue publishes as a list. A
+    credit read from one tag value arrives as a single name, `Lead, Guest &
+    Guest`, and is read by its beginning only: what follows the album's
+    artist and a comma or an ampersand is kept verbatim, never split, so a
+    band whose name holds a comma passes through whole.
+
+    The file name only. The tags already carry every artist of the credit.
+    """
+    if is_various(release):
+        return None
+    album = [artist.name.strip() for artist in release.artists if artist.name.strip()]
+    folded = {name.casefold() for name in album}
+    names = [artist.name.strip() for artist in track.artists if artist.name.strip()]
+    if not names or not folded:
+        return None
+    lead, rest = names[0], names[1:]
+    guests = [name for name in rest if name.casefold() not in folded]
+    if lead.casefold() not in folded:
+        tail = next(
+            (
+                lead[len(name) + len(join) :]
+                for name in album
+                for join in _CREDIT_JOINS
+                if lead.casefold().startswith(name.casefold() + join)
+            ),
+            None,
+        )
+        if not tail or not tail.strip():
+            return None
+        guests = [tail.strip(), *guests]
+    if not guests:
+        return None
+    if len(guests) == 1:
+        return guests[0]
+    return ", ".join(guests[:-1]) + " & " + guests[-1]
+
+
 _DISTINCT_EDITION_WORDS = (
     "deluxe",
     "expanded",
@@ -1011,6 +1062,62 @@ def format_in_name(name: str, transcoded_word: str = DEFAULT_TRANSCODED_LABEL) -
     """Return the format label a folder name carries, without any note beside it."""
     where = _format_segment(name, transcoded_word)
     return name[where[0] : where[1]].strip() if where else ""
+
+
+@dataclass(frozen=True, slots=True)
+class FolderReading:
+    """What a folder's own name says the album is called, in the folder's words."""
+
+    name: str
+    """The whole name with the format label and what follows it taken off."""
+    artist: str
+    title: str
+    year: str
+
+
+_TRAILING_YEAR = re.compile(r"\s*\((\d{4})\)\s*$")
+"""The template's ``{ (%year%)}``, which is the last parenthesis it writes."""
+
+_ARTIST_SEPARATOR = " - "
+"""What the template writes between ``%albumartist%`` and ``%album%``."""
+
+
+def read_folder_name(
+    name: str, transcoded_word: str = DEFAULT_TRANSCODED_LABEL
+) -> FolderReading | None:
+    """Read the credit, the title and the year out of a folder name, as written.
+
+    The name is the one on disk, so whatever was typed into it is what is
+    read back: nothing is looked up and nothing is normalised. The format
+    label's bracketed group is taken off — it is a measurement, not a name —
+    and so is everything after it, since the template ends there: a note inside
+    the same brackets or in a bracket of its own after them has no room on a
+    card, and the whole name stays on the tooltip.
+
+    A year the template wrote inside a designator, ``(Single - 1976)``, stays
+    in the title where it was written; only a parenthesis holding nothing but
+    a year is the year.
+
+    The credit is what precedes the first `` - ``; a name without one has no
+    credit, and its whole remainder is the title rather than a guess at where an
+    artist might end. ``None`` for a name that holds nothing once the label is
+    gone.
+    """
+    where = _format_segment(name, transcoded_word)
+    text = (name[: name.rfind("[", 0, where[0])] if where is not None else name).strip()
+    whole = text
+    year = ""
+    found = _TRAILING_YEAR.search(text)
+    if found is not None:
+        year = found.group(1)
+        text = text[: found.start()].strip()
+    artist, separator, title = text.partition(_ARTIST_SEPARATOR)
+    if not separator:
+        artist, title = "", text
+    artist, title = artist.strip(), title.strip()
+    if not title:
+        return None
+    return FolderReading(name=whole, artist=artist, title=title, year=year)
 
 
 def replace_format_segment(

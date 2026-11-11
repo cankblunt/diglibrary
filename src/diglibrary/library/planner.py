@@ -28,6 +28,7 @@ from diglibrary.library.naming import (
     existing_designator,
     facts_from_properties,
     format_label,
+    guest_credit,
     is_distinct_edition,
     odd_track_labels,
     replace_format_segment,
@@ -302,7 +303,12 @@ class ChangePlanner:
                 )
             name = self._policy.track_name(
                 release,
-                title=_with_kept_decorations(assignment.track.title, source.stem),
+                # The guests go in before the file's own asides are compared, so
+                # a name that already says `(feat. …)` is not given it twice.
+                title=_with_kept_decorations(
+                    _with_guests(assignment.track.title, guest_credit(release, assignment.track)),
+                    source.stem,
+                ),
                 track_number=assignment.track_number,
                 disc_number=assignment.disc_number,
                 disc_count=disc_count,
@@ -1237,6 +1243,11 @@ def _keeping_what_the_file_says(
         if name != "compilation" and name not in kept and current.get(name):
             kept[name] = current[name]
     return kept
+
+
+def _with_guests(title: str, guests: str | None) -> str:
+    """The title as a file name writes it, with the track's guests after it."""
+    return f"{title} (feat. {guests})" if guests else title
 
 
 def _with_kept_decorations(title: str, local_stem: str) -> str:
