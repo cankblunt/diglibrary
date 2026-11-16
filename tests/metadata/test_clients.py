@@ -646,3 +646,35 @@ def test_a_worded_position_is_skipped_however_it_is_punctuated(tmp_path) -> None
     release = client.get_release("3")
 
     assert [track.title for track in release.tracks] == ["The music"]
+
+
+def test_musicbrainz_says_what_a_recording_is_called(tmp_path) -> None:
+    """A recording identifier becomes a title, a credit and a length."""
+    transport = FakeTransport(
+        [
+            _json_bytes(
+                {
+                    "id": "0a1b2c3d",
+                    "title": "Canto",
+                    "length": 220000,
+                    "artist-credit": [{"artist": {"id": "9f", "name": "Orvo & Os Vizinhos"}}],
+                }
+            ),
+            _json_bytes({"id": "ffff"}),
+        ]
+    )
+    client = MusicBrainzClient(
+        _json_client(tmp_path, "musicbrainz", transport),
+        EnvironmentCredentials({"CONTACT": "ops@example.com"}.get),
+        "CONTACT",
+        "TOKEN",
+    )
+
+    recording = client.recording("0a1b2c3d")
+
+    assert recording is not None
+    assert (recording.title, recording.duration_ms) == ("Canto", 220_000)
+    assert [artist.name for artist in recording.artists] == ["Orvo & Os Vizinhos"]
+    assert "/recording/0a1b2c3d?" in transport.urls[0]
+    assert "inc=artist-credits" in transport.urls[0]
+    assert client.recording("ffff") is None, "an answer with no title names nothing"

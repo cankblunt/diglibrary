@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from enum import StrEnum
 from pathlib import Path
 
-from diglibrary.application.acoustic import AcousticIdentification
+from diglibrary.application.acoustic import FAILED, AcousticIdentification, AudioNotAskedError
 from diglibrary.application.artwork import ArtworkService
 from diglibrary.application.contracts import (
     ArtistMetadata,
@@ -104,7 +104,10 @@ class IdentificationOutcome:
     # it was never asked, which is the ordinary case: an album that settled on
     # its names does not reach the fingerprinter at all. The window needs the
     # value to tell "not asked" from "asked, and the service does not know this
-    # record", which is a fact about the library worth reading.
+    # record", which is a fact about the library worth reading — and both from
+    # "could not be asked", which is a fact about the machine or the network:
+    # `unavailable` (no fpcalc that runs, or no key), `unfingerprinted`,
+    # `unreachable` and `failed`.
     acoustic: str = ""
     # Where the values came from, when the proposal is an arrangement of the
     # album's own tags rather than an identification. An arrangement owes no
@@ -305,15 +308,18 @@ class IdentificationWorkflow:
         # rule rather than two — and it is what keeps a clean library from
         # paying for it.
         acoustic = ""
-        if self._acoustic is not None and not any(
+        if not any(
             candidate.confidence >= self._threshold and alignment.is_usable
             for _, candidate, alignment in best_by_source
         ):
-            if not self._acoustic.is_available:
+            # An absent engine is said as well. It is absent when fpcalc is
+            # missing or does not run, or when there is no key, and an album
+            # that reached this line did not settle on its names — so leaving
+            # the state empty would have the window say the names settled it.
+            if self._acoustic is None or not self._acoustic.is_available:
                 acoustic = "unavailable"
             else:
-                heard = self._from_the_audio(unit, titles)
-                acoustic = "unknown" if heard is None else "named"
+                heard, acoustic = self._from_the_audio(unit, titles)
                 if heard is not None:
                     best_by_source.append(heard)
                     consulted.append(heard[0])
@@ -643,16 +649,36 @@ class IdentificationWorkflow:
         # render one name and the second rename would land on the first. The
         # answer is not a cleverer name; it is that this album has a question the
         # tags cannot settle.
-        return replace(
-            outcome,
-            decision=Decision.REVIEW,
-            plan=None,
-            partial_plan=None,
-            reason=(
+        #
+        # **Which of the two things holds the name is said, because they are
+        # different facts.** A name in ``taken_names`` belongs to another
+        # proposal of this run; one that is not was found on the disk, where a
+        # folder already carries it — usually this same record, organized
+        # earlier. The second is what somebody needs to be told in order to go
+        # and look at that folder.
+        if contested in taken_names:
+            reason = (
                 f"Another album already claims the name “{contested}”. Two pressings "
                 "of one record read the same in their tags, so this one is waiting "
                 "for a scan to tell them apart."
-            ),
+            )
+        else:
+            reason = (
+                f"A folder named “{contested}” already exists beside this one, so "
+                "this album cannot be given that name. If both are the same record, "
+                "this folder is a second copy of it; if they are two pressings, a "
+                "scan can tell them apart."
+            )
+        # The refusal travels as a blocker on a plan with no operations, not as
+        # the absence of a plan. No plan and no blocker is how an album that is
+        # already right reads, and the screen said exactly that about an album
+        # that had been refused.
+        return replace(
+            outcome,
+            decision=Decision.REVIEW,
+            plan=ChangePlan(unit=unit, release=reading.release, blockers=(reason,)),
+            partial_plan=None,
+            reason=reason,
         )
 
     def compare_with_tags(self, unit: AlbumUnit, release: ReleaseMetadata) -> dict[str, object]:
@@ -893,34 +919,44 @@ class IdentificationWorkflow:
 
     def _from_the_audio(
         self, unit: AlbumUnit, titles: tuple[str, ...]
-    ) -> tuple[MetadataSourceId, MatchCandidate, TrackAlignment] | None:
-        """Return the audio's own best candidate, scored like every other one.
+    ) -> tuple[tuple[MetadataSourceId, MatchCandidate, TrackAlignment] | None, str]:
+        """Return the audio's own best candidate, and how the asking went.
 
         The audio *contests* rather than concludes: a fingerprint proves which
         recording a file holds, which is not the same claim as which pressing
         an album is, and pressings are told apart by duration. So what the
         audio contributes is releases nothing else found, and they earn their
         confidence on the same evidence.
+
+        The second value is the state the outcome carries. ``unknown`` is kept
+        for the service having been asked and offering nothing usable; an album
+        that could not be asked about says which half failed, and an error
+        nobody anticipated says only that it failed.
         """
         if self._acoustic is None:
-            return None
+            return None, "unavailable"
         try:
             releases = self._acoustic.releases_for(unit)
+        except AudioNotAskedError as not_asked:
+            return None, not_asked.state
         except Exception:
             self._logger.exception(
                 "The audio could not be asked about this album.",
                 extra={"operation": "identification.acoustic.failure"},
             )
-            return None
+            return None, FAILED
         if not releases:
-            return None
+            return None, "unknown"
         ranked = self._matcher.rank(unit, releases, local_titles=titles)
         if not ranked:
-            return None
+            return None, "unknown"
         return (
-            MetadataSources.MUSICBRAINZ,
-            ranked[0],
-            self._align(unit, ranked[0].release, titles),
+            (
+                MetadataSources.MUSICBRAINZ,
+                ranked[0],
+                self._align(unit, ranked[0].release, titles),
+            ),
+            "named",
         )
 
     def _align(
@@ -977,7 +1013,6 @@ class IdentificationWorkflow:
         folder_name: str | None = None,
         transcoded: frozenset[str] = frozenset(),
         measured_rates: Mapping[str, int] | None = None,
-        write_tags: bool = True,
         user_titles: frozenset[int] = frozenset(),
         finder_tags: Sequence[FinderTag] | None = None,
     ) -> ChangePlan | None:
@@ -1004,7 +1039,6 @@ class IdentificationWorkflow:
             allow_partial=True,
             transcoded=transcoded,
             measured_rates=measured_rates,
-            write_tags=write_tags,
             user_titles=user_titles,
             finder_tags=finder_tags,
         )

@@ -22,6 +22,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+from diglibrary.application.acoustic import (
+    FOREIGN,
+    UNFINGERPRINTED,
+    UNREACHABLE,
+    AcousticIdentification,
+    AudioNotAskedError,
+    belonging,
+)
 from diglibrary.application.artwork import ArtworkService
 from diglibrary.application.bench import BenchFinding, DeepAlbum, DeepAnalysis, QualityBench
 from diglibrary.application.collection import CollectionService
@@ -121,6 +129,7 @@ from diglibrary.library.finder_tags import (
     parse_tag,
     read_finder_tags,
 )
+from diglibrary.library.formats import OtherFormat, files_in_another_format
 from diglibrary.library.hints import SearchHints, files_in_track_order, local_track_titles
 from diglibrary.library.integrity import AudioProof, audio_proof
 from diglibrary.library.matching import (
@@ -500,6 +509,9 @@ class _Pipeline:
     tag_store: TagStore | None = None
     quality: QualitySurvey | None = None
     bench: QualityBench | None = None
+    # The acoustic path itself, for the one gesture that asks about every file
+    # of an album. Absent when fpcalc does not run or there is no key.
+    acoustic: AcousticIdentification | None = None
 
 
 @dataclass
@@ -3963,6 +3975,7 @@ class LibraryApi:
                 "files": swept.files,
                 "named": swept.named,
                 "seconds": round(swept.seconds, 1),
+                "unasked": swept.unasked,
             },
         )
 
@@ -9736,10 +9749,11 @@ class LibraryApi:
         # rather than in the window so that what is offered and what counts as
         # a correction cannot drift apart.
         payload["planned_folder"] = _planned_folder_name(state.unit, outcome.plan)
-        # The names the last apply changed, as they were and as they are now, so
-        # an organized album can be found on disk under the name it was given.
+        # The names this application changed, as they were before its first
+        # apply and as they are now, so an organized album can be found on disk
+        # under the name it was given.
         payload["names_applied"] = (
-            _names_applied(self._store.last_applied_renames(state.unit_id), state.unit.folder_path)
+            _names_applied(self._store.standing_renames(state.unit_id), state.unit.folder_path)
             if (state.organized or state.applied) and not state.unit.is_loose_track
             else []
         )
@@ -9823,8 +9837,91 @@ class LibraryApi:
             self._transcoded_for(state.unit),
             self._measured.get(state.unit.unit_signature, frozenset()),
             dict(pinned),
+            self._other_formats_heard(state.unit),
         )
         return payload
+
+    def _other_formats_heard(self, unit: AlbumUnit) -> dict[Path, dict[str, object]]:
+        """Return what the audio says about each file that is not in its album's format.
+
+        A store read and no request. The verdict is drawn here, from the release
+        groups each file's lookup named, so the window is handed a word and
+        never the groups. ``askable`` is whether pressing the button could
+        still learn something: the engine is there, and some file of the album
+        has no recorded answer yet.
+        """
+        flagged = files_in_another_format(unit.audio_files)
+        if not flagged:
+            return {}
+        answers = self._answers_about(unit)
+
+        def groups(file: AudioFileFacts) -> tuple[str, ...] | None:
+            answer = answers.get(file.path)
+            return answer.release_group_ids if answer is not None and answer.asked else None
+
+        neighbours = [groups(file) for file in unit.audio_files if file.path not in flagged]
+        askable = self._pipeline.acoustic is not None and any(
+            groups(file) is None for file in unit.audio_files
+        )
+        heard: dict[Path, dict[str, object]] = {}
+        for file in unit.audio_files:
+            if file.path not in flagged:
+                continue
+            verdict = belonging(groups(file), neighbours)
+            answer = answers.get(file.path)
+            named = verdict == FOREIGN and answer is not None
+            heard[file.path] = {
+                "verdict": verdict,
+                "title": answer.recording_title if named else None,
+                "artist": answer.recording_artist if named else None,
+                "askable": askable,
+            }
+        return heard
+
+    def hear_tracks(self, unit_id: int) -> dict[str, object]:
+        """Ask the fingerprint service about every file of one album, on request.
+
+        The gesture behind the button on a file that is not in its album's
+        format. Every file is asked, because whether one belongs is a
+        comparison with the others; each is a request, so it is made for the
+        album in hand and never over a library. A file whose recording is on
+        none of the releases its neighbours named is then looked up by name.
+        Nothing is renamed and no tag is written: what is kept is the answer.
+        """
+        state = self._bring_in(unit_id)
+        if state is None:
+            return self._why_it_will_not_open(unit_id)
+        acoustic = self._pipeline.acoustic
+        if acoustic is None:
+            return {"ok": False, "error": _AUDIO_NOT_ASKED["unavailable"]}
+        try:
+            asked = acoustic.hear_every_file(state.unit.audio_files)
+        except AudioNotAskedError as not_asked:
+            return {
+                "ok": False,
+                "error": _AUDIO_NOT_ASKED.get(not_asked.state, "AcoustID could not be asked."),
+            }
+        answers = self._answers_about(state.unit)
+        for file in state.unit.audio_files:
+            heard = self._other_formats_heard(state.unit).get(file.path)
+            answer = answers.get(file.path)
+            if heard is None or answer is None or heard["verdict"] != FOREIGN or heard["title"]:
+                continue
+            named = acoustic.name_of(
+                answer.recording_ids, file.properties.duration_ms if file.properties else None
+            )
+            if named is not None:
+                acoustic.remember_name(file, *named)
+        self._logger.info(
+            "Every file of an album was put to the fingerprint service.",
+            extra={
+                "operation": "api.album.hear_tracks",
+                "album": unit_id,
+                "files": len(state.unit.audio_files),
+                "asked": asked,
+            },
+        )
+        return {"ok": True, "album": self._album_payload(state)}
 
     def _what_the_audio_answered(self, unit: AlbumUnit) -> str:
         """Derive this album's acoustic state from the files, when the outcome forgot.
@@ -9838,11 +9935,17 @@ class LibraryApi:
         where the fact lives: `acoustic_prints` records what was asked and what
         came back, per audio, and it survives every re-identification. No
         request is spent — this is a store read.
+
+        **Never ``named`` from here.** That word says the album was found by
+        its fingerprint, which is a fact about the identification and is
+        carried by the outcome. Files that were recognised say only that the
+        tracks were asked about — on the bench, or by the button on a file in
+        another format — and an album identified by its names stays one.
         """
         answers = [answer for answer in self._answers_about(unit).values() if answer.asked]
         if not answers:
             return ""
-        return "named" if any(answer.recording_id for answer in answers) else "unknown"
+        return "tracks" if any(answer.recording_id for answer in answers) else "unknown"
 
     def _answers_about(self, unit: AlbumUnit) -> dict[Path, AcousticAnswer]:
         """Return what the audio answered, per file, where the answer is provably about it.
@@ -10827,6 +10930,7 @@ def _evidence_rows(
     marked: frozenset[str] = frozenset(),
     measured: frozenset[str] = frozenset(),
     by_hand: Mapping[str, int] | None = None,
+    heard: Mapping[Path, Mapping[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     """Lay the pairing out for human eyes: each file beside the track it is.
 
@@ -10837,11 +10941,17 @@ def _evidence_rows(
     alignment = outcome.alignment
     if alignment is None:
         return []
+    # Decided here once and carried on the file's own row, so the window draws
+    # what it is told and never reassembles the rule from sample rates.
+    other_formats = files_in_another_format(outcome.unit.audio_files)
     rows: list[dict[str, object]] = []
     for assignment in alignment.assignments:
         file = assignment.file
         rows.append(
             {
+                "other_format": _other_format_payload(
+                    other_formats.get(file.path), (heard or {}).get(file.path)
+                ),
                 "file": file.path.name,
                 "file_ms": file.properties.duration_ms if file.properties else None,
                 "track": _written_title(assignment.track, outcome),
@@ -10939,6 +11049,9 @@ def _evidence_rows(
                 "position": None,
                 "delta_ms": None,
                 "status": "unmatched_file",
+                "other_format": _other_format_payload(
+                    other_formats.get(file.path), (heard or {}).get(file.path)
+                ),
                 # Carried so the window can hand it back when this file is
                 # paired by hand: the pairing is keyed by the audio, never by
                 # the name on screen, which the very next apply rewrites.
@@ -10952,6 +11065,40 @@ def _evidence_rows(
         )
     rows.sort(key=_evidence_order)
     return rows
+
+
+_AUDIO_NOT_ASKED = {
+    "unavailable": (
+        "AcoustID is not available: fpcalc is missing or does not run, or there is no key."
+    ),
+    UNFINGERPRINTED: "AcoustID was not asked: fpcalc could not fingerprint these files.",
+    UNREACHABLE: "AcoustID was not asked: the service did not answer.",
+}
+"""Why an album's audio could not be put to the service, where the reason was observed."""
+
+
+def _other_format_payload(
+    found: OtherFormat | None, heard: Mapping[str, object] | None = None
+) -> dict[str, object] | None:
+    """Return a file's format beside its album's, or ``None`` when they are one.
+
+    With what the audio said about the file, when it was asked: the verdict,
+    the recording's name where the file is not the album's, and whether asking
+    could still learn something.
+    """
+    if found is None:
+        return None
+    return {
+        "verdict": (heard or {}).get("verdict"),
+        "title": (heard or {}).get("title"),
+        "artist": (heard or {}).get("artist"),
+        "askable": bool((heard or {}).get("askable")),
+        "sample_rate": found.sample_rate,
+        "bit_depth": found.bit_depth,
+        "album_sample_rate": found.album_sample_rate,
+        "album_bit_depth": found.album_bit_depth,
+        "sharing": found.sharing,
+    }
 
 
 def _unclaimed_for(
@@ -11674,10 +11821,66 @@ def _named_on_disk(folder: Path, *, organized: bool, loose: bool) -> dict[str, s
     }
 
 
+def _renames_followed(
+    renames: Sequence[tuple[str, Path, Path]],
+) -> list[tuple[str, Path, Path]]:
+    """Follow each renamed thing from the first name it had to the last.
+
+    The renames arrive oldest first. One that starts where an earlier one ended
+    continues it, so a file renamed by two applies is one entry holding the
+    name it had before the first and the name the second gave. A folder's
+    rename carries everything recorded inside it, because the paths written
+    down before it name a folder that no longer exists.
+
+    A rename that starts where an earlier one *started* replaces it: the same
+    thing was renamed from the same name twice, so the first name given was
+    undone in between without a reversal being recorded.
+
+    A rename whose start matches no path is matched by name alone, and only
+    when exactly one entry of its kind ends in that name: an album moved by
+    hand between two applies keeps its names and loses its paths, and two discs
+    may each hold a file of one name.
+    """
+    followed: list[list[object]] = []
+    for kind, before, after in renames:
+        same_kind = [entry for entry in followed if entry[0] == kind]
+        continued = [entry for entry in same_kind if entry[2] == before]
+        if not continued:
+            # The same start as an earlier rename, which that rename did not
+            # leave it at: the earlier name was undone outside this application
+            # and never recorded as reverted, so it is on the disk no longer and
+            # this rename replaces it rather than standing beside it.
+            continued = [entry for entry in same_kind if entry[1] == before]
+        if not continued:
+            by_name = [entry for entry in same_kind if Path(str(entry[2])).name == before.name]
+            continued = by_name if len(by_name) == 1 else []
+        if not continued:
+            # And the same for a start: one earlier entry that began under this
+            # very name, somewhere the paths no longer meet.
+            from_name = [entry for entry in same_kind if Path(str(entry[1])).name == before.name]
+            continued = from_name if len(from_name) == 1 else []
+        if continued:
+            continued[0][2] = after
+        else:
+            followed.append([kind, before, after])
+        if kind != "rename_folder":
+            continue
+        for entry in followed:
+            inside = Path(str(entry[2]))
+            if before in inside.parents:
+                entry[2] = after / inside.relative_to(before)
+    return [(str(kind), Path(str(was)), Path(str(now))) for kind, was, now in followed]
+
+
 def _names_applied(
     renames: Sequence[tuple[str, Path, Path]], folder_now: Path
 ) -> list[dict[str, str]]:
-    """Pair each name the last apply changed with the name it carries now.
+    """Pair each name this application changed with the name it carries now.
+
+    Across every apply still standing, not the last one: a name is followed
+    from what it was before the first apply to what the latest left it as.
+    Something renamed and later given its first name back changed nothing, and
+    has no row.
 
     The album's own folder — the outermost one renamed — is given the name its
     row holds today rather than the one the plan wrote, because that is the
@@ -11687,8 +11890,13 @@ def _names_applied(
     Folders first, then files in the order of their new names, which is the
     order the Finder lists them in.
     """
-    folders = [(before, after) for kind, before, after in renames if kind == "rename_folder"]
-    outermost = min(folders, key=lambda pair: len(pair[0].parts), default=None)
+    followed = _renames_followed(renames)
+    folders = [(before, after) for kind, before, after in followed if kind == "rename_folder"]
+    # The last of the outermost, where there are several: a folder renamed by
+    # hand between two applies is two entries, and the name on disk today
+    # belongs to the later one.
+    depth = min((len(before.parts) for before, _ in folders), default=0)
+    outermost = next((pair for pair in reversed(folders) if len(pair[0].parts) == depth), None)
     rows = [
         {
             "kind": "folder",
@@ -11698,11 +11906,11 @@ def _names_applied(
         for before, after in folders
     ]
     files = sorted(
-        ((before, after) for kind, before, after in renames if kind == "rename_file"),
+        ((before, after) for kind, before, after in followed if kind == "rename_file"),
         key=lambda pair: pair[1].name.casefold(),
     )
     rows.extend({"kind": "file", "was": before.name, "now": after.name} for before, after in files)
-    return rows
+    return [row for row in rows if row["was"] != row["now"]]
 
 
 def _shelf_summary(row: Mapping[str, object], origin_of: Callable[[int], str]) -> dict[str, object]:

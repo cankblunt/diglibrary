@@ -4,6 +4,23 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.11.0
+
+### Added
+
+- A file whose sample rate or bit depth is not the one a strict majority of its album shares is marked on its own row, in the plan and in the names an apply gave. From that row every file of the album can be asked of the fingerprint service, and a recording that belongs to none of the releases the other tracks share is called not this album's track and named as the catalogue names it, by the linked recording nearest the file's own length.
+
+### Changed
+
+- A name on an unchanged row of a plan is drawn in the text colour.
+
+### Fixed
+
+- An organized album applied more than once shows every name it was given, followed from before its first apply rather than read off the latest apply that renamed anything. A thing renamed by two applies is one row, from the name it had before the first to the name the last one gave, and something that ends under its first name has no row.
+- An album arranged by its own tags whose folder name another folder already carries is refused with the reason stated, instead of being drawn as an album that needs nothing. A name held by a folder gets its own sentence, naming that folder and saying it already exists beside this one.
+- Not having been able to ask the fingerprint service is no longer recorded as the service not knowing. A fingerprinter that is found and does not run is treated as absent, and an unreachable service is reported rather than answered empty.
+- An album is said to have been recognised by its fingerprint only when the identification came from the audio.
+
 ## 1.10.0
 
 ### Added

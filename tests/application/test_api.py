@@ -19,11 +19,13 @@ from types import SimpleNamespace
 import pytest
 from mutagen.flac import FLAC, Picture
 
+from diglibrary.application.acoustic import AcousticIdentification
 from diglibrary.application.api import (
     _WRITES_FILES,
     LibraryApi,
     _evidence_order,
     _is_witness_page,
+    _names_applied,
     _parse_group_link,
     _parse_release_link,
     _Pipeline,
@@ -57,6 +59,7 @@ from diglibrary.library.naming import DEFAULT_TRANSCODED_LABEL, NamingPolicy
 from diglibrary.library.planner import ChangeOperation, ChangePlanner, OperationKind
 from diglibrary.library.scanner import LibraryScanner
 from diglibrary.library.tags import MutagenTagStore
+from diglibrary.metadata.acoustid import AcousticMatch
 from diglibrary.metadata.service import MetadataService
 from diglibrary.quality.analysis import PROBE_FREQUENCIES
 from diglibrary.quality.verdict import REFERENCE_WALLS, Encoding
@@ -2051,6 +2054,166 @@ def test_a_corrected_search_does_not_grade_its_own_answers(tmp_path: Path) -> No
     assert (
         by_id["r2"]["confidence"] > by_id["decoy"]["confidence"]
     ), "the album's own release must outrank a decoy that merely matches the typed words"
+
+
+def test_a_file_in_another_format_says_so_on_its_own_row(tmp_path: Path) -> None:
+    """The album payload carries, per file, a format that is not the album's.
+
+    Two files at one sample rate and a third at another: the third row holds
+    both formats and the others hold nothing. Read from the payload the window
+    is handed, because the rule is decided on the server and the window only
+    draws it.
+    """
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    with wave.open(str(folder / "zzz-other.wav"), "wb") as other:
+        other.setnchannels(2)
+        other.setsampwidth(3)
+        other.setframerate(96_000)
+        other.writeframes(bytes(6 * 9_600))
+    api = _api(tmp_path, FakeSource(summaries=(RIGHT,), details={"r2": RIGHT}))
+
+    _scan_and_wait(api, library)
+    album = _opened(api, api.state()["albums"][0]["unit_id"])
+
+    by_file = {row["file"]: row["other_format"] for row in album["evidence"] if row["file"]}
+    assert by_file == {
+        "aaa.flac": None,
+        "bbb.flac": None,
+        "zzz-other.wav": {
+            # Nothing was heard, and with no fingerprinter here nothing can be.
+            "verdict": None,
+            "title": None,
+            "artist": None,
+            "askable": False,
+            "sample_rate": 96_000,
+            "bit_depth": 24,
+            "album_sample_rate": 44_100,
+            "album_bit_depth": 16,
+            "sharing": 2,
+        },
+    }
+
+
+class _PrintsByName:
+    """A fingerprinter that names each file's print after the file."""
+
+    def fingerprint(self, path: Path) -> AudioFingerprint:
+        return AudioFingerprint(fingerprint=f"fp-{Path(path).name}", duration_seconds=1)
+
+
+class _KnowsTheAlbum:
+    """A fingerprint service that places two files on one album and a third elsewhere."""
+
+    is_configured = True
+
+    def __init__(self) -> None:
+        self.lookups = 0
+
+    def lookup(self, fingerprint: AudioFingerprint) -> tuple[AcousticMatch, ...]:
+        self.lookups += 1
+        name = fingerprint.fingerprint.removeprefix("fp-")
+        if name == "zzz-other.wav":
+            return (
+                AcousticMatch(
+                    score=0.99, recording_ids=("remix", "album"), release_group_ids=("elsewhere",)
+                ),
+            )
+        return (AcousticMatch(score=1.0, recording_ids=(name,), release_group_ids=("forro",)),)
+
+
+class _NamesRecordings:
+    """A catalogue that says what two recordings are called."""
+
+    def recording(self, source: object, recording_id: str) -> TrackMetadata | None:
+        band = (ArtistMetadata(name="Orvo & Os Vizinhos"),)
+        return {
+            "remix": TrackMetadata(title="Canto (remix)", artists=band, duration_ms=321_000),
+            "album": TrackMetadata(title="Canto", artists=band, duration_ms=100),
+        }.get(recording_id)
+
+
+def test_asking_the_audio_says_a_file_is_not_the_albums_and_names_it(tmp_path: Path) -> None:
+    """The whole gesture, from the bridge method to the payload the window draws.
+
+    Before it, the file in another format carries no verdict and can be asked
+    about. After it, every file was asked once, the two in the album's format
+    agree on a release the third is not on, and the third is named by the
+    recording whose length is nearest its own. Read back through a second
+    payload, because the answer has to be in the store and not in the reply.
+    """
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    with wave.open(str(folder / "zzz-other.wav"), "wb") as other:
+        other.setnchannels(2)
+        other.setsampwidth(3)
+        other.setframerate(96_000)
+        other.writeframes(bytes(6 * 9_600))
+    api = _api(tmp_path, FakeSource(summaries=(RIGHT,), details={"r2": RIGHT}))
+    service = _KnowsTheAlbum()
+    api._pipeline = replace(
+        api._pipeline,
+        acoustic=AcousticIdentification(
+            _PrintsByName(),  # type: ignore[arg-type]
+            service,  # type: ignore[arg-type]
+            _NamesRecordings(),  # type: ignore[arg-type]
+            logging.getLogger("test.api.acoustic"),
+            store=api._store,  # type: ignore[arg-type]
+        ),
+    )
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+
+    def other_format() -> dict[str, object]:
+        rows = _opened(api, unit_id)["evidence"]
+        return next(row["other_format"] for row in rows if row["file"] == "zzz-other.wav")
+
+    before = other_format()
+    assert (before["verdict"], before["askable"]) == (None, True)
+
+    answer = api.hear_tracks(unit_id)
+
+    assert answer["ok"], answer
+    assert service.lookups == 3, "every file of the album is asked, once"
+    after = other_format()
+    assert (after["verdict"], after["title"], after["artist"]) == (
+        "foreign",
+        "Canto",
+        "Orvo & Os Vizinhos",
+    )
+    assert after["askable"] is False, "every file has an answer, so there is nothing left to ask"
+
+
+def test_tracks_the_audio_recognised_do_not_say_the_album_was_found_by_it(tmp_path: Path) -> None:
+    """An album identified by its names stays one after its tracks are recognised.
+
+    The line under the release read *recognised this album by its fingerprint*
+    as soon as any file carried a recording, which the bench and the button on
+    a file in another format both produce. That sentence is about how the album
+    was identified, and this one was identified by its names.
+    """
+    api = _api(tmp_path, FakeSource(summaries=(RIGHT,), details={"r2": RIGHT}))
+    _scan_and_wait(api, _library(tmp_path))
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert _opened(api, unit_id)["acoustic"] == "", "the names settled it, so nothing was asked"
+
+    for file in api._album_snapshot()[0].unit.audio_files:
+        print_ = AudioFingerprint(fingerprint=f"fp-{file.path.name}", duration_seconds=1)
+        api._store.remember_fingerprint(file.content_signature, audio_key(file.path), print_)
+        api._store.remember_lookup(file.content_signature, audio_key(file.path), "rec-1", 0.99)
+
+    assert _opened(api, unit_id)["acoustic"] == "tracks"
+
+
+def test_asking_the_audio_without_a_fingerprinter_says_why(tmp_path: Path) -> None:
+    """No engine is a sentence, and nothing is drawn as though it had been asked."""
+    api = _api(tmp_path, FakeSource(summaries=(RIGHT,), details={"r2": RIGHT}))
+    _scan_and_wait(api, _library(tmp_path))
+
+    answer = api.hear_tracks(api.state()["albums"][0]["unit_id"])
+
+    assert answer["ok"] is False
+    assert "fpcalc is missing or does not run, or there is no key" in answer["error"]
 
 
 def test_a_partial_match_may_be_applied_on_request(tmp_path: Path) -> None:
@@ -8030,6 +8193,50 @@ def test_two_albums_whose_tags_read_alike_send_the_second_to_a_scan(tmp_path: Pa
     assert "already claims the name" in reason and "waiting for a scan" in reason
 
 
+def test_a_name_a_folder_on_the_disk_already_holds_is_a_blocker_that_names_it(
+    tmp_path: Path,
+) -> None:
+    """The refusal reaches the window as a blocker, and says which folder is in the way.
+
+    An arrangement whose folder name already exists on the disk came back with
+    no plan and no blocker, which is exactly what an album that is already right
+    sends — so the dialog read *Nothing would change* over an album it had
+    refused to plan. And the sentence spoke of two proposals reading alike when
+    the name was held by a folder on the disk, usually the same record organized
+    earlier.
+    """
+    alone = tmp_path / "alone"
+    _tagged_album(alone / "loose")
+    first = _api(tmp_path / "one", FakeSource())
+    assert first.open_folder(str(alone))["ok"]
+    _finish_reads(first)
+    (free,) = first.state()["albums"]
+    renames = [
+        operation
+        for operation in first.album(free["unit_id"])["album"]["operations"]
+        if operation["kind"] == "rename_folder"
+    ]
+    assert len(renames) == 1, "the fixture must want a new folder name, or this proves nothing"
+    wanted = Path(renames[0]["after"]["path"]).name
+
+    library = tmp_path / "library"
+    _tagged_album(library / "loose")
+    (library / wanted).mkdir()
+    api = _api(tmp_path / "two", FakeSource())
+    assert api.open_folder(str(library))["ok"]
+    _finish_reads(api)
+
+    (album,) = api.state()["albums"]
+    assert not album["applicable"]
+    opened = api.album(album["unit_id"])["album"]
+    assert opened["operations"] == []
+    assert len(opened["blockers"]) == 1, "no blocker reads as an album that is already right"
+    (blocker,) = opened["blockers"]
+    assert f"A folder named “{wanted}” already exists beside this one" in blocker
+    assert "already claims the name" not in blocker, "no other proposal holds it; a folder does"
+    assert opened["reason"] == blocker
+
+
 def test_an_album_a_scan_already_answered_is_not_re_proposed_by_its_tags(
     tmp_path: Path,
 ) -> None:
@@ -10956,6 +11163,108 @@ def test_an_organized_album_is_named_by_its_folder_and_shows_what_the_apply_rena
     _finish(reopened._restore_job, "restore")
     assert reopened.state()["albums"][0]["named_on_disk"] == expected
     assert reopened.album(unit_id)["album"]["names_applied"] == album["names_applied"]
+
+
+def test_a_second_apply_that_renames_the_folder_alone_keeps_the_files_first_names(
+    tmp_path: Path,
+) -> None:
+    """Two applies, and the names are followed from before the first.
+
+    The names were read off the latest applied plan that renamed anything. An
+    album applied, then given another folder name and applied again, answered
+    with that one folder row: the second plan renamed nothing else, so the file
+    names the first apply gave were on no screen, and the folder's own first
+    name was replaced by the one the first apply had given it.
+    """
+    library = _library(tmp_path)
+    release = _release("r1", (400, 900))
+    source = FakeSource(summaries=(release,), details={"r1": release})
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.approve(unit_id)["ok"]
+    once = api.album(unit_id)["album"]["names_applied"]
+    files_once = [row for row in once if row["kind"] == "file"]
+    assert {row["was"] for row in files_once} == {"aaa.flac", "bbb.flac"}
+
+    typed = "Somebody Else - A Typed Name (1999) [FLAC]"
+    assert api.plan_anyway(unit_id)["ok"]
+    assert api.correct(unit_id, folder_name=typed)["ok"]
+    assert api.approve(unit_id)["ok"]
+    assert [path.name for path in library.iterdir()] == [typed]
+
+    twice = api.album(unit_id)["album"]["names_applied"]
+    assert [row for row in twice if row["kind"] == "folder"] == [
+        {"kind": "folder", "was": "marina do acordeao - forro", "now": typed}
+    ], "one folder row, from the name it arrived with to the name it has"
+    assert [row for row in twice if row["kind"] == "file"] == files_once
+
+    reopened = _api(tmp_path, source)
+    _finish(reopened._restore_job, "restore")
+    assert reopened.album(unit_id)["album"]["names_applied"] == twice
+
+
+def test_a_name_is_followed_through_every_rename_and_not_guessed_at() -> None:
+    """The following itself, on the cases an album on disk does not make easily."""
+    root = Path("/music")
+    first, second = root / "arrived", root / "Artist - Album (1980) [FLAC]"
+
+    # A file renamed by two applies is one row; one given its first name back is none.
+    rows = _names_applied(
+        [
+            ("rename_file", first / "a.flac", first / "01. A.flac"),
+            ("rename_file", first / "b.flac", first / "02. B.flac"),
+            ("rename_folder", first, second),
+            ("rename_file", second / "01. A.flac", second / "01. Á.flac"),
+            ("rename_file", second / "02. B.flac", second / "b.flac"),
+        ],
+        second,
+    )
+    assert rows == [
+        {"kind": "folder", "was": "arrived", "now": second.name},
+        {"kind": "file", "was": "a.flac", "now": "01. Á.flac"},
+    ]
+
+    # Moved by hand between two applies: the paths no longer meet, the names do.
+    moved = Path("/elsewhere") / second.name
+    rows = _names_applied(
+        [
+            ("rename_file", first / "a.flac", first / "01. A.flac"),
+            ("rename_folder", first, second),
+            ("rename_file", moved / "01. A.flac", moved / "01. Á.flac"),
+        ],
+        moved,
+    )
+    assert {"kind": "file", "was": "a.flac", "now": "01. Á.flac"} in rows
+
+    # Renamed from one name twice: the first name given was undone by hand and
+    # no reversal was recorded, so the later rename replaces it.
+    rows = _names_applied(
+        [
+            ("rename_file", first / "a.flac", first / "01. A.flac"),
+            ("rename_folder", first, second),
+            ("rename_file", first / "a.flac", first / "01. Á.flac"),
+            ("rename_folder", first, root / "Another Name"),
+        ],
+        root / "Another Name",
+    )
+    assert rows == [
+        {"kind": "folder", "was": "arrived", "now": "Another Name"},
+        {"kind": "file", "was": "a.flac", "now": "01. Á.flac"},
+    ]
+
+    # Two discs each holding a file of one name: a name alone says nothing, so
+    # the later rename stands as its own row rather than being hung on either.
+    rows = _names_applied(
+        [
+            ("rename_file", first / "CD1" / "x.flac", first / "CD1" / "01. Intro.flac"),
+            ("rename_file", first / "CD2" / "y.flac", first / "CD2" / "01. Intro.flac"),
+            ("rename_file", moved / "CD1" / "01. Intro.flac", moved / "CD1" / "01. Opening.flac"),
+        ],
+        moved,
+    )
+    assert {"kind": "file", "was": "01. Intro.flac", "now": "01. Opening.flac"} in rows
+    assert len([row for row in rows if row["kind"] == "file"]) == 3
 
 
 def test_an_album_not_yet_organized_is_named_by_the_catalogue(tmp_path: Path) -> None:

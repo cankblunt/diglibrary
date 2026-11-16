@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from diglibrary.application.acoustic import AudioNotAskedError
 from diglibrary.application.quality import (
     QualitySurvey,
     stored_measurement,
@@ -240,6 +241,10 @@ class AcousticSweep:
     files: int
     named: int
     seconds: float
+    # Files that could not be put to the service: no fingerprint, or no answer.
+    # Kept apart from `files`, which counts only what the service answered, so
+    # an outage is not reported as a catalogue the service does not know.
+    unasked: int = 0
 
 
 class QualityBench:
@@ -501,13 +506,18 @@ class QualityBench:
         started = self._clock()
         asked = 0
         named = 0
+        unasked = 0
         for index, album in enumerate(albums, start=1):
             if on_progress is not None:
                 on_progress(index, len(albums), album.folder_path.name)
             for file in album.files:
-                recording = self._acoustic.recognize(
-                    album.folder_path / file.name, file.content_signature
-                )
+                try:
+                    recording = self._acoustic.recognize(
+                        album.folder_path / file.name, file.content_signature
+                    )
+                except AudioNotAskedError:
+                    unasked += 1
+                    continue
                 asked += 1
                 named += recording is not None
         self._logger.info(
@@ -517,10 +527,15 @@ class QualityBench:
                 "albums": len(albums),
                 "files": asked,
                 "named": named,
+                "unasked": unasked,
             },
         )
         return AcousticSweep(
-            albums=len(albums), files=asked, named=named, seconds=self._clock() - started
+            albums=len(albums),
+            files=asked,
+            named=named,
+            seconds=self._clock() - started,
+            unasked=unasked,
         )
 
     def adopt(self, analysis: DeepAnalysis) -> int:

@@ -1793,3 +1793,37 @@ def test_a_file_whose_bytes_changed_has_its_picture_read_again(tmp_path: Path) -
         handle.write(b"\0" * 16)
     store.record_unit(_rescan(library, "Ana Vale - Rio"))
     assert store.unread_pictures() == (track,)
+
+
+def test_what_a_lookup_named_is_kept_and_read_back(tmp_path: Path) -> None:
+    """The groups and recordings of an answer, and the name later given to it.
+
+    An answer recorded before these were kept reads back as ``None`` groups,
+    which is not the service having named none; an answer that named none reads
+    back empty. A new answer clears the name the old one was given.
+    """
+    store = _store(tmp_path)
+    print_ = AudioFingerprint(fingerprint="AQAB-one", duration_seconds=212)
+    store.remember_fingerprint("shape", "flac:aaa", print_)
+    with store._database.connect(write=True) as connection:
+        connection.execute(
+            "UPDATE acoustic_prints SET external_recording_id = 'old', "
+            "looked_up_at = CURRENT_TIMESTAMP"
+        )
+
+    before = store.acoustic_answers([("shape", "flac:aaa")])[("shape", "flac:aaa")]
+    assert (before.asked, before.release_group_ids) == (True, None)
+
+    store.remember_lookup(
+        "shape", "flac:aaa", "rec-1", 0.99, release_group_ids=("g1", "g2"), recording_ids=("rec-1",)
+    )
+    store.remember_recording_name("shape", "flac:aaa", "Canto", "Orvo & Os Vizinhos")
+    named = store.acoustic_answers([("shape", "flac:aaa")])[("shape", "flac:aaa")]
+    assert named.release_group_ids == ("g1", "g2")
+    assert named.recording_ids == ("rec-1",)
+    assert (named.recording_title, named.recording_artist) == ("Canto", "Orvo & Os Vizinhos")
+
+    store.remember_lookup("shape", "flac:aaa", None, None)
+    emptied = store.acoustic_answers([("shape", "flac:aaa")])[("shape", "flac:aaa")]
+    assert emptied.release_group_ids == ()
+    assert (emptied.recording_title, emptied.recording_artist) == (None, None)

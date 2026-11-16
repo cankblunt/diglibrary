@@ -6,6 +6,7 @@ import shutil
 from collections.abc import Sequence
 from pathlib import Path
 
+from diglibrary.application.acoustic import AudioNotAskedError
 from diglibrary.application.bench import QualityBench
 from diglibrary.database.connection import Database
 from diglibrary.database.library_store import LibraryStore, StoredQuality
@@ -365,6 +366,39 @@ def test_the_audio_of_marked_albums_can_be_put_to_the_service(tmp_path: Path) ->
         2,
         1,
     ), "the answer says what it cost and how much of it the service knew"
+
+
+class _CannotAsk:
+    """A fingerprint service that cannot put any file to the service."""
+
+    def recognize(self, path: object, content_signature: str) -> str | None:
+        """Refuse the way a fingerprinter that does not run refuses."""
+        raise AudioNotAskedError("unfingerprinted")
+
+
+def test_files_that_could_not_be_asked_about_are_not_counted_as_asked(tmp_path: Path) -> None:
+    """A round in which nothing could be asked reports zero files asked.
+
+    Counted with the rest, two files that produced no fingerprint read as two
+    files the service was asked about and knows neither of.
+    """
+    library = tmp_path / "library"
+    folder = library / "an album"
+    folder.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", folder / "01.flac")
+    (folder / "02.flac").write_bytes((FIXTURES / "tone-long.flac").read_bytes())
+    logger = logging.getLogger("test.bench.acoustic")
+    database = Database(tmp_path / "library.sqlite3", logger)
+    database.initialize()
+    store = LibraryStore(database, logger)
+    bench = QualityBench(
+        LibraryScanner(MutagenAudioProbe(), logger), store, logger, acoustic=_CannotAsk()
+    )
+    bench.add(library)
+
+    swept = bench.identify_in_depth([store.bench_albums()[0].album_id])
+
+    assert (swept.files, swept.named, swept.unasked) == (0, 0, 2)
 
 
 def test_marking_every_track_lossy_makes_the_album_say_so(tmp_path: Path) -> None:

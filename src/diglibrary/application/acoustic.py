@@ -11,7 +11,7 @@ from diglibrary.application.contracts import MetadataSourceId, MetadataSources, 
 from diglibrary.library.audio_key import audio_key
 from diglibrary.library.fingerprint import AudioFingerprint
 from diglibrary.library.models import AlbumUnit
-from diglibrary.metadata.acoustid import AcousticMatch, AcoustIdClient
+from diglibrary.metadata.acoustid import AcousticMatch, AcoustIdClient, AcoustIdUnansweredError
 from diglibrary.metadata.service import MetadataService
 
 DEFAULT_SAMPLE_SIZE = 3
@@ -24,6 +24,75 @@ lookups at three a second to confirm what three already said.
 
 DEFAULT_GROUP_LIMIT = 2
 """How many release groups are browsed for pressings. Each one costs a request."""
+
+UNFINGERPRINTED = "unfingerprinted"
+"""No sampled file produced a fingerprint, so the service was never asked."""
+
+UNREACHABLE = "unreachable"
+"""A fingerprint was produced and the service gave no answer to any lookup."""
+
+FAILED = "failed"
+"""The question could not be put, and nothing observed says which half failed."""
+
+NAMED_RECORDINGS_READ = 3
+"""How many of a fingerprint's recordings are looked up to name it. Each is a request."""
+
+FOREIGN = "foreign"
+"""The file's recording is on none of the releases its neighbours named."""
+
+SAME_ALBUM = "same"
+"""The file's recording is on a release most of its neighbours share."""
+
+UNRECOGNISED = "unrecognised"
+"""The service was asked about the file and holds no recording for it."""
+
+NO_ALBUM_TO_COMPARE = "no_album"
+"""The file was recognised and its neighbours do not settle what the album is."""
+
+
+def belonging(own: Sequence[str] | None, neighbours: Sequence[Sequence[str] | None]) -> str | None:
+    """Return whether one file's recording belongs with its neighbours' album.
+
+    ``own`` and each neighbour are the release groups a lookup named, ``None``
+    where no lookup was recorded. The answer is ``None`` while the file itself
+    was not asked about — nothing has been heard, so nothing is said.
+
+    The album is the groups more than half of the recognised neighbours share,
+    and at least two of them must be recognised: one neighbour names many
+    releases and proves no album. ``FOREIGN`` is kept for a recording that
+    shares no group with *any* neighbour, so a file between the two — off the
+    album's groups and on some neighbour's — is ``NO_ALBUM_TO_COMPARE`` rather than
+    accused.
+    """
+    if own is None:
+        return None
+    if not own:
+        return UNRECOGNISED
+    recognised = [set(groups) for groups in neighbours if groups]
+    if len(recognised) < 2:
+        return NO_ALBUM_TO_COMPARE
+    named = Counter(group for groups in recognised for group in groups)
+    album = {group for group, count in named.items() if count * 2 > len(recognised)}
+    if not album:
+        return NO_ALBUM_TO_COMPARE
+    if album & set(own):
+        return SAME_ALBUM
+    return NO_ALBUM_TO_COMPARE if set(named) & set(own) else FOREIGN
+
+
+class AudioNotAskedError(Exception):
+    """An album's audio could not be put to the service at all.
+
+    Distinct from an empty answer, which says the service was asked and does
+    not hold the album. ``state`` is which half failed — ``UNFINGERPRINTED`` or
+    ``UNREACHABLE`` — so a screen can name the one that was observed, and
+    ``FAILED`` when neither was, so it names none.
+    """
+
+    def __init__(self, state: str) -> None:
+        """Carry which half of the question could not be asked."""
+        super().__init__(state)
+        self.state = state
 
 
 class Fingerprinter(Protocol):
@@ -75,8 +144,11 @@ class AcousticIdentification:
     what comes back are candidates, scored and chosen exactly like any other.
     Dependencies: an injected fingerprinter, AcoustID client, and metadata
     service. Collaborators: the identification workflow, which asks only when
-    an album did not settle. Constraints: every failure is an empty answer,
-    because acoustic identification never blocks organizing.
+    an album did not settle. Constraints: an empty answer means the service was
+    asked and does not hold the album; an album whose audio could not be asked
+    at all raises ``AudioNotAskedError``, which the workflow reads as a state and
+    never as a reason to stop, because acoustic identification never blocks
+    organizing.
     """
 
     def __init__(
@@ -109,7 +181,11 @@ class AcousticIdentification:
         return self._acoustid.is_configured
 
     def releases_for(self, unit: AlbumUnit) -> tuple[ReleaseMetadata, ...]:
-        """Return the pressings this album's own audio points at."""
+        """Return the pressings this album's own audio points at.
+
+        Raises ``AudioNotAskedError`` when no sampled file could be put to the
+        service, so that outcome is not read as the service not knowing.
+        """
         if not self._acoustid.is_configured or not unit.audio_files:
             return ()
         groups = self._groups_named_by(unit)
@@ -138,11 +214,22 @@ class AcousticIdentification:
         """
         named: Counter[str] = Counter()
         answered = 0
+        # Lookups the service completed, with or without a match. Zero of them
+        # means nothing was asked, which is not the service knowing nothing.
+        asked = 0
+        unreached = 0
         for file in self._sample(unit.audio_files):
             fingerprint = self._fingerprint(file)
             if fingerprint is None:
                 continue
-            matches = self._acoustid.lookup(fingerprint)
+            try:
+                matches = self._acoustid.lookup(fingerprint)
+            except AcoustIdUnansweredError:
+                # Not written down: the store's row would say this audio was
+                # asked about and is unknown, and it was never answered.
+                unreached += 1
+                continue
+            asked += 1
             # Written down whichever way it went. An answer that is consumed
             # and dropped leaves nothing a screen could show about what the
             # service said, and costs a second request to learn again.
@@ -154,6 +241,13 @@ class AcousticIdentification:
             # that matches two recordings is one recording published twice, and
             # counting both would let a single track outvote its neighbours.
             named.update(dict.fromkeys(matches[0].release_group_ids, 1))
+        if not asked:
+            state = UNREACHABLE if unreached else UNFINGERPRINTED
+            self._logger.warning(
+                "The audio of this album could not be put to the service.",
+                extra={"operation": "acoustic.not_asked", "state": state},
+            )
+            raise AudioNotAskedError(state)
         if not named:
             # Asked and answered nothing, which is a different state from never
             # asked and has to say so. The service not knowing a record is an
@@ -186,28 +280,92 @@ class AcousticIdentification:
         one file, on an explicit request, so the bench can show what the service
         knows about it.
 
-        Returns the recording it named, or ``None`` for every other outcome. The
-        answer is written down either way, and *that* is what the screens read —
-        a return value cannot tell "asked and unknown" from "could not ask".
+        Returns the recording it named, or ``None`` when the service answered
+        and holds none; that answer is written down either way. A file that
+        could not be asked about raises ``AudioNotAskedError`` and nothing is
+        written, because the store's row would read as asked and unknown.
         """
         if not self._acoustid.is_configured:
             return None
         probe = _OneFile(path=path, content_signature=content_signature)
         fingerprint = self._fingerprint(probe)
         if fingerprint is None:
-            return None
+            raise AudioNotAskedError(UNFINGERPRINTED)
         try:
             matches = self._acoustid.lookup(fingerprint)
+        except AcoustIdUnansweredError:
+            raise AudioNotAskedError(UNREACHABLE) from None
         except Exception:
             self._logger.exception(
                 "One file could not be put to the service.",
                 extra={"operation": "acoustic.lookup.failure"},
             )
-            return None
+            raise AudioNotAskedError(FAILED) from None
         self._remember_answer(probe, matches[0] if matches else None)
         if matches and matches[0].recording_ids:
             return matches[0].recording_ids[0]
         return None
+
+    def hear_every_file(self, files: Sequence[object]) -> int:
+        """Put every one of these files to the service, and return how many were answered.
+
+        The identification path samples three tracks to find the album. This
+        asks about each file, which is what comparing one of them with its
+        neighbours takes, and it is made on request for one album: each file is
+        a request. Raises ``AudioNotAskedError`` when not one could be asked.
+        """
+        asked = 0
+        state = ""
+        for file in files:
+            try:
+                self.recognize(getattr(file, "path", file), getattr(file, "content_signature", ""))
+            except AudioNotAskedError as not_asked:
+                state = state or not_asked.state
+                continue
+            asked += 1
+        if not asked:
+            raise AudioNotAskedError(state or UNFINGERPRINTED)
+        return asked
+
+    def name_of(
+        self, recording_ids: Sequence[str], duration_ms: int | None
+    ) -> tuple[str, str] | None:
+        """Return the title and credit of the recording a file was named as.
+
+        A fingerprint is linked to several recordings and not every link is
+        right: a remix twice the length can sit first. So each is looked up, up
+        to ``NAMED_RECORDINGS_READ``, and the one whose published length is
+        nearest the file's own is the one named. Each lookup is a request.
+        """
+        best: tuple[float, str, str] | None = None
+        for recording_id in list(recording_ids)[:NAMED_RECORDINGS_READ]:
+            try:
+                recording = self._metadata.recording(self._source, recording_id)
+            except Exception:
+                self._logger.exception(
+                    "A recording could not be looked up by its identifier.",
+                    extra={"operation": "acoustic.recording.failure"},
+                )
+                continue
+            if recording is None:
+                continue
+            apart = (
+                abs(recording.duration_ms - duration_ms)
+                if recording.duration_ms and duration_ms
+                else float("inf")
+            )
+            credit = recording.artist_credit or ", ".join(
+                artist.name for artist in recording.artists
+            )
+            if best is None or apart < best[0]:
+                best = (apart, recording.title, credit)
+        return (best[1], best[2]) if best else None
+
+    def remember_name(self, file: object, title: str, artist: str) -> None:
+        """Keep what the catalogue calls this file's recording, beside its answer."""
+        signature = getattr(file, "content_signature", "")
+        if self._store is not None and signature:
+            self._store.remember_recording_name(signature, self._audio_key(file), title, artist)
 
     def _remember_answer(self, file: object, match: AcousticMatch | None) -> None:
         """Keep what the service answered about this file, including nothing at all.
@@ -225,7 +383,12 @@ class AcousticIdentification:
             return
         recording = match.recording_ids[0] if match and match.recording_ids else None
         self._store.remember_lookup(
-            signature, self._audio_key(file), recording, match.score if match else None
+            signature,
+            self._audio_key(file),
+            recording,
+            match.score if match else None,
+            release_group_ids=match.release_group_ids if match else (),
+            recording_ids=match.recording_ids if match else (),
         )
 
     def _sample(self, files: Sequence[object]) -> tuple[object, ...]:

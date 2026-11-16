@@ -72,11 +72,11 @@ def test_one_album_ripped_twice_is_named_as_that_instead() -> None:
 
     The same album ripped twice under two file naming conventions. What
     separates it from two albums is that the repeated number carries *the same
-    song*, and `Plim Tom Tom` against `Plim, Tom, Tom` has to count as the same
+    song*, and `Plim Zuv Zuv` against `Plim, Zuv, Zuv` has to count as the same
     song or every duplicate rip reads as a second album.
     """
-    once = _run("1", ("Zup Que Lada!", "Plim Tom Tom", "Zorve Zuva", "Vem Zorena Vem"))
-    again = _run("1", ("Zup, Que Lada!", "Plim, Tom, Tom", "Zorve, Zuva", "Vem, Zorena, Vem"))
+    once = _run("1", ("Zup Que Lada!", "Plim Zuv Zuv", "Zorve Zuva", "Vem Zorena Vem"))
+    again = _run("1", ("Zup, Que Lada!", "Plim, Zuv, Zuv", "Zorve, Zuva", "Vem, Zorena, Vem"))
 
     said = numbers_deny_one_album(once + again, files=8)
 

@@ -152,7 +152,6 @@ class ChangePlanner:
         taken_names: frozenset[str] = frozenset(),
         transcoded: frozenset[str] = frozenset(),
         measured_rates: Mapping[str, int] | None = None,
-        write_tags: bool = True,
         user_titles: frozenset[int] = frozenset(),
         finder_tags: Sequence[FinderTag] | None = None,
     ) -> ChangePlan:
@@ -181,14 +180,6 @@ class ChangePlanner:
         is never set for unattended work, and it never relaxes ambiguity: a
         file that could go to more than one track still stops the plan, because
         a wrong rename is worse than no rename.
-
-        ``write_tags`` is switched off by the one path where the release came
-        from the files themselves. Writing it back would be the application
-        returning to a file what that file just told it — and where the album's
-        own tracks disagree, it would pick one value and overwrite the other
-        without the difference ever being shown. That path renames, and makes
-        the Finder icon from the picture each file already carries, which
-        invents nothing.
 
         ``finder_tags`` is the set of Finder tags the user chose for the album's
         folder, in order. What it differs by from the folder's own becomes one
@@ -290,7 +281,7 @@ class ChangePlanner:
             # pre-fold `7` makes every already-correct MP3 album plan a rewrite
             # of identical values, so it never reaches "already exactly as it
             # should be".
-            if write_tags and _tags_differ(current, as_the_container_writes(source, tags)):
+            if _tags_differ(current, as_the_container_writes(source, tags)):
                 sequence += 1
                 operations.append(
                     ChangeOperation(
@@ -411,56 +402,11 @@ class ChangePlanner:
 
         # Image operations come last, so every path they use is already final and
         # no rename can invalidate one.
-        # The arrangement is asked first, because it is the narrower mode. It
-        # carries artwork of its own, and the branch below would answer to that
-        # by embedding pictures into the files — which is exactly the byte this
-        # mode promises never to write. Order is the guard: `write_tags` being
-        # off means the cover half and nothing else.
-        if not write_tags and self._artwork_store is not None:
-            # The arrangement's image gestures. Both fit the mode's own rule
-            # because they invent nothing and reach nobody: the Finder icon is
-            # made from the picture the file already carries, and the folder's
-            # `cover.jpg` is that same picture written beside the album rather
-            # than into it. Fetching stays out — the archive is addressed
-            # through MusicBrainz and arranging asks nobody anything.
-            final_folder = (
-                Path(str(folder_operation.after_state["path"]))
-                if folder_operation is not None
-                else album_folder
-            )
-            track_paths = tuple(
-                (pending_sources[pending], _relocated(target, album_folder, final_folder))
-                for pending, target in targets.items()
-            )
-            covers = (
-                self._cover_operations(
-                    unit,
-                    artwork,
-                    alignment,
-                    album_folder=album_folder,
-                    final_folder=final_folder,
-                    disc_folders=disc_folders,
-                    disc_count=disc_count,
-                    sequence=sequence,
-                )
-                if artwork is not None
-                else []
-            )
-            operations.extend(covers)
-            operations.extend(
-                self._finder_icons(
-                    self._artwork_store,
-                    track_paths,
-                    sequence + len(covers),
-                    {},
-                    not_covers=artwork.not_covers if artwork is not None else frozenset(),
-                )
-            )
         # Entered even when nothing was fetched, because a picture block that
         # lies about its own image is repaired from the file itself and needs no
         # candidate at all — the album identified on a catalogue the archive
         # cannot be addressed by is exactly the one that carries the lie.
-        elif artwork is not None and self._artwork_store is not None:
+        if artwork is not None and self._artwork_store is not None:
             final_folder = (
                 Path(str(folder_operation.after_state["path"]))
                 if folder_operation is not None

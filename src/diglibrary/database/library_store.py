@@ -243,6 +243,14 @@ class AcousticAnswer:
     score: float | None
     asked: bool
     is_this_audio: bool = False
+    # The release groups and recordings the best answer named. ``None`` where
+    # the answer was recorded before these were kept, which is not the same as
+    # the service having named none.
+    release_group_ids: tuple[str, ...] | None = None
+    recording_ids: tuple[str, ...] = ()
+    # What the catalogue calls the recording, once it was looked up by name.
+    recording_title: str | None = None
+    recording_artist: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1364,8 +1372,14 @@ class LibraryStore:
         audio_key: str | None,
         recording_id: str | None,
         score: float | None,
+        release_group_ids: Sequence[str] = (),
+        recording_ids: Sequence[str] = (),
     ) -> None:
         """Record what the service answered about this audio, including nothing.
+
+        The groups and recordings are everything the best answer named, kept so
+        that a file can later be compared with its neighbours without a second
+        request. A new answer clears the name the catalogue gave the old one.
 
         Keeping the fingerprint and discarding every answer drawn from it would
         leave no screen able to say what the acoustic engine has done.
@@ -1378,9 +1392,29 @@ class LibraryStore:
         with self._database.connect(write=True) as connection:
             connection.execute(
                 "UPDATE acoustic_prints SET external_recording_id = ?, "
-                "  recording_score = ?, looked_up_at = CURRENT_TIMESTAMP "
+                "  recording_score = ?, looked_up_at = CURRENT_TIMESTAMP, "
+                "  release_group_ids = ?, recording_ids = ?, "
+                "  recording_title = NULL, recording_artist = NULL "
                 "WHERE content_signature = ? AND audio_key IS ?",
-                (recording_id, score, content_signature, audio_key),
+                (
+                    recording_id,
+                    score,
+                    json.dumps(list(release_group_ids)),
+                    json.dumps(list(recording_ids)),
+                    content_signature,
+                    audio_key,
+                ),
+            )
+
+    def remember_recording_name(
+        self, content_signature: str, audio_key: str | None, title: str, artist: str
+    ) -> None:
+        """Record what the catalogue calls the recording this audio was named as."""
+        with self._database.connect(write=True) as connection:
+            connection.execute(
+                "UPDATE acoustic_prints SET recording_title = ?, recording_artist = ? "
+                "WHERE content_signature = ? AND audio_key IS ?",
+                (title, artist, content_signature, audio_key),
             )
 
     def acoustic_answers(
@@ -1410,7 +1444,9 @@ class LibraryStore:
                 placeholders = ",".join("?" * len(signatures))
                 rows = connection.execute(
                     "SELECT content_signature, audio_key, external_recording_id, "
-                    "       recording_score, looked_up_at FROM acoustic_prints "
+                    "       recording_score, looked_up_at, release_group_ids, "
+                    "       recording_ids, recording_title, recording_artist "
+                    "FROM acoustic_prints "
                     f"WHERE content_signature IN ({placeholders})",
                     signatures,
                 ).fetchall()
@@ -1420,12 +1456,18 @@ class LibraryStore:
                     row = named if named is not None else answers.get((signature, None))
                     if row is None:
                         continue
-                    recording, score, asked_at = row
+                    recording, score, asked_at, groups, recordings, title, artist = row
                     found[(signature, key)] = AcousticAnswer(
                         recording_id=recording,
                         score=float(score) if score is not None else None,
                         asked=asked_at is not None,
                         is_this_audio=named is not None,
+                        release_group_ids=(
+                            tuple(json.loads(groups)) if groups is not None else None
+                        ),
+                        recording_ids=tuple(json.loads(recordings)) if recordings else (),
+                        recording_title=title,
+                        recording_artist=artist,
                     )
         return found
 
@@ -2896,12 +2938,19 @@ class LibraryStore:
                 """).fetchall()
         return {row[0]: (row[1], row[2]) for row in rows}
 
-    def last_applied_renames(self, unit_id: int) -> tuple[tuple[str, Path, Path], ...]:
-        """Return the renames still standing from the album's latest applied plan.
+    def standing_renames(self, unit_id: int) -> tuple[tuple[str, Path, Path], ...]:
+        """Return every rename of this album that was applied and still stands.
 
-        Each is ``(kind, before, after)``, in the plan's own order. The latest
-        applied plan that renamed anything, so a later apply of artwork alone
-        does not hide the names. An operation reverted since is left out, which
+        Each is ``(kind, before, after)``, oldest apply first and each plan in
+        its own order, so that a caller can follow one name through every apply
+        that touched it. **Every apply, not the latest one**: a second apply
+        that renames the folder alone would otherwise be the whole answer, and
+        the names the first one gave the files would be on no screen.
+
+        Asked of the operations rather than of the plans' states. An operation
+        that was applied and has not been reverted is a name on the disk,
+        whatever became of the plan it belonged to — a run that stopped halfway
+        has renamed the files it reached. One reverted since is left out, which
         is also what makes a wholly reverted plan answer nothing.
         """
         with self._database.connect() as connection:
@@ -2909,20 +2958,11 @@ class LibraryStore:
                 """
                 SELECT o.kind, o.target_path, o.after_state
                 FROM change_operations o
-                WHERE o.change_plan_id = (
-                    SELECT p.id FROM change_plans p
-                    WHERE p.album_unit_id = ? AND p.state = 'applied'
-                      AND EXISTS (
-                          SELECT 1 FROM change_operations r
-                          WHERE r.change_plan_id = p.id
-                            AND r.kind IN ('rename_file', 'rename_folder')
-                            AND r.applied_at IS NOT NULL AND r.reverted_at IS NULL
-                      )
-                    ORDER BY p.id DESC LIMIT 1
-                )
+                JOIN change_plans p ON p.id = o.change_plan_id
+                WHERE p.album_unit_id = ?
                   AND o.kind IN ('rename_file', 'rename_folder')
                   AND o.applied_at IS NOT NULL AND o.reverted_at IS NULL
-                ORDER BY o.sequence
+                ORDER BY p.applied_at, p.id, o.sequence
                 """,
                 (unit_id,),
             ).fetchall()

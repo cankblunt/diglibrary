@@ -1239,8 +1239,10 @@ main { padding: 20px; }
 /* The derived part of a name is not typed by anyone, so it is quiet: what can
    be edited is drawn in full colour. */
 .plan-affix { color: var(--muted); white-space: pre; }
+/* On a row that needs no change as well. Muted there, under the row's own
+   dimming, the name that stands was the hardest thing on the screen to read,
+   and on an album planned again every row is such a row. */
 .plan-stem, .plan-part { color: var(--text); }
-.plan-row.is-unchanged .plan-stem, .plan-row.is-unchanged .plan-part { color: var(--muted); }
 /* A credit the catalogue never published still needs somewhere to click, and an
    empty word in a name has to look unwritten rather than merely missing. Muted
    and italic, not `--line`: `--line` on this panel is #262a33 on #16181d,
@@ -1304,6 +1306,14 @@ main { padding: 20px; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   margin-top: 3px;
 }
+
+/* A file in another format than the rest of its album. The mark is the one
+   coloured thing; the sentence under the name stays quiet whatever it says, in
+   the size the other under-the-name lines use, so it is never read as part of
+   the name above it. */
+.plan-other-format-mark { color: var(--warn); margin-left: 4px; cursor: help; }
+.plan-other-format { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.plan-other-format-ask { margin-left: 8px; font-size: inherit; }
 
 .dialog-actions {
   display: flex;

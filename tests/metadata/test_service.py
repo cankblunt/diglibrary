@@ -8,6 +8,7 @@ from diglibrary.metadata.models import (
     MetadataSourceId,
     MetadataSources,
     ReleaseMetadata,
+    TrackMetadata,
 )
 from diglibrary.metadata.service import MetadataService
 
@@ -206,3 +207,29 @@ def test_a_source_that_raises_is_not_counted_as_having_answered() -> None:
         service.search_source(MetadataSources.MUSICBRAINZ, MetadataQuery(album="Album"))
 
     assert service.answers == {}
+
+
+class NamingSourceClient(FakeSourceClient):
+    """A source that can also say what one recording is called."""
+
+    def recording(self, recording_id: str) -> TrackMetadata:
+        """Return a fixed recording, recording which identifier was asked for."""
+        self.asked = recording_id
+        return TrackMetadata(title="Canto", duration_ms=220_000)
+
+
+def test_a_recording_is_looked_up_on_the_source_that_can_and_counted() -> None:
+    """A source without the capability answers nothing, and only an answer is counted."""
+    naming = NamingSourceClient(())
+    service = MetadataService(
+        (
+            (MetadataSources.DISCOGS, FakeSourceClient(())),
+            (MetadataSources.MUSICBRAINZ, naming),
+        )
+    )
+
+    assert service.recording(MetadataSources.DISCOGS, "rec-1") is None
+    found = service.recording(MetadataSources.MUSICBRAINZ, "rec-1")
+
+    assert found is not None and found.title == "Canto"
+    assert naming.asked == "rec-1"

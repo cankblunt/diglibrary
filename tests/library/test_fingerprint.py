@@ -11,6 +11,7 @@ from diglibrary.library.fingerprint import (
     KNOWN_FPCALC_PATHS,
     ChromaprintFingerprinter,
     find_fpcalc,
+    why_fpcalc_does_not_run,
 )
 
 
@@ -84,3 +85,23 @@ def test_the_binary_is_looked_for_where_the_dock_cannot_see() -> None:
     assert "/opt/homebrew/bin/fpcalc" in KNOWN_FPCALC_PATHS
     found = find_fpcalc()
     assert found is None or Path(found).name == "fpcalc"
+
+
+def test_a_binary_that_is_found_and_does_not_run_says_why() -> None:
+    """Being on disk is not running.
+
+    A fingerprinter linked against a library that was upgraded since is found
+    where it is installed and exits before reading a file, so it is asked for
+    its version once and the first line of what it said is kept.
+    """
+    broken = _Recorded(error=OSError("dyld: Library not loaded: libavformat\n  Referenced from"))
+
+    assert why_fpcalc_does_not_run(broken) == "dyld: Library not loaded: libavformat"
+    assert broken.calls == [["-version"]], "asked without an audio file"
+
+
+def test_a_binary_that_runs_has_nothing_to_say() -> None:
+    """The ordinary case answers nothing, including when it merely timed out elsewhere."""
+    assert why_fpcalc_does_not_run(_Recorded(output="fpcalc version 1.6.0")) is None
+    timed_out = _Recorded(error=subprocess.TimeoutExpired("fpcalc", 120))
+    assert why_fpcalc_does_not_run(timed_out) is not None

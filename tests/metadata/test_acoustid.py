@@ -5,8 +5,10 @@ import urllib.parse
 from collections.abc import Mapping
 from typing import Any
 
+import pytest
+
 from diglibrary.library.fingerprint import AudioFingerprint
-from diglibrary.metadata.acoustid import REQUESTED_META, AcoustIdClient
+from diglibrary.metadata.acoustid import REQUESTED_META, AcoustIdClient, AcoustIdUnansweredError
 from diglibrary.metadata.transport import MetadataRequestError
 
 
@@ -119,16 +121,29 @@ def test_without_a_key_the_feature_is_off_rather_than_broken() -> None:
     assert recorded.urls == []
 
 
-def test_a_service_that_cannot_be_reached_is_silence() -> None:
-    """Acoustic identification never blocks organizing."""
+def test_a_service_that_cannot_be_reached_is_not_an_empty_answer() -> None:
+    """An outage is raised, because an empty answer means the service knows nothing.
+
+    Returned as an empty tuple, an unreachable service was written down as a
+    recording the service does not hold.
+    """
     _, client = _client(error=MetadataRequestError("Network error", retryable=True))
 
-    assert client.lookup(_fingerprint()) == ()
+    with pytest.raises(AcoustIdUnansweredError):
+        client.lookup(_fingerprint())
 
 
 def test_a_refusal_is_not_read_as_an_empty_library() -> None:
     """`status` is what says the answer is an answer."""
     _, client = _client({"status": "error", "error": {"message": "invalid API key"}})
+
+    with pytest.raises(AcoustIdUnansweredError):
+        client.lookup(_fingerprint())
+
+
+def test_an_answer_that_holds_nothing_is_still_an_answer() -> None:
+    """The service answering with no result is the one case that returns empty."""
+    _, client = _client({"status": "ok", "results": []})
 
     assert client.lookup(_fingerprint()) == ()
 
@@ -155,8 +170,13 @@ def test_the_key_never_reaches_a_log_record(caplog) -> None:
     secret = "s3cr3t-key"
     _, client = _client(error=MetadataRequestError("Network error", retryable=True), key=secret)
 
-    with caplog.at_level(logging.DEBUG, logger="test.acoustid"):
-        assert client.lookup(_fingerprint()) == ()
+    with (
+        caplog.at_level(logging.DEBUG, logger="test.acoustid"),
+        pytest.raises(AcoustIdUnansweredError) as raised,
+    ):
+        client.lookup(_fingerprint())
+
+    assert secret not in str(raised.value), "the exception travels further than a log line"
 
     written = "\n".join(record.getMessage() for record in caplog.records)
     written += "\n".join(str(record.__dict__) for record in caplog.records)

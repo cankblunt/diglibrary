@@ -10,7 +10,7 @@ from diglibrary.application.contracts import (
     MetadataSearchResult,
     MetadataSourceId,
 )
-from diglibrary.metadata.models import ReleaseMetadata
+from diglibrary.metadata.models import ReleaseMetadata, TrackMetadata
 
 _Answer = TypeVar("_Answer")
 
@@ -169,6 +169,18 @@ class MetadataService:
                 browse = getattr(client, "releases_in_group", None)
                 return self._ask(source, browse, group_id) if callable(browse) else ()
         return ()
+
+    def recording(self, source: MetadataSourceId, recording_id: str) -> TrackMetadata | None:
+        """Return what a source calls one recording, when it can look one up.
+
+        The same shape as ``releases_in_group``: a source without the
+        capability answers nothing, which is not the same as not answering.
+        """
+        for identifier, client in self._sources:
+            if identifier == source:
+                lookup = getattr(client, "recording", None)
+                return self._ask(source, lookup, recording_id) if callable(lookup) else None
+        return None
 
     def search_source(
         self, source: MetadataSourceId, query: MetadataQuery

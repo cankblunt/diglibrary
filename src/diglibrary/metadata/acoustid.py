@@ -54,6 +54,16 @@ class AcousticMatch:
     release_group_ids: tuple[str, ...] = field(default=())
 
 
+class AcoustIdUnansweredError(Exception):
+    """The service was asked and gave no answer: unreachable, or it refused.
+
+    Raised rather than returned as an empty result, because an empty result is
+    the service's own way of saying it does not hold a recording. A caller that
+    could not tell the two apart recorded an outage as an unknown record. The
+    message never carries the URL, which holds the key.
+    """
+
+
 class AcoustIdClient:
     """Purpose: turn a fingerprint into the recordings AcoustID maps it to.
 
@@ -63,8 +73,9 @@ class AcoustIdClient:
     ranking candidates is the Decision Engine's and only the caller decides what
     an answer means. Dependencies: an injected JSON client and the credential
     resolver. Collaborators: the identification workflow. Constraints: the key
-    is the user's own and is never logged; a service that cannot be reached is
-    an empty answer, because acoustic identification never blocks organizing.
+    is the user's own and is never logged; a service that cannot be reached or
+    that refuses raises ``AcoustIdUnansweredError``, because an empty answer means
+    the service does not hold the recording and only that.
     """
 
     def __init__(
@@ -86,7 +97,11 @@ class AcoustIdClient:
         return self._credentials.optional(self._key_variable) is not None
 
     def lookup(self, fingerprint: AudioFingerprint) -> tuple[AcousticMatch, ...]:
-        """Return what the service maps this fingerprint to, best score first."""
+        """Return what the service maps this fingerprint to, best score first.
+
+        An empty tuple means the service answered and holds nothing for this
+        fingerprint. ``AcoustIdUnansweredError`` means it did not answer.
+        """
         key = self._credentials.optional(self._key_variable)
         if key is None:
             self._logger.info(
@@ -111,13 +126,13 @@ class AcoustIdClient:
                 "AcoustID could not be reached.",
                 extra={"operation": "acoustid.failure"},
             )
-            return ()
+            raise AcoustIdUnansweredError("AcoustID could not be reached.") from None
         if payload.get("status") != "ok":
             self._logger.warning(
                 "AcoustID refused the lookup.",
                 extra={"operation": "acoustid.refused"},
             )
-            return ()
+            raise AcoustIdUnansweredError("AcoustID refused the lookup.")
         matches = [_match(result) for result in _sequence(payload.get("results"))]
         return tuple(sorted(matches, key=lambda match: match.score, reverse=True))
 

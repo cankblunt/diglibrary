@@ -504,6 +504,9 @@ def check_committer_names(file: PublicFile, text: str, words: Iterable[str]) -> 
 # a column named in neither by `unread_columns`, so that leaving one unread is
 # a decision somebody wrote down and never what happens to a column added later.
 NAME_COLUMNS: dict[str, tuple[str, ...]] = {
+    # What the catalogue calls a recording found in the library: a title and a
+    # credit, which say what somebody owns as surely as a folder name does.
+    "acoustic_prints": ("recording_title", "recording_artist"),
     "album_units": ("folder_path",),
     "apply_proofs": ("payload",),
     "audio_files": ("path",),
@@ -551,6 +554,8 @@ NAMELESS_COLUMNS: dict[str, tuple[str, ...]] = {
         "external_recording_id",
         "looked_up_at",
         "computed_at",
+        "release_group_ids",
+        "recording_ids",
     ),
     "album_units": ("unit_signature", "state", "created_at", "updated_at", "origin", "cleared_at"),
     "apply_proofs": ("kind", "created_at"),

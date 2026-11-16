@@ -9,6 +9,7 @@ from pathlib import Path
 
 from mutagen.flac import FLAC, Picture
 
+from diglibrary.application.acoustic import AudioNotAskedError
 from diglibrary.application.artwork import ArtworkPolicy, ArtworkService
 from diglibrary.application.contracts import (
     ArtistMetadata,
@@ -711,6 +712,70 @@ def test_what_the_audio_answered_leaves_the_workflow(tmp_path: Path) -> None:
     assert (
         outcome.acoustic == "unknown"
     ), "the answer has to leave the workflow, or the screen says it was never asked"
+
+
+class _DeafAudio:
+    """An acoustic engine that is there and cannot put the album to the service."""
+
+    is_available = True
+
+    def __init__(self, state: str) -> None:
+        self._state = state
+
+    def releases_for(self, unit: AlbumUnit) -> tuple[ReleaseMetadata, ...]:
+        """Refuse the way an album no file of which could be asked about refuses."""
+        raise AudioNotAskedError(self._state)
+
+
+def _album_the_names_do_not_settle(tmp_path: Path) -> tuple[AlbumUnit, IdentificationWorkflow]:
+    """An album a source answers about with the wrong record, so the audio is reached."""
+    unit = _album(tmp_path, "válter brumaldo - varandela lunática")
+    wrong = _release("r-wrong", "Bruma della Sera", (240_000,))
+    workflow = _workflow(
+        FakeSource(summaries=(_summary("r-wrong", "Bruma della Sera"),), details={"r-wrong": wrong})
+    )
+    return unit, workflow
+
+
+def test_audio_that_could_not_be_asked_is_not_recorded_as_unknown(tmp_path: Path) -> None:
+    """An album whose audio could not be asked about carries which half failed.
+
+    `unknown` is a statement about the service's catalogue. A fingerprinter
+    that produced nothing, or a service that answered nothing, says nothing
+    about that catalogue.
+    """
+    for state in ("unfingerprinted", "unreachable"):
+        unit, workflow = _album_the_names_do_not_settle(tmp_path / state)
+        workflow._acoustic = _DeafAudio(state)  # type: ignore[attr-defined]
+
+        assert workflow.identify(unit).acoustic == state
+
+
+def test_an_error_nobody_anticipated_names_no_cause(tmp_path: Path) -> None:
+    """An unexpected failure says it failed, and neither blames nor absolves the service."""
+
+    class _Broken:
+        is_available = True
+
+        def releases_for(self, unit: AlbumUnit) -> tuple[ReleaseMetadata, ...]:
+            raise RuntimeError("something else")
+
+    unit, workflow = _album_the_names_do_not_settle(tmp_path)
+    workflow._acoustic = _Broken()  # type: ignore[attr-defined]
+
+    assert workflow.identify(unit).acoustic == "failed"
+
+
+def test_an_absent_engine_is_said_where_the_names_did_not_settle(tmp_path: Path) -> None:
+    """Without a fingerprinter that runs, an unsettled album says the audio is unavailable.
+
+    The engine is absent when fpcalc is missing or does not run, or when there
+    is no key. Left empty, the state reads in the window as the names having
+    settled an album they did not settle.
+    """
+    unit, workflow = _album_the_names_do_not_settle(tmp_path)
+
+    assert workflow.identify(unit).acoustic == "unavailable"
 
 
 def test_replanning_offline_still_offers_the_album_its_own_picture(

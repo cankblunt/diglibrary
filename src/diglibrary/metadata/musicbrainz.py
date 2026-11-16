@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from datetime import date
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from diglibrary.application.contracts import (
     ArtistMetadata,
@@ -118,6 +118,23 @@ class MusicBrainzClient:
             return ()
         return tuple(
             _map_musicbrainz_release(release) for release in releases if isinstance(release, dict)
+        )
+
+    def recording(self, recording_id: str) -> TrackMetadata | None:
+        """Return what one recording is called, who it is credited to and how long it runs.
+
+        A fingerprint names a recording by identifier and nothing else. This is
+        the catalogue saying what that identifier is, so a screen can name the
+        audio it found instead of printing a code.
+        """
+        payload = self._get(f"/recording/{quote(recording_id, safe='')}", {"inc": "artist-credits"})
+        title = normalize_text(_string(payload, "title"))
+        if not title:
+            return None
+        return TrackMetadata(
+            title=title,
+            artists=_musicbrainz_artists(payload.get("artist-credit")),
+            duration_ms=parse_duration_ms(payload.get("length")),
         )
 
     def _get(self, path: str, parameters: Mapping[str, str]) -> Mapping[str, Any]:

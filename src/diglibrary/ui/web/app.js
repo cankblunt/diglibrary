@@ -2427,14 +2427,14 @@ async function expandCandidate(candidate, body) {
  * the album's own plan: an album is never applied in part, and a plan that
  * only partly matches shows its blockers instead of a smaller offer.
  */
-/** The names the last apply gave, beside the names they replaced.
+/** The names applying gave, beside the names they replaced.
  *
  * Drawn only while the editor is not: once the plan on screen has run, or the
  * album is organized and asleep, the editor is hidden because its rows would be
  * edits made against the past — and with it went the only place the folder's
  * new name could be read. Read-only; `Plan this album again` brings the editor
- * back. The pairs come from the server (`names_applied`), which reads them off
- * the plan that was applied.
+ * back. The pairs come from the server (`names_applied`), which follows each
+ * name through every apply still standing.
  */
 function renderNamesApplied(album) {
   const fold = $("names-applied-fold");
@@ -2459,6 +2459,13 @@ function renderNamesApplied(album) {
     headRow.appendChild(cell);
   }
   head.appendChild(headRow);
+  // A file that is not in its album's format says so here as well, under the
+  // name it carries now: this table is what an organized album opens on.
+  const otherFormats = new Map(
+    (album.evidence || [])
+      .filter((line) => line.file && line.other_format)
+      .map((line) => [line.file, line.other_format]),
+  );
   const body = document.createElement("tbody");
   for (const pair of rows) {
     const row = document.createElement("tr");
@@ -2475,6 +2482,8 @@ function renderNamesApplied(album) {
     const now = document.createElement("td");
     now.className = "plan-after";
     now.textContent = pair.now;
+    const otherFormat = pair.kind === "file" ? otherFormats.get(pair.now) : null;
+    if (otherFormat) now.append(otherFormatMark(otherFormat), otherFormatNote(otherFormat));
     row.append(caption, was, arrow, now);
     body.appendChild(row);
   }
@@ -2687,6 +2696,7 @@ function renderPlanEditor(album, offered) {
         // buttons in turn is a round trip and never a loss.
         kept: track.kept || "",
         position: track.position,
+        otherFormat: (pairedRow && pairedRow.other_format) || null,
         offered: Boolean(pairedRow && pairedRow.suggested),
         // And its opposite, said out loud rather than left as the absence of
         // amber. A column of ticks answers *are these fine* without each row
@@ -2781,6 +2791,7 @@ function renderPlanEditor(album, offered) {
         // not on every row. On the album that mostly matched it stays: there
         // one or two rows carry it, and it is the information of those rows.
         proof: wrongRecord ? "" : STR.planFileOnly,
+        otherFormat: row.other_format || null,
         dataset: {},
         // The right-hand column repeats the name and offers a place on the
         // tracklist, instead of saying only that the file is left behind.
@@ -3621,6 +3632,58 @@ function sendFinderTags(names) {
   });
 }
 
+/** The mark after the name of a file that is not in its album's format. */
+function otherFormatMark(found) {
+  const mark = document.createElement("span");
+  mark.className = "plan-other-format-mark";
+  mark.textContent = "*";
+  mark.title = STR.planOtherFormat(found);
+  return mark;
+}
+
+/** What is known about such a file, in small letters under its name.
+ *
+ * One sentence, chosen on the server's verdict, and one button while asking
+ * the audio could still learn something. Always in the quiet colour, so it is
+ * never read as part of the name above it.
+ */
+function otherFormatNote(found) {
+  const note = document.createElement("div");
+  note.className = "plan-other-format";
+  const said = document.createElement("span");
+  said.textContent = `* ${STR.planOtherFormat(found)}`;
+  note.append(said);
+  const unitId = state.openAlbum ? state.openAlbum.unit_id : null;
+  if (found.askable && unitId !== null) {
+    const ask = document.createElement("button");
+    ask.type = "button";
+    ask.className = "link-button plan-other-format-ask";
+    ask.textContent = STR.planAskAudio;
+    ask.title = STR.planAskAudioTip;
+    ask.addEventListener("click", () => hearTracks(unitId, ask));
+    note.append(ask);
+  }
+  return note;
+}
+
+/** Put every file of the open album to AcoustID, and redraw with the answer. */
+async function hearTracks(unitId, button) {
+  await withSpinner(button, async () => {
+    let response;
+    try {
+      response = await api().hear_tracks(unitId);
+    } catch (error) {
+      toastError(String(error));
+      return;
+    }
+    if (!response.ok) {
+      toastError(response.error);
+      return;
+    }
+    renderAlbumDialog(response.album);
+  });
+}
+
 function planRow({
   key,
   label,
@@ -3647,6 +3710,7 @@ function planRow({
   yoursWitness = "",
   kept = "",
   position = null,
+  otherFormat = null,
 }) {
   const row = document.createElement("tr");
   row.className = offered ? "plan-row is-offered" : "plan-row";
@@ -3854,7 +3918,12 @@ function planRow({
   if ((yours || kept) && position !== null) {
     cell.append(spellingAside({ yours, yoursReason, yoursWitness, kept, position }));
   }
+  // A file that is not in the format the rest of the album is in: a mark after
+  // the name, and the two formats in small letters underneath. The server
+  // decides which files these are; the row says what it was handed.
+  if (otherFormat) cell.append(otherFormatMark(otherFormat));
   next.appendChild(cell);
+  if (otherFormat) next.appendChild(otherFormatNote(otherFormat));
   // A title that sanitizing rewrites cannot be shown as a slice of the name it
   // produces, so the name it produces is said in full underneath.
   if (!missing && !parts && after && after !== value) {
@@ -4253,6 +4322,10 @@ function renderAlbumDialog(album) {
     unknown: "acousticUnknown",
     named: "acousticNamed",
     unavailable: "acousticUnavailable",
+    unfingerprinted: "acousticUnfingerprinted",
+    unreachable: "acousticUnreachable",
+    failed: "acousticFailed",
+    tracks: "acousticTracks",
   };
   const acousticLine = $("album-acoustic");
   // Never silent: an album that settled on its names says so, which is the
@@ -5191,11 +5264,11 @@ async function pollEvents() {
       $("quality-fill").style.width = `${total ? (done / total) * 100 : 0}%`;
       $("quality-label").textContent = STR.benchIdentifying(done, total, folder);
     } else if (event.type === "bench_identified") {
-      const { files, named, seconds } = event.payload;
+      const { files, named, seconds, unasked } = event.payload;
       state.qualityRunning = false;
       $("quality-progress").hidden = true;
       $("bench-add").disabled = false;
-      toast(STR.benchIdentified(files, named, seconds));
+      toast(STR.benchIdentified(files, named, seconds, unasked || 0));
       // The answers are per file, and the open album's table is what shows
       // them — so what was on screen is re-read rather than left stale.
       state.qualityTracks.clear();

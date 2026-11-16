@@ -147,6 +147,9 @@ def _fold(album: dict[str, object], names_on_screen: bool) -> dict[str, object]:
         + ");"
         + "\nconsole.log(JSON.stringify({"
         + ' noteHidden: $("plan-note").hidden,'
+        + ' summary: $("plan-summary").textContent,'
+        + ' blockers: $("album-blockers").children.map((c) => c.textContent),'
+        + ' approveDisabled: $("album-approve").disabled,'
         + ' note: $("plan-note").textContent,'
         + ' operations: $("album-operations").children.map((c) => c.textContent),'
         + ' reason: $("album-reason").textContent,'
@@ -205,6 +208,27 @@ def test_the_note_stays_where_there_are_rows_to_caption() -> None:
 
     assert fold["noteHidden"] is False
     assert fold["note"].startswith("Every name below is editable")
+
+
+def test_a_refused_arrangement_is_not_drawn_as_an_album_already_right() -> None:
+    """An arrangement refused for its folder name says so, in the refusal's words.
+
+    The closed Approve button and *Nothing would change* stood together over an
+    album whose folder name another folder already held: the refusal arrived
+    with no operations and no blocker, which is the reading of an album that
+    needs nothing. It arrives as a blocker now, and this is what the fold makes
+    of one.
+    """
+    refusal = "A folder named “Artist - Album (1980) [FLAC]” already exists beside this one."
+    album = dict(_EMPTY_ALBUM, source="tags", applicable=False, blockers=[refusal])
+
+    fold = _fold(album, names_on_screen=True)
+
+    assert fold["summary"] == "Nothing was planned"
+    assert fold["blockers"] == [refusal]
+    assert fold["operations"] == [], "the sentence of an album already right is not drawn"
+    assert fold["noteHidden"] is False and fold["note"].startswith("Nothing below would be written")
+    assert fold["approveDisabled"] is True
 
 
 def test_the_slot_answers_what_proved_this_and_not_what_the_folder_did() -> None:

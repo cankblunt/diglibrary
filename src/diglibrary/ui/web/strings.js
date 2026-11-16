@@ -769,7 +769,7 @@ export const STR = {
   planHeadNow: "Now on disk",
   planHeadAfter: "After applying",
   planFolder: "Folder",
-  namesAppliedHeading: "Names given by the last apply",
+  namesAppliedHeading: "Names given by applying",
   namesAppliedWas: "How it was",
   namesAppliedNow: "How it is now",
   planFinderTags: "Finder",
@@ -786,6 +786,38 @@ export const STR = {
   finderTagsChange: (added, removed) =>
     [...added.map((name) => `+ ${name}`), ...removed.map((name) => `− ${name}`)].join(", "),
   planDerived: (name) => `written as ${name}`,
+  // One file whose sample rate or bit depth is not the one most of the album
+  // shares.
+  planFormat: (rate, depth) =>
+    `${Number((rate / 1000).toFixed(1))} kHz${depth ? ` / ${depth}-bit` : ""}`,
+  // What is said depends on what the audio answered, and each sentence claims
+  // only what that answer supports. The format alone says the file was not
+  // made with the others, and nothing about what it holds. Only a recording
+  // AcoustID places on none of the releases the other tracks share is called
+  // not this album's track. A verdict nobody listed falls back to the format,
+  // which is the one thing known in every case.
+  planOtherFormat: (found) => {
+    const own = STR.planFormat(found.sample_rate, found.bit_depth);
+    const album = STR.planFormat(found.album_sample_rate, found.album_bit_depth);
+    const others = `the other ${found.sharing} track${found.sharing === 1 ? "" : "s"}`;
+    if (found.verdict === "foreign") {
+      return found.title
+        ? `Not this album's track: "${found.title}"${found.artist ? ` by ${found.artist}` : ""}.`
+        : "Not this album's track, by its fingerprint.";
+    }
+    if (found.verdict === "same") return `This album's recording, from another source (${own}).`;
+    if (found.verdict === "unrecognised") {
+      return `Another source (${own}). AcoustID does not know this recording.`;
+    }
+    if (found.verdict === "no_album") {
+      return `Another source (${own}). AcoustID cannot tell whether it belongs.`;
+    }
+    return `Another source: ${own}, ${others} ${album}.`;
+  },
+  planAskAudio: "Ask AcoustID",
+  planAskAudioTip:
+    "Fingerprint every track of this album and ask AcoustID what each one is. "
+    + "One request per track. Nothing is renamed or written to a file.",
   editFolder:
     "Edit the folder name — what you type here is the name written to disk, "
     + "and it outranks the catalogue.",
@@ -1133,7 +1165,17 @@ export const STR = {
     + "recordings. Three tracks spread across the album are asked, and only the "
     + "releases all three agree on are considered — then they are scored on the "
     + "same evidence as any other candidate. Nothing is written from this.",
-  acousticUnavailable: "AcoustID: unavailable — fpcalc or the key is missing",
+  acousticUnavailable:
+    "AcoustID: unavailable — fpcalc is missing or does not run, or there is no key",
+  // Three ways of not having been able to ask, kept apart from `acousticUnknown`
+  // because that one is a statement about the service's catalogue and these
+  // are not. The last one names no cause, since none was observed.
+  acousticUnfingerprinted: "AcoustID: not asked — fpcalc could not fingerprint these files",
+  acousticUnreachable: "AcoustID: not asked — the service did not answer",
+  acousticFailed: "AcoustID: could not be asked",
+  // The tracks were put to the service on request and some were recognised,
+  // which is not the album having been found by its fingerprint.
+  acousticTracks: "AcoustID: asked about the tracks, not about the album",
   // One line for every tag write. A line per file listing the same field names
   // is a wall that gets skipped, and the values are already on the rows above.
   // `repairs` is deliberately worded apart from `covers`: a repair puts the
@@ -1820,10 +1862,19 @@ export const STR = {
     + "and nothing is decided — the answers are written down and shown here.",
   benchIdentifying: (done, total, folder) =>
     `Asking about ${done} of ${total}${folder ? ` — ${folder}` : ""}…`,
-  benchIdentified: (files, named, seconds) =>
-    named === 0
-      ? `Asked about ${files} file${files === 1 ? "" : "s"} in ${seconds}s — AcoustID knows none of them.`
-      : `Asked about ${files} file${files === 1 ? "" : "s"} in ${seconds}s — AcoustID knows ${named}.`,
+  // `files` counts what the service answered about. A file that produced no
+  // fingerprint, or a lookup the service did not answer, is `unasked` and is
+  // said apart: counted in with the rest, an outage reads as AcoustID knowing
+  // none of the music.
+  benchIdentified: (files, named, seconds, unasked = 0) =>
+    (files === 0
+      ? `AcoustID was asked about no file in ${seconds}s.`
+      : named === 0
+        ? `Asked about ${files} file${files === 1 ? "" : "s"} in ${seconds}s — AcoustID knows none of them.`
+        : `Asked about ${files} file${files === 1 ? "" : "s"} in ${seconds}s — AcoustID knows ${named}.`)
+    + (unasked
+      ? ` ${unasked} file${unasked === 1 ? "" : "s"} could not be asked about: no fingerprint, or no answer from the service.`
+      : ""),
   benchAnalyzing: (done, total, folder) =>
     `Measuring ${done} of ${total}${folder ? ` — ${folder}` : ""}…`,
   benchAnalyzedNothing: (files, seconds) =>

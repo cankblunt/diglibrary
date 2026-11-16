@@ -1295,6 +1295,22 @@ _THE_PICTURE_A_FILE_CARRIES: tuple[str, ...] = (
 )
 
 
+_WHAT_A_LOOKUP_NAMED: tuple[str, ...] = (
+    # Everything a lookup's best answer named, kept beside the one recording id
+    # that was already kept. The release groups are what two files of an album
+    # are compared by: a file whose recording is on none of the releases its
+    # neighbours share is not that album's track. JSON arrays of identifiers.
+    # NULL means *not recorded*, which every answer from before this migration
+    # is, and an empty array *asked, and the service named none*.
+    "ALTER TABLE acoustic_prints ADD COLUMN release_group_ids TEXT",
+    "ALTER TABLE acoustic_prints ADD COLUMN recording_ids TEXT",
+    # What the catalogue calls the recording, once it has been looked up there
+    # by its identifier. Empty until a screen had a reason to name it.
+    "ALTER TABLE acoustic_prints ADD COLUMN recording_title TEXT",
+    "ALTER TABLE acoustic_prints ADD COLUMN recording_artist TEXT",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="library_foundation", statements=_LIBRARY_FOUNDATION),
     Migration(version=2, name="manual_corrections", statements=_MANUAL_CORRECTIONS),
@@ -1371,4 +1387,5 @@ MIGRATIONS: tuple[Migration, ...] = (
         name="the_picture_a_file_carries",
         statements=_THE_PICTURE_A_FILE_CARRIES,
     ),
+    Migration(version=40, name="what_a_lookup_named", statements=_WHAT_A_LOOKUP_NAMED),
 )

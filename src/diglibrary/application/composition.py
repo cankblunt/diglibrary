@@ -44,6 +44,7 @@ from diglibrary.library.fingerprint import (
     ChromaprintFingerprinter,
     SubprocessFingerprintRunner,
     find_fpcalc,
+    why_fpcalc_does_not_run,
 )
 from diglibrary.library.matching import AlbumMatcher
 from diglibrary.library.naming import NamingError, NamingPolicy
@@ -326,6 +327,7 @@ def create_api(
                 # which is the only way the stored acoustic answers grow.
                 acoustic=acoustic_now(),
             ),
+            acoustic=acoustic_now(),
         )
 
     return LibraryApi(
@@ -497,6 +499,14 @@ def _create_acoustic_identification(
             extra={"operation": "acoustic.unavailable"},
         )
         return None
+    runner = SubprocessFingerprintRunner(executable)
+    fault = why_fpcalc_does_not_run(runner)
+    if fault is not None:
+        logger.warning(
+            "Acoustic identification is off: fpcalc was found and does not run.",
+            extra={"operation": "acoustic.unrunnable", "reason": fault},
+        )
+        return None
     metadata_config = config.metadata
     http = JsonHttpClient(
         "acoustid",
@@ -515,7 +525,7 @@ def _create_acoustic_identification(
         )
         return None
     return AcousticIdentification(
-        ChromaprintFingerprinter(SubprocessFingerprintRunner(executable), logger),
+        ChromaprintFingerprinter(runner, logger),
         client,
         metadata,
         logger,

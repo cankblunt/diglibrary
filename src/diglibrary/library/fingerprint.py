@@ -34,6 +34,23 @@ def find_fpcalc() -> str | None:
     return next((path for path in KNOWN_FPCALC_PATHS if os.access(path, os.X_OK)), None)
 
 
+def why_fpcalc_does_not_run(runner: "FingerprintRunner") -> str | None:
+    """Return why this fpcalc cannot be run, or ``None`` when it runs.
+
+    Being on disk and executable is not running: a binary linked against a
+    library that was since upgraded is found by ``find_fpcalc`` and exits
+    before it reads a file. Asked once, with the one argument that needs no
+    audio, so a machine in that state is reported as having no fingerprinter
+    instead of failing once per file.
+    """
+    try:
+        runner.run(["-version"])
+    except (OSError, subprocess.SubprocessError) as error:
+        lines = str(error).strip().splitlines()
+        return lines[0] if lines else type(error).__name__
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class AudioFingerprint:
     """Purpose: carry one file's acoustic fingerprint and the length it covers.
