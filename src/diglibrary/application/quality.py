@@ -14,7 +14,12 @@ from diglibrary.library.scanner import LibraryScanner
 from diglibrary.quality.analysis import FfmpegQualityAnalyzer
 from diglibrary.quality.edges import FilterEdge
 from diglibrary.quality.framing import READINGS, FrameGrid
-from diglibrary.quality.models import Encoding, Proof, TrackAnalysis
+from diglibrary.quality.models import (
+    NOTHING_ABOVE_THE_REFERENCE_DB,
+    Encoding,
+    Proof,
+    TrackAnalysis,
+)
 from diglibrary.quality.verdict import (
     CUTOFF_TRUST_HZ,
     AlbumVerdict,
@@ -129,12 +134,20 @@ class QualitySurvey:
         self,
         units: Sequence[AlbumUnit],
         on_album: Callable[[int, int, AlbumQuality], None] | None = None,
+        *,
+        again: bool = False,
     ) -> tuple[AlbumQuality, ...]:
         """Measure every album, reporting each one as it is finished.
 
         ``on_album`` receives the album's position, the total, and the finding,
         so a window can fill in as the work proceeds rather than waiting for a
         library-sized silence.
+
+        ``again`` measures every file whatever is already on record, which is
+        how a measurement added after a library was surveyed reaches an album:
+        asked for one album at a time, on request, and never swept over a
+        shelf. It is the only way past the skip below, so the cost of a rule
+        that arrives late is paid where it is asked for and nowhere else.
         """
         # Both maps are keyed by the file's audio, never by its declared shape
         # alone: two recordings of one track share a content signature, and
@@ -147,11 +160,15 @@ class QualitySurvey:
         # when it was written, and every measurement added afterwards would
         # leave older rows remembered without it — so a file already surveyed
         # could never be reached by a newer check.
-        remembered = {
-            key: quality
-            for key, quality in self.known(units).items()
-            if quality.answers_the_rules_in_force
-        }
+        remembered = (
+            {}
+            if again
+            else {
+                key: quality
+                for key, quality in self.known(units).items()
+                if quality.answers_the_rules_in_force
+            }
+        )
         findings: list[AlbumQuality] = []
         with ThreadPoolExecutor(max_workers=self._workers) as pool:
             for index, unit in enumerate(units, start=1):
@@ -334,6 +351,14 @@ def stored_measurement(
         # edge is still caught when it is read back.
         edge_share=None if analysis.filter_edge is None else analysis.filter_edge.share,
         edge_hertz=None if analysis.filter_edge is None else analysis.filter_edge.hertz,
+        # And what the top of the band held, for a stream that declares more
+        # range than a CD. Absent for every other file, which has no band up
+        # there to be empty, so this pair is never read as a row written before
+        # the question existed.
+        top_band_headroom_db=(
+            None if analysis.high_band is None else analysis.high_band.headroom_db
+        ),
+        top_band_wall_hertz=(None if analysis.high_band is None else analysis.high_band.wall_hertz),
     )
 
 
@@ -618,6 +643,32 @@ def _key_of(file: AudioFileFacts) -> tuple[str, str | None]:
     a file whose audio cannot be named, which is the ordinary case.
     """
     return (file.content_signature, file.audio_key)
+
+
+def stored_top_of_band_is_empty(quality: StoredQuality) -> bool:
+    """Ask whether this row proves its file holds nothing at the top of its band.
+
+    **The one place that rule is written.** It answers for a stream that
+    declares more range than a CD and was measured to carry nothing up there:
+    not quiet sound, but an empty band, whose level sits a hundred decibels
+    under the music where a genuine recording at that rate has its own noise
+    floor instead.
+
+    Both numbers are required, and the second is what keeps this from being a
+    guess. A row carries a wall only where the top was already found empty, so
+    demanding it refuses a row whose headroom was written by a reading that
+    could not reach far enough to find one. It also refuses a row from before
+    this was measured at all, which is the same answer for the same reason:
+    nothing about this file has been proved.
+
+    It is never a defect. A file this is true of is lossless if it measured
+    lossless, and it is not re-judged, re-named or counted as damage anywhere.
+    """
+    return (
+        quality.top_band_headroom_db is not None
+        and quality.top_band_headroom_db <= NOTHING_ABOVE_THE_REFERENCE_DB
+        and quality.top_band_wall_hertz is not None
+    )
 
 
 def stored_track_is_transcoded(quality: StoredQuality) -> bool:

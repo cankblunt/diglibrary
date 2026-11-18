@@ -79,6 +79,7 @@ from diglibrary.quality.analysis import (
 from diglibrary.quality.edges import FilterEdgeProbe
 from diglibrary.quality.framing import FfmpegPcmReader, FrameGridProbe
 from diglibrary.quality.spectrogram import SpectrogramRenderer
+from diglibrary.quality.topband import TopBandProbe
 
 SPECTROGRAM_CACHE = Path("~/.diglibrary/cache/spectrograms").expanduser()
 """Where the drawn spectrograms are kept.
@@ -613,6 +614,7 @@ def create_quality_survey(
         logger,
         frame_grid=FrameGridProbe(FfmpegPcmReader(executable, logger=logger)),
         filter_edge=_filter_edge_probe(executable, logger),
+        top_band=_top_band_probe(executable, logger),
     )
     if workers is None:
         return QualitySurvey(scanner, analyzer, logger, store=store)
@@ -631,6 +633,22 @@ def _filter_edge_probe(
     differently.
     """
     return FilterEdgeProbe(
+        FfmpegPcmReader(executable, timeout_seconds=timeout_seconds, logger=logger),
+        seconds=ANALYSIS_SECONDS,
+    )
+
+
+def _top_band_probe(
+    executable: str, logger: logging.Logger, timeout_seconds: float = 120.0
+) -> TopBandProbe:
+    """Assemble the top-of-band probe, the same for both passes.
+
+    The same stretch as the edge probe reads, and for the same reason: what it
+    measures is a floor, which runs the length of a file and does not move
+    when more of the file is read. Both passes reading one stretch is what
+    keeps the deep pass from answering differently from the survey.
+    """
+    return TopBandProbe(
         FfmpegPcmReader(executable, timeout_seconds=timeout_seconds, logger=logger),
         seconds=ANALYSIS_SECONDS,
     )
@@ -664,6 +682,7 @@ def _create_deep_analyzer(
             FfmpegPcmReader(executable, timeout_seconds=900.0, logger=logger)
         ),
         filter_edge=_filter_edge_probe(executable, logger, timeout_seconds=900.0),
+        top_band=_top_band_probe(executable, logger, timeout_seconds=900.0),
     )
 
 

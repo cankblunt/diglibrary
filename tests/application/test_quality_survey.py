@@ -253,6 +253,37 @@ def test_a_measured_library_is_never_decoded_twice(tmp_path: Path) -> None:
     assert second[0].verdict.encoding is first[0].verdict.encoding
 
 
+def test_an_album_asked_for_by_name_is_measured_again_however_complete_its_rows(
+    tmp_path: Path,
+) -> None:
+    """The one way past the skip above, and the reason it exists.
+
+    A reading added after a library was surveyed reaches nothing on its own,
+    because every row already answers the rules that were in force when it was
+    written. Marking those rows incomplete would measure a whole shelf at the
+    next scan. This is the other way: one album, because it was asked for.
+    """
+    library = tmp_path / "library"
+    library.mkdir()
+    _album(library, "Some Album", {"01.flac": b"a", "02.flac": b"bb"})
+    store = _store(tmp_path)
+    analyzer = ScriptedAnalyzer({"01.flac": 4.0, "02.flac": 5.0})
+    logger = logging.getLogger("test.quality.survey")
+    survey = QualitySurvey(
+        LibraryScanner(FakeProbe(), logger), analyzer, logger, workers=1, store=store
+    )
+    units = survey.albums(library)
+    survey.measure(units)
+
+    analyzer.measured.clear()
+    survey.measure(units)
+    assert analyzer.measured == [], "an ordinary survey leaves a measured file alone"
+
+    analyzer.measured.clear()
+    survey.measure(units, again=True)
+    assert sorted(path.name for path in analyzer.measured) == ["01.flac", "02.flac"]
+
+
 def test_a_remembered_transcode_is_still_a_transcode(tmp_path: Path) -> None:
     """A replayed verdict and a freshly measured one must agree."""
     library = tmp_path / "library"

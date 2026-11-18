@@ -2439,13 +2439,58 @@ def test_one_albums_verdict_never_names_a_track_in_another_album(tmp_path: Path)
     assert api._transcoded_for(by_name["honest album"]) == frozenset()
 
 
+def test_measuring_one_album_again_asks_the_survey_to_ignore_what_it_remembers(
+    tmp_path: Path,
+) -> None:
+    """The gesture exists to reach rows a scan would skip, so it must say so.
+
+    A survey leaves a file alone once its row answers the rules in force, which
+    is what keeps a scan cheap and what makes a reading added later unreachable.
+    This gesture is the only caller that asks otherwise, and a request that
+    arrives without the word is a button that decodes an album to change
+    nothing.
+    """
+    library = tmp_path / "library"
+    folder = library / "an album"
+    folder.mkdir(parents=True)
+    shutil.copy(FIXTURES / "tone.flac", folder / "01.flac")
+
+    api = _api(tmp_path, FakeSource(summaries=(), details={}))
+    survey = _FakeSurvey(set())
+    api._pipeline = replace(api._pipeline, quality=survey)
+    _scan_and_wait(api, library)
+    survey.asked_again.clear()
+    unit_id = next(entry["unit_id"] for entry in api.state()["albums"])
+
+    answer = api.measure_album_again(unit_id)
+
+    assert answer["ok"] is True
+    assert answer["album"]["unit_id"] == unit_id
+    assert survey.asked_again == [True]
+
+
+def test_measuring_an_album_that_is_not_there_refuses_rather_than_measuring(
+    tmp_path: Path,
+) -> None:
+    api = _api(tmp_path, FakeSource(summaries=(), details={}))
+    survey = _FakeSurvey(set())
+    api._pipeline = replace(api._pipeline, quality=survey)
+
+    answer = api.measure_album_again(9_999)
+
+    assert answer["ok"] is False
+    assert survey.asked_again == []
+
+
 class _FakeSurvey:
     """A survey that calls the named albums transcodes and measures nothing else."""
 
     def __init__(self, transcoded_folders: set[str]) -> None:
         self._transcoded = transcoded_folders
+        self.asked_again: list[bool] = []
 
-    def measure(self, units, on_album=None):
+    def measure(self, units, on_album=None, *, again=False):
+        self.asked_again.append(again)
         return tuple(
             SimpleNamespace(
                 folder_path=unit.folder_path,

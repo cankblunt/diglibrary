@@ -20,6 +20,41 @@ whole dead region, while a genuine master that steps in the same place spreads
 about twice this line, because there is still music there.
 """
 
+DECLARES_MORE_THAN_A_CD_HERTZ = 48_000
+"""Above this declared sample rate a file promises range a CD has no room for.
+
+The question the top-of-band reading asks — is there anything up there at all
+— has one answer for every file at or below this rate, because there is no
+band above a CD's own ceiling to be empty. Asking anyway would decode every
+file in a library to learn that 44.1 kHz is 44.1 kHz.
+"""
+
+NOTHING_ABOVE_THE_REFERENCE_DB = -95.0
+"""How far under the reference band a level counts as nothing at all.
+
+Priced against paired ground truth, on a library rather than on fixtures:
+thirty-six files that declare 96 kHz, each measured as it is and again after
+being taken down to 44.1 and to 48 kHz and lifted back to 96. Read as the
+top-of-band probe reads in service — a minute from the start — the honest arm
+ran from -48.5 to -77.2 dB under its reference band and the two lifted arms
+from -102.8 to -109.2, and **in all thirty-six pairs the file beat both of its
+own copies**. This line sits in that gap, 17.8 dB below the worst honest
+reading and 7.8 dB above the best lifted one.
+
+**The asymmetry is deliberate and was asked for.** A sentence that appears
+often and is sometimes wrong is worse here than one that stays away, so the
+line is placed nearer the lifted arm: a file has to be far past every honest
+reading ever measured before anything is said about it.
+
+**It is not an absolute level**, and the difference matters as much as it does
+for ``CLIFF_DB``: a quiet file and a loud one have the same proportion here and
+different levels, so a fixed floor would describe loudness.
+
+**It cannot be read from ffmpeg's band filter.** That reading saturates around
+-64 dB under the reference, which is the filter's own leakage and not the file,
+so under it the two arms overlapped by fifteen decibels. See ``topband``.
+"""
+
 CLIFF_DB = 16.0
 """How far energy must fall on the way to the floor for the fall to be a cut.
 
@@ -153,6 +188,42 @@ class PassBand:
     low_hertz: int
     high_hertz: int
     rms_db: float
+
+
+@dataclass(frozen=True, slots=True)
+class HighBand:
+    """What sits at the very top of a stream that declares more than a CD.
+
+    A file at 96 kHz has room for sound up to 48 kHz, and a file that was made
+    at a lower rate and lifted to 96 has nothing up there at all — not quiet
+    sound, but the arithmetic floor of an empty band. The reading that tells
+    them apart is the top of the band held against a reference low enough to be
+    full in every recording, because an absolute level only says how loud the
+    file is.
+
+    ``wall_hertz`` is the frequency above which the stream holds nothing, found
+    only when there is something to say. It is ``None`` otherwise, including
+    when the top of the band is not empty, since the question is then already
+    answered.
+
+    Nothing here is a verdict: a stream that carries nothing up there is
+    lossless all the same, and whether that is worth saying is decided in
+    ``verdict``.
+    """
+
+    reference_db: float
+    top_db: float
+    top_low_hertz: int
+    top_high_hertz: int
+    wall_hertz: int | None = None
+
+    @property
+    def headroom_db(self) -> float:
+        """How far the top of the band sits below the reference, in decibels.
+
+        Negative, and more negative the emptier the top is.
+        """
+        return self.top_db - self.reference_db
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +464,7 @@ class TrackAnalysis:
     # How much of the file stops at one frequency, frame by frame, when that
     # was measured. `None` is *not measured*, for the same reasons as above.
     filter_edge: FilterEdge | None = None
+    high_band: HighBand | None = None
 
     @property
     def is_lossless_container(self) -> bool:

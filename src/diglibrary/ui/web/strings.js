@@ -794,26 +794,99 @@ export const STR = {
   // only what that answer supports. The format alone says the file was not
   // made with the others, and nothing about what it holds. Only a recording
   // AcoustID places on none of the releases the other tracks share is called
-  // not this album's track. A verdict nobody listed falls back to the format,
-  // which is the one thing known in every case.
+  // a different song.
+  //
+  // The line carries no rate and no depth. Two numbers were the whole sentence
+  // once, and a reader who does not already know what a sample rate is learns
+  // from them that something is off and nothing about what. They are in the
+  // tip, which is where an audit looks. What the line says instead is where
+  // the file came from, and — except where the song itself is wrong — that
+  // this is not a complaint about the audio, since a line in small letters
+  // under a file name is read as one until it says otherwise.
   planOtherFormat: (found) => {
-    const own = STR.planFormat(found.sample_rate, found.bit_depth);
-    const album = STR.planFormat(found.album_sample_rate, found.album_bit_depth);
-    const others = `the other ${found.sharing} track${found.sharing === 1 ? "" : "s"}`;
     if (found.verdict === "foreign") {
       return found.title
-        ? `Not this album's track: "${found.title}"${found.artist ? ` by ${found.artist}` : ""}.`
-        : "Not this album's track, by its fingerprint.";
+        ? `A different song, not one of this album's tracks: "${found.title}"`
+          + `${found.artist ? ` by ${found.artist}` : ""}.`
+        : "A different song, not one of this album's tracks.";
     }
-    if (found.verdict === "same") return `This album's recording, from another source (${own}).`;
+    if (found.verdict === "same") {
+      return "The album's own song, from a different source. Nothing here says the audio is worse.";
+    }
+    return "This file came from a different source than the rest of the album. "
+      + "Nothing here says the audio is worse.";
+  },
+  // The numbers, and what they are evidence of. The fallback names no cause:
+  // a verdict nobody listed is told apart by the format and by nothing else,
+  // so the sentence that ends it says only that, rather than guessing which
+  // of the listed answers it resembles.
+  planOtherFormatTip: (found) => {
+    const own = STR.planFormat(found.sample_rate, found.bit_depth);
+    const album = STR.planFormat(found.album_sample_rate, found.album_bit_depth);
+    const one = found.sharing === 1;
+    const formats =
+      `This file is ${own}, and the other ${found.sharing} track${one ? "" : "s"} on this album `
+      + `${one ? "is" : "are"} ${album}. A file ripped together with the rest of an album carries `
+      + "the album's format, so this one was not ripped with them. ";
+    if (found.verdict === "foreign") {
+      return formats
+        + "Its sound was put to AcoustID, which places this recording on none of the releases "
+        + "the other tracks belong to. What is in this folder is another song, so the question "
+        + "is where it should go, not how it sounds.";
+    }
+    if (found.verdict === "same") {
+      return formats
+        + "Its sound was put to AcoustID, which recognises it as the same recording the album "
+        + "carries: the song is right and only the copy is different. How good that copy is was "
+        + "not measured here — the quality column answers that. If you want the album to be one "
+        + "single rip, this is the track to replace.";
+    }
     if (found.verdict === "unrecognised") {
-      return `Another source (${own}). AcoustID does not know this recording.`;
+      return formats
+        + "Its sound was put to AcoustID, which holds no recording like it, so whether it is the "
+        + "album's own song is not settled here. The format is all that is known, and it says "
+        + "where the file came from and nothing about what it holds.";
     }
     if (found.verdict === "no_album") {
-      return `Another source (${own}). AcoustID cannot tell whether it belongs.`;
+      return formats
+        + "Its sound was put to AcoustID, which knows the recording and cannot place it against "
+        + "the other tracks, so whether it belongs is not settled here. The format is all that is "
+        + "known, and it says where the file came from and nothing about what it holds.";
     }
-    return `Another source: ${own}, ${others} ${album}.`;
+    return formats
+      + "The format is all that is known here, and it says where the file came from and nothing "
+      + "about what it holds.";
   },
+  // What the measurement means for the person reading, and not the measurement.
+  // It was two numbers once; the frequency a file stops at says nothing on its
+  // own, because the ceiling it should be read against — half the sample rate —
+  // is nowhere on this screen. The numbers are in the tip, for anyone auditing.
+  //
+  // The claim is about the format's promise and never about the audio: the
+  // second half says the file is lossless, on the line itself, because a line
+  // under a file name is read as a complaint until it says otherwise.
+  planTopOfBand: "Not a real Hi-Res file. The audio is lossless; nothing audible is missing.",
+  // Where the numbers went, with the arithmetic that makes them mean something:
+  // a rate has room up to half of itself, and this one stops short of that.
+  //
+  // It no longer claims a copy at a CD's rate would hold everything this file
+  // holds. That was false wherever the file stops above a CD's own ceiling,
+  // which is where it was being shown.
+  planTopOfBandTip: (found) =>
+    `This file declares ${STR.planFormat(found.sample_rate)}, a rate with room for sound up `
+    + `to ${STR.planFormat(found.sample_rate / 2)}. Measured, it holds nothing above `
+    + `${STR.planFormat(found.wall_hertz)}. That changes nothing about how it sounds: the `
+    + "audio is lossless, nothing was thrown away, and most people hear nothing above 20 kHz. "
+    + "Rates beyond a CD's exist for recording and mastering, where the extra room is used "
+    + "before the final cut is made. In practice: this is not the high-resolution recording "
+    + "its format suggests, and there is nothing here to fix.",
+  menuMeasureAgain: "Measure the audio again",
+  tipMeasureAgain:
+    "Decode every file of this album and measure it afresh, whatever was measured before. "
+    + "A scan leaves a file alone once it has been measured, so this is how a reading added "
+    + "since reaches an album. It is slow, it asks for one album only, and it renames nothing "
+    + "and writes nothing to a file.",
+  measureAgainDone: "Measured again.",
   planAskAudio: "Ask AcoustID",
   planAskAudioTip:
     "Fingerprint every track of this album and ask AcoustID what each one is. "

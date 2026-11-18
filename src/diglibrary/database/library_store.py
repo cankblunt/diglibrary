@@ -99,6 +99,22 @@ class StoredQuality:
     whose audio matches it, and is the one preferred when both are on record.
     """
 
+    top_band_headroom_db: float | None = None
+    """How far the top of this stream's band sat below its reference band.
+
+    ``None`` for every file at or below a CD's rate, which has no band above a
+    CD's ceiling to be empty — the question is not asked of it. So an absent
+    value here never means *measured before this question existed*, and
+    ``answers_the_rules_in_force`` does not read it.
+    """
+
+    top_band_wall_hertz: int | None = None
+    """The frequency above which this stream holds nothing, in hertz.
+
+    Set only where the top was found empty, so it is never a number describing
+    a band that is full.
+    """
+
     wall_low_hertz: int | None = None
     """The last rung that still held audio below the wall.
 
@@ -1287,8 +1303,8 @@ class LibraryStore:
                 "(content_signature, audio_key, encoding, effective_bitrate_kbps, cutoff_hertz, "
                 " wall_low_hertz, steepest_drop_db, findings, reason, decay_db, ceiling_db, "
                 " floor_hertz, frame_grid_z, frame_grid_agrees, frame_grid_agreeing, "
-                " edge_share, edge_hertz) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                " edge_share, edge_hertz, top_band_headroom_db, top_band_wall_hertz) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 # The conflict target is spelled exactly as the unique index of
                 # migration 13, because that is how SQLite matches one: a row
                 # carrying an audio key never overwrites the legacy row of the
@@ -1309,6 +1325,8 @@ class LibraryStore:
                 "  frame_grid_agreeing = excluded.frame_grid_agreeing, "
                 "  edge_share = excluded.edge_share, "
                 "  edge_hertz = excluded.edge_hertz, "
+                "  top_band_headroom_db = excluded.top_band_headroom_db, "
+                "  top_band_wall_hertz = excluded.top_band_wall_hertz, "
                 "  measured_at = CURRENT_TIMESTAMP",
                 [
                     (
@@ -1329,6 +1347,8 @@ class LibraryStore:
                         quality.frame_grid_agreeing,
                         quality.edge_share,
                         quality.edge_hertz,
+                        quality.top_band_headroom_db,
+                        quality.top_band_wall_hertz,
                     )
                     for signature, quality in measurements
                 ],
@@ -1599,7 +1619,8 @@ class LibraryStore:
                     "SELECT content_signature, encoding, effective_bitrate_kbps, cutoff_hertz, "
                     "       steepest_drop_db, findings, reason, decay_db, ceiling_db, audio_key, "
                     "       wall_low_hertz, floor_hertz, frame_grid_z, frame_grid_agrees, "
-                    "       frame_grid_agreeing, edge_share, edge_hertz "
+                    "       frame_grid_agreeing, edge_share, edge_hertz, "
+                    "       top_band_headroom_db, top_band_wall_hertz "
                     f"FROM track_quality WHERE content_signature IN ({placeholders}) "
                     "ORDER BY measured_at DESC, id DESC",
                     chunk,
@@ -1623,6 +1644,8 @@ class LibraryStore:
                             frame_grid_agreeing=row[14],
                             edge_share=row[15],
                             edge_hertz=row[16],
+                            top_band_headroom_db=row[17],
+                            top_band_wall_hertz=row[18],
                         )
                     )
         return found

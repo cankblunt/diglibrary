@@ -19,6 +19,7 @@ from diglibrary.quality.models import (
     TimeDomainStats,
     TrackAnalysis,
 )
+from diglibrary.quality.topband import TopBandProbe
 
 PROBE_FREQUENCIES = (13_000, 14_000, 15_000, 16_000, 17_500, 19_000, 20_000, 21_500)
 """Where to ask whether the audio still exists, in hertz.
@@ -69,6 +70,16 @@ BAND_EDGES = tuple((low, low + 1_000) for low in range(15_000, 22_000, 1_000))
 One kilohertz wide, because the question is the *shape* of what is left rather
 than how much: a floor is flat across neighbours and falling music is not.
 """
+
+DECLARES_MORE_THAN_A_CD_HERTZ = 48_000
+"""Above this declared sample rate a file promises range a CD has no room for.
+
+The question this module asks about the top of a band — is there anything up
+there at all — has one answer for every file at or below this rate, because
+there is no band above a CD's own ceiling to be empty. Asking anyway would
+spend two readings per file to learn that 44.1 kHz is 44.1 kHz.
+"""
+
 
 ANALYSIS_SECONDS = 60
 """How much audio to measure per file.
@@ -171,6 +182,7 @@ class FfmpegQualityAnalyzer:
         seconds: int | None = ANALYSIS_SECONDS,
         frame_grid: FrameGridProbe | None = None,
         filter_edge: FilterEdgeProbe | None = None,
+        top_band: TopBandProbe | None = None,
     ) -> None:
         """Create an analyzer for one set of probe frequencies.
 
@@ -193,6 +205,7 @@ class FfmpegQualityAnalyzer:
         self._seconds = seconds
         self._frame_grid = frame_grid
         self._filter_edge = filter_edge
+        self._top_band = top_band
 
     def pass_bands(
         self, path: Path, sample_rate: int, edges: Sequence[tuple[int, int]] = BAND_EDGES
@@ -273,6 +286,12 @@ class FfmpegQualityAnalyzer:
             analysis = replace(analysis, frame_grid=self._frame_grid.measure(path))
         if self._filter_edge is not None:
             analysis = replace(analysis, filter_edge=self._filter_edge.measure(path, sample_rate))
+        # **Only a stream that declares more range than a CD has**, and the
+        # method says why. The wall above which it holds nothing is looked for
+        # only once the top has been found empty: that search is six readings,
+        # and a stream whose top is full has no such frequency to find.
+        if self._top_band is not None:
+            analysis = replace(analysis, high_band=self._top_band.measure(path, sample_rate))
         return analysis
 
     def _spectrum(self, path: Path, sample_rate: int) -> SpectralProfile:

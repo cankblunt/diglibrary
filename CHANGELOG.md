@@ -4,6 +4,17 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.12.0
+
+### Added
+
+- A file that declares a sample rate beyond a CD's and was measured to hold nothing at the top of the band that rate leaves room for says so under its name, in plain words: the audio is lossless and nothing audible is missing, only the file is not the high-resolution recording its format promises. The rates and the frequency it stops at are in the tip. Nothing is renamed by it and no folder loses its format bracket.
+- *Measure the audio again*, behind the dialog's ⋯, decodes every file of one album and measures it afresh, whatever was measured before. A scan leaves a file alone once it has been measured, so this is how a reading added after an album was scanned reaches it.
+
+### Changed
+
+- The note under a file that is not in its album's format says where the file came from rather than naming its sample rate and bit depth. The formats, what the rest of the album is, and what the fingerprint service answered are in the tip; a verdict nobody listed names no cause at all.
+
 ## 1.11.0
 
 ### Added

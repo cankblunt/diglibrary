@@ -1314,6 +1314,7 @@ main { padding: 20px; }
 .plan-other-format-mark { color: var(--warn); margin-left: 4px; cursor: help; }
 .plan-other-format { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 .plan-other-format-ask { margin-left: 8px; font-size: inherit; }
+.plan-top-of-band { font-size: 11.5px; color: var(--muted); margin-top: 3px; cursor: help; }
 
 .dialog-actions {
   display: flex;

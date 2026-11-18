@@ -949,6 +949,33 @@ function albumActions(album) {
   return items;
 }
 
+/** Measure the open album's files again, and redraw it with what they now say.
+ *
+ * The slow gesture behind this dialog's `⋯`: every file is decoded. The album
+ * is redrawn from the answer the server sends back, so whatever the fresh
+ * measurement changed — a line under a file name among it — is on screen
+ * without a reload.
+ */
+async function measureAlbumAgain(unitId) {
+  let response;
+  try {
+    response = await api().measure_album_again(unitId);
+  } catch (error) {
+    toastError(String(error));
+    return;
+  }
+  if (!response.ok) {
+    // The same first question every album gesture asks, because an album whose
+    // folder has gone answers this one exactly as it answers the others.
+    noteFolderGone(unitId, response);
+    toastError(response.error);
+    return;
+  }
+  renderAlbumDialog(response.album);
+  toast(STR.measureAgainDone);
+  await refresh();
+}
+
 /** Put this album's folder on the quality bench, and go there.
  *
  * The rows appear on another tab, and a gesture whose result is on a screen
@@ -2466,6 +2493,11 @@ function renderNamesApplied(album) {
       .filter((line) => line.file && line.other_format)
       .map((line) => [line.file, line.other_format]),
   );
+  const topOfBands = new Map(
+    (album.evidence || [])
+      .filter((line) => line.file && line.top_of_band)
+      .map((line) => [line.file, line.top_of_band]),
+  );
   const body = document.createElement("tbody");
   for (const pair of rows) {
     const row = document.createElement("tr");
@@ -2484,6 +2516,8 @@ function renderNamesApplied(album) {
     now.textContent = pair.now;
     const otherFormat = pair.kind === "file" ? otherFormats.get(pair.now) : null;
     if (otherFormat) now.append(otherFormatMark(otherFormat), otherFormatNote(otherFormat));
+    const topOfBand = pair.kind === "file" ? topOfBands.get(pair.now) : null;
+    if (topOfBand) now.append(topOfBandNote(topOfBand));
     row.append(caption, was, arrow, now);
     body.appendChild(row);
   }
@@ -2697,6 +2731,7 @@ function renderPlanEditor(album, offered) {
         kept: track.kept || "",
         position: track.position,
         otherFormat: (pairedRow && pairedRow.other_format) || null,
+        topOfBand: (pairedRow && pairedRow.top_of_band) || null,
         offered: Boolean(pairedRow && pairedRow.suggested),
         // And its opposite, said out loud rather than left as the absence of
         // amber. A column of ticks answers *are these fine* without each row
@@ -2792,6 +2827,7 @@ function renderPlanEditor(album, offered) {
         // one or two rows carry it, and it is the information of those rows.
         proof: wrongRecord ? "" : STR.planFileOnly,
         otherFormat: row.other_format || null,
+        topOfBand: row.top_of_band || null,
         dataset: {},
         // The right-hand column repeats the name and offers a place on the
         // tracklist, instead of saying only that the file is left behind.
@@ -3637,7 +3673,7 @@ function otherFormatMark(found) {
   const mark = document.createElement("span");
   mark.className = "plan-other-format-mark";
   mark.textContent = "*";
-  mark.title = STR.planOtherFormat(found);
+  mark.title = STR.planOtherFormatTip(found);
   return mark;
 }
 
@@ -3645,13 +3681,16 @@ function otherFormatMark(found) {
  *
  * One sentence, chosen on the server's verdict, and one button while asking
  * the audio could still learn something. Always in the quiet colour, so it is
- * never read as part of the name above it.
+ * never read as part of the name above it. The formats that prove it are in
+ * the tip, on the mark and on the sentence alike, so a reader who wants the
+ * numbers finds them wherever they point.
  */
 function otherFormatNote(found) {
   const note = document.createElement("div");
   note.className = "plan-other-format";
   const said = document.createElement("span");
   said.textContent = `* ${STR.planOtherFormat(found)}`;
+  said.title = STR.planOtherFormatTip(found);
   note.append(said);
   const unitId = state.openAlbum ? state.openAlbum.unit_id : null;
   if (found.askable && unitId !== null) {
@@ -3663,6 +3702,21 @@ function otherFormatNote(found) {
     ask.addEventListener("click", () => hearTracks(unitId, ask));
     note.append(ask);
   }
+  return note;
+}
+
+/** What a file at more than a CD's rate was measured to hold at the top of its band.
+ *
+ * Drawn only where the server put something on the row, which it does only
+ * where a measurement proved it. Always in the quiet colour and never beside
+ * the findings, because this is not one: the file is lossless and the tip
+ * under the mark says so in the first sentence.
+ */
+function topOfBandNote(found) {
+  const note = document.createElement("div");
+  note.className = "plan-top-of-band";
+  note.textContent = STR.planTopOfBand;
+  note.title = STR.planTopOfBandTip(found);
   return note;
 }
 
@@ -3711,6 +3765,7 @@ function planRow({
   kept = "",
   position = null,
   otherFormat = null,
+  topOfBand = null,
 }) {
   const row = document.createElement("tr");
   row.className = offered ? "plan-row is-offered" : "plan-row";
@@ -3924,6 +3979,7 @@ function planRow({
   if (otherFormat) cell.append(otherFormatMark(otherFormat));
   next.appendChild(cell);
   if (otherFormat) next.appendChild(otherFormatNote(otherFormat));
+  if (topOfBand) next.appendChild(topOfBandNote(topOfBand));
   // A title that sanitizing rewrites cannot be shown as a slice of the name it
   // produces, so the name it produces is said in full underneath.
   if (!missing && !parts && after && after !== value) {
@@ -4841,6 +4897,15 @@ function albumMoreItems() {
   items.push({
     label: STR.measureHarmonics,
     run: () => measureHarmonics([album.unit_id]),
+  });
+  // The other reading of this album's own audio, and here for the same reason:
+  // the gesture is about one album that is pointed at, and the lines it can
+  // change are drawn on this very dialog. A scan leaves a measured file alone,
+  // so a reading added since arrives by this entry and by nothing else.
+  items.push({
+    label: STR.menuMeasureAgain,
+    title: STR.tipMeasureAgain,
+    run: () => measureAlbumAgain(album.unit_id),
   });
   // `Send to review` is here rather than in the footer: it is the rarer,
   // quieter question, and the footer keeps its four.

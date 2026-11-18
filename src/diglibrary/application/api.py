@@ -50,6 +50,7 @@ from diglibrary.application.quality import (
     AlbumQuality,
     QualitySurvey,
     measurements_for,
+    stored_top_of_band_is_empty,
     stored_track_is_transcoded,
     stored_track_proof,
     the_picture_shows_the_proof,
@@ -8403,8 +8404,15 @@ class LibraryApi:
         }
         return folder, by_position["track_title"], by_position["track_artist"]
 
-    def _measure_for_naming(self, units: Sequence[AlbumUnit]) -> dict[str, frozenset[str]]:
+    def _measure_for_naming(
+        self, units: Sequence[AlbumUnit], *, again: bool = False
+    ) -> dict[str, frozenset[str]]:
         """Measure every file, and return the signatures that proved to be transcodes.
+
+        ``again`` is handed straight to the survey: every file is measured
+        whatever is on record. Everything after it is the path a scan takes,
+        so an album measured again is named and judged by the same machinery
+        and cannot answer differently from one measured for the first time.
 
         The survey is the slow part of a first scan and free on every one after,
         because measurements are keyed by content signature and kept. A library
@@ -8422,6 +8430,7 @@ class LibraryApi:
                 on_album=lambda done, total, _: self._emit(
                     "measured", {"done": done, "total": total}
                 ),
+                again=again,
             )
         except Exception:
             self._logger.exception(
@@ -9838,8 +9847,41 @@ class LibraryApi:
             self._measured.get(state.unit.unit_signature, frozenset()),
             dict(pinned),
             self._other_formats_heard(state.unit),
+            self._top_of_band(state.unit),
         )
         return payload
+
+    def _top_of_band(self, unit: AlbumUnit) -> dict[Path, dict[str, object]]:
+        """Return, per file, what its own measurement proved about the top of its band.
+
+        A store read and no measuring: a file is here only once some pass has
+        measured it and found the top empty, so an album nothing has measured
+        under this question answers with nothing and the rows say nothing.
+
+        Asked of every file rather than of the ones that differ from their
+        album. A release sold at a rate it does not carry is usually sold whole,
+        and a rule that only looked at the odd file out would be silent on
+        exactly that album — the shape this project keeps relearning.
+
+        **It is not a verdict and is never drawn as one.** What is carried is
+        the rate the file declares and the frequency above which it holds
+        nothing, so the window states two measured numbers and nothing else.
+        """
+        measured = self._store.quality_for_files(
+            (file.content_signature, file.audio_key) for file in unit.audio_files
+        )
+        found: dict[Path, dict[str, object]] = {}
+        for file in unit.audio_files:
+            quality = measured.get((file.content_signature, file.audio_key))
+            if quality is None or not stored_top_of_band_is_empty(quality):
+                continue
+            if file.properties is None:
+                continue
+            found[file.path] = {
+                "sample_rate": file.properties.sample_rate,
+                "wall_hertz": quality.top_band_wall_hertz,
+            }
+        return found
 
     def _other_formats_heard(self, unit: AlbumUnit) -> dict[Path, dict[str, object]]:
         """Return what the audio says about each file that is not in its album's format.
@@ -9919,6 +9961,36 @@ class LibraryApi:
                 "album": unit_id,
                 "files": len(state.unit.audio_files),
                 "asked": asked,
+            },
+        )
+        return {"ok": True, "album": self._album_payload(state)}
+
+    def measure_album_again(self, unit_id: int) -> dict[str, object]:
+        """Measure every file of one album afresh, whatever is already on record.
+
+        The gesture a rule added after a library was surveyed is reached by.
+        A survey skips a file whose row already answers the rules it knows, so
+        a reading introduced later never arrives on its own — and making it
+        arrive by marking every older row incomplete would measure a whole
+        shelf at the next scan, which is a sweep nobody asked for. This is the
+        other way: one album, and only the album this was asked for.
+
+        It decodes every file of the album, so it is the slow gesture on this
+        dialog and the only one that is. Nothing is renamed and nothing is
+        written to a file: what changes is what this application knows.
+        """
+        state = self._bring_in(unit_id)
+        if state is None:
+            return self._why_it_will_not_open(unit_id)
+        if self._pipeline.quality is None:
+            return {"ok": False, "error": _AUDIO_NOT_MEASURED}
+        self._measure_for_naming([state.unit], again=True)
+        self._logger.info(
+            "Every file of an album was measured again, on request.",
+            extra={
+                "operation": "api.album.measure_again",
+                "album": unit_id,
+                "files": len(state.unit.audio_files),
             },
         )
         return {"ok": True, "album": self._album_payload(state)}
@@ -10931,6 +11003,7 @@ def _evidence_rows(
     measured: frozenset[str] = frozenset(),
     by_hand: Mapping[str, int] | None = None,
     heard: Mapping[Path, Mapping[str, object]] | None = None,
+    top_of_band: Mapping[Path, Mapping[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     """Lay the pairing out for human eyes: each file beside the track it is.
 
@@ -10952,6 +11025,7 @@ def _evidence_rows(
                 "other_format": _other_format_payload(
                     other_formats.get(file.path), (heard or {}).get(file.path)
                 ),
+                "top_of_band": (top_of_band or {}).get(file.path),
                 "file": file.path.name,
                 "file_ms": file.properties.duration_ms if file.properties else None,
                 "track": _written_title(assignment.track, outcome),
@@ -11052,6 +11126,7 @@ def _evidence_rows(
                 "other_format": _other_format_payload(
                     other_formats.get(file.path), (heard or {}).get(file.path)
                 ),
+                "top_of_band": (top_of_band or {}).get(file.path),
                 # Carried so the window can hand it back when this file is
                 # paired by hand: the pairing is keyed by the audio, never by
                 # the name on screen, which the very next apply rewrites.
@@ -11065,6 +11140,12 @@ def _evidence_rows(
         )
     rows.sort(key=_evidence_order)
     return rows
+
+
+_AUDIO_NOT_MEASURED = (
+    "The audio cannot be measured: ffmpeg is missing or does not run on this machine."
+)
+"""Why an album could not be measured again, said as what was observed and nothing more."""
 
 
 _AUDIO_NOT_ASKED = {

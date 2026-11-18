@@ -1311,6 +1311,22 @@ _WHAT_A_LOOKUP_NAMED: tuple[str, ...] = (
 )
 
 
+_WHAT_A_STREAM_HOLDS_AT_THE_TOP: tuple[str, ...] = (
+    # How far the top of a stream's own band sits below a reference band low
+    # enough to be full in any recording, and the frequency above which it
+    # holds nothing. Kept as numbers rather than as a conclusion, as with every
+    # column of this table.
+    #
+    # Both are NULL for every file at or below a CD's rate, because such a file
+    # has no band above a CD's ceiling to be empty: the question is not asked
+    # of it and never will be. NULL therefore does not mean *measured before
+    # this question existed* here, which is why `answers_the_rules_in_force`
+    # does not read these columns.
+    "ALTER TABLE track_quality ADD COLUMN top_band_headroom_db REAL",
+    "ALTER TABLE track_quality ADD COLUMN top_band_wall_hertz INTEGER",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="library_foundation", statements=_LIBRARY_FOUNDATION),
     Migration(version=2, name="manual_corrections", statements=_MANUAL_CORRECTIONS),
@@ -1388,4 +1404,9 @@ MIGRATIONS: tuple[Migration, ...] = (
         statements=_THE_PICTURE_A_FILE_CARRIES,
     ),
     Migration(version=40, name="what_a_lookup_named", statements=_WHAT_A_LOOKUP_NAMED),
+    Migration(
+        version=41,
+        name="what_a_stream_holds_at_the_top",
+        statements=_WHAT_A_STREAM_HOLDS_AT_THE_TOP,
+    ),
 )
