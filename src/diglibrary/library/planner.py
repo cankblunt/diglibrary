@@ -234,7 +234,7 @@ class ChangePlanner:
         # inside it moves, so a split never leaves an emptied folder behind.
         disc_folders = self._disc_folder_renames(alignment, album_folder, disc_count)
         for source_folder, destination_folder in disc_folders.items():
-            if source_folder == destination_folder:
+            if _already_named_that(source_folder, destination_folder):
                 continue
             sequence += 1
             operations.append(
@@ -365,7 +365,7 @@ class ChangePlanner:
             )
 
         for source, destination in targets.items():
-            if destination == source:
+            if _already_named_that(source, destination):
                 continue
             sequence += 1
             operations.append(
@@ -931,7 +931,7 @@ class ChangePlanner:
                 self._folder_name(unit, release, label, taken_names),
             )
         destination = unit.folder_path.parent / name
-        if destination == unit.folder_path:
+        if _already_named_that(unit.folder_path, destination):
             return None
         return ChangeOperation(
             sequence=sequence,
@@ -1232,6 +1232,27 @@ def _words_only(text: str) -> str:
     return " ".join("".join(c if c.isalnum() else " " for c in folded).split())
 
 
+def _already_named_that(path: Path, destination: Path) -> bool:
+    """Report whether a path is already written the way the plan wants it.
+
+    `Path == Path` is not this question, and the difference only shows on a
+    filesystem that does not distinguish case: there the two paths are one path,
+    so a rename that puts the catalogue's case on the disk is answered as
+    *nothing to do* and never planned at all. Measured on Windows, where an
+    album sitting under `Orquestra Da Serra` produced an empty plan against a
+    catalogue that says `Orquestra da Serra`.
+
+    The text is the question, because the text is what the rename changes. On
+    this project's own platform the comparison was already text — which is why
+    the rule it was written for held and the defect could not be seen here.
+
+    Not to be read as *the same place*: two names that differ only in case are
+    one entry on such a filesystem, and the code asking that question wants the
+    platform's answer rather than this one.
+    """
+    return str(path) == str(destination)
+
+
 def _one_name_on_disk(path: Path) -> str:
     """Return the form of a path that decides whether two of them are one file.
 
@@ -1261,7 +1282,7 @@ def _carries_a_cover(store: ArtworkStore, track: Path, not_covers: frozenset[str
 
 def _relocated(path: Path, album_folder: Path, final_folder: Path) -> Path:
     """Return where a path inside the album ends up once the album folder is renamed."""
-    if final_folder == album_folder:
+    if _already_named_that(album_folder, final_folder):
         return path
     return final_folder / path.relative_to(album_folder)
 

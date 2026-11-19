@@ -1,5 +1,6 @@
 """Unit tests for the naming policy and its templates."""
 
+import os
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -162,16 +163,32 @@ def test_a_name_that_is_only_dots_is_refused_because_it_is_a_path_step() -> None
     the planner sanitizes a folder name typed by hand and otherwise takes it
     verbatim, so a `..` in that field is a rename into the parent's parent. `.`
     is the same shape and means this folder.
+
+    Which of the two refusals answers depends on the platform, and the thing
+    asserted is that one of them does. A name may not end in a dot on Windows,
+    so the trailing dots are trimmed first and an all-dots name is empty by the
+    time the step rule would see it — it is refused one line earlier, as an
+    empty component. On POSIX a trailing dot is a legal character and nothing
+    trims it, so the step rule is the only thing standing between `..` and an
+    album renamed into its own parent's parent. Asserting the sentence would be
+    asserting which platform this is running on.
     """
     for step in ("..", ".", "...", " .. "):
-        with pytest.raises(NamingError, match="path step"):
+        with pytest.raises(NamingError, match=r"path step|empty path component"):
             sanitize_component(step)
 
-    # Neighbours that must survive: a dot inside or at the end of a real name is
-    # a full stop, not a path step.
-    assert sanitize_component("Mr.") == "Mr."
+    # Neighbours that must survive: a dot inside or at the start of a real name
+    # is a full stop, not a path step.
     assert sanitize_component("...And Lanterns For All") == "...And Lanterns For All"
-    assert sanitize_component("A.") == "A."
+
+    # A name *ending* in one is the half the platforms disagree about, and both
+    # answers are right where they are given. A filename may not end in a dot on
+    # Windows, so it is trimmed and `Mr.` is kept as far as the filesystem keeps
+    # it; on POSIX the dot is an ordinary character and stays. Asserting one of
+    # the two would be asserting which machine this is running on.
+    keeps_the_dot = os.name != "nt"
+    assert sanitize_component("Mr.") == ("Mr." if keeps_the_dot else "Mr")
+    assert sanitize_component("A.") == ("A." if keeps_the_dot else "A")
 
 
 def test_any_word_written_in_the_designator_convention_is_kept() -> None:

@@ -10,10 +10,10 @@ the lines it can change are drawn.
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).resolve().parent.parent.parent / "src" / "diglibrary" / "ui" / "web"
 SCRIPT = WEB / "app.js"
@@ -42,13 +42,7 @@ def _labels(album: dict) -> dict[str, list[str]]:
         + "  dialog: albumMoreItems().map((item) => item.label),\n"
         + "}));"
     )
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(program)
     return json.loads(answer.stdout.strip())
 
 

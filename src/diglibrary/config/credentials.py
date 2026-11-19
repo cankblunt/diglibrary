@@ -18,12 +18,15 @@ the environment variable — it is the mechanism that supplies it — and nothin
 here ever reads a value back out to the window: the only thing the interface is
 ever told is whether a service is connected, never with what.
 
-Written `0600`, and the folder `0700`, because a key in a world-readable file is
-a key on a shared machine's disk.
+Readable by the account that owns it and by nobody else, because a key in a
+file anyone can open is a key on a shared machine's disk. How that is said
+depends on the platform, and one of the two ways was the only one written: see
+`_only_this_account_may_read`.
 """
 
 import os
 import re
+import subprocess
 from pathlib import Path
 
 ENV_FILE = Path("~/.diglibrary/env").expanduser()
@@ -57,6 +60,43 @@ def connected() -> dict[str, bool]:
     return {name: bool(os.environ.get(name)) for name in SETTABLE}
 
 
+def _only_this_account_may_read(path: Path) -> None:
+    """Leave ``path`` open to the account that owns it and closed to every other.
+
+    One promise, two mechanisms, because the platforms do not keep it the same
+    way. The POSIX bits are what `chmod` writes. Windows does not refuse them —
+    it *ignores* them, which is worse, since the call returns and the file is
+    left open: measured on a Windows runner, a file this had just protected
+    stood at `0o666`. There the promise is a discretionary access list, written
+    by the system's own tool, with inheritance taken off so that the folder's
+    own entries are not quietly added back.
+
+    It raises where it cannot be kept. A token written into a file this could
+    not close is the one case a caller must not be free to read as success.
+    """
+    if os.name != "nt":
+        os.chmod(path, 0o700 if path.is_dir() else 0o600)
+        return
+
+    account = os.environ.get("USERNAME")
+    if not account:
+        raise OSError("this account has no name to grant the file to")
+    # A folder also says what is inherited by what it comes to hold, which is
+    # the file this writes next.
+    grant = f"{account}:(OI)(CI)(F)" if path.is_dir() else f"{account}:(F)"
+    done = subprocess.run(
+        ["icacls", str(path), "/inheritance:r", "/grant:r", grant],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if done.returncode != 0:
+        # Its own words, never a cause this did not measure — and never the
+        # path's contents.
+        raise OSError(done.stderr.strip() or f"the access list of {path.name} was refused")
+
+
 def store(name: str, value: str) -> None:
     """Write one key into the environment file, and into this process.
 
@@ -73,7 +113,7 @@ def store(name: str, value: str) -> None:
     value = value.strip()
 
     ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(ENV_FILE.parent, 0o700)
+    _only_this_account_may_read(ENV_FILE.parent)
     kept = [
         line
         for line in _existing()
@@ -89,7 +129,7 @@ def store(name: str, value: str) -> None:
     # interruption cannot leave a shell sourcing half a line at the next launch.
     temporary = ENV_FILE.with_name(f".{ENV_FILE.name}.new")
     temporary.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
-    os.chmod(temporary, 0o600)
+    _only_this_account_may_read(temporary)
     os.replace(temporary, ENV_FILE)
 
     if value:

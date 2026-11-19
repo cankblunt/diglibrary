@@ -1,0 +1,133 @@
+# Running the suite somewhere that is not the machine it was written on.
+#
+# Every test this project has ever run has run on one Mac. The application is
+# macOS only and says so, but almost none of the code is: one gate refuses to
+# start anywhere else, five places degrade on purpose, and the three runtime
+# dependencies carry no platform marker. So the honest question — what would
+# actually have to change for this to run on Windows — has never had an answer,
+# only an estimate, and an estimate of a port is worth about as much as reading
+# the code and concluding.
+#
+# This asks the machine instead. The matrix carries Windows and macOS together
+# on purpose: a fresh runner differs from a developer's laptop in a dozen ways
+# that have nothing to do with the operating system — no library database, no
+# Homebrew, a checkout one commit deep — and without the macOS arm every one of
+# those would be read as a Windows finding. What fails on Windows and passes on
+# macOS is about Windows. What fails on both is about the runner.
+#
+# **Manual only, for now.** A trigger on push would spend minutes on every
+# commit of a repository where the answer is not yet known, and the point of a
+# first run is to produce a list, not to start promising something. Turning it
+# on for every push is a decision to make once Windows is green, and it costs
+# money on a private repository, where Windows minutes count double and macOS
+# minutes count tenfold — on a public one it costs nothing at all.
+#
+# Which is why the arms are chosen when the run is started rather than written
+# in. The control earns its tenfold minutes on a first run and on a result that
+# needs explaining; a rerun that only asks whether one Windows finding is fixed
+# does not, and having to edit this file to say so is how a cost gets paid out
+# of habit.
+name: Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      arms:
+        description: "Which platforms to run the suite on"
+        required: true
+        default: both
+        type: choice
+        options: [both, windows, macos]
+
+permissions: {}
+
+jobs:
+  suite:
+    name: The suite on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Whichever arms were asked for always both run. The macOS arm is the
+      # control, and a control that was cancelled because the other arm failed
+      # is no control at all.
+      fail-fast: false
+      matrix:
+        os: >-
+          ${{ inputs.arms == 'windows' && fromJSON('["windows-latest"]')
+              || inputs.arms == 'macos' && fromJSON('["macos-latest"]')
+              || fromJSON('["windows-latest", "macos-latest"]') }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        # One shell on both arms, so a difference in the result is a difference
+        # in the application and never a difference in how the step was written.
+        # Windows runners carry bash.
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: one guard reads the committer's own words out of
+          # the log and looks for them in what would be published, so a checkout
+          # one commit deep hands it a shorter list of words to look for and the
+          # guard passes by having been given less to do.
+          fetch-depth: 0
+          persist-credentials: false
+          # Line endings are left exactly as git on this platform decides them,
+          # which is the point: a checkout on Windows is what a stranger gets,
+          # and a test that reads a file as text and compares it is entitled to
+          # fail here rather than be protected from the question.
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # The declared floor, which is what the suite runs on.
+          python-version: "3.12"
+
+      - name: Bring the external tools the suite measures audio with
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            choco install --yes --no-progress ffmpeg
+          else
+            brew install ffmpeg
+          fi
+          # `lame` is the encoder the published benchmark's recipe calls, and
+          # exactly one test asks for it — which is why its absence must not be
+          # what stops this job: the test skips by its own rule and says so, and
+          # the step below reports which of the two happened.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            choco install --yes --no-progress lame || true
+          else
+            brew install lame || true
+          fi
+
+      - name: Refuse a run that would test almost nothing
+        run: |
+          # 246 of this suite's tests run the window's own script under node and
+          # skip themselves when it is absent — quietly, and a run that skipped
+          # them would be green while having looked at none of the window. Two
+          # more read audio through ffmpeg. So the tools are named here, where a
+          # missing one stops the job and says which, instead of in a skip
+          # message nobody reads.
+          node --version
+          ffmpeg -version | head -1
+          python --version
+          lame --version | head -1 || echo "lame is absent; one test will skip by its own rule"
+
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+
+      - name: Count what will run before running it
+        run: |
+          # A collection that fell over on an import answers with a handful of
+          # tests and an exit status of zero, which looks exactly like a suite
+          # that is simply smaller here. A floor refuses that without claiming
+          # to know the number: the pages under docs/ are what state the count,
+          # and a guard already holds them to it.
+          collected=$(python -m pytest --collect-only -q | tail -1 | awk '{print $1}')
+          echo "collected: $collected"
+          test "$collected" -ge 2000
+
+      # No report flag of its own. The project's `addopts` already asks for `-ra`,
+      # which names every skip and every failure; `-rs` was passed here to get
+      # the skips and *replaced* it, so the first run on a new platform reported
+      # 346 failures and listed none of them.
+      - run: python -m pytest -q

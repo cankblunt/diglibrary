@@ -16,10 +16,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -41,13 +41,7 @@ def _run_sort(
     const ordered = sortAlbums({json.dumps(albums)});
     console.log(JSON.stringify(ordered.map((album) => album.unit_id)));
     """
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", harness],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(harness)
     return list(json.loads(answer.stdout.strip()))
 
 
@@ -173,13 +167,7 @@ def _run_scannable(albums: list[dict[str, object]], marked: list[int]) -> list[i
     {parts[1]}
     console.log(JSON.stringify(scannableMarks()));
     """
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", harness],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(harness)
     return list(json.loads(answer.stdout.strip()))
 
 

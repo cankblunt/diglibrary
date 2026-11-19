@@ -477,7 +477,11 @@ def committer_words(root: Path) -> list[str]:
     if not holds_what_is_private(root):
         return []
     log = subprocess.run(
-        ["git", "log", "--format=%an%n%cn"], cwd=root, capture_output=True, text=True
+        ["git", "log", "--format=%an%n%cn"],
+        cwd=root,
+        capture_output=True,
+        encoding="utf-8",
+        text=True,
     )
     if log.returncode != 0:
         return []

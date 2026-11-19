@@ -10,9 +10,13 @@ from unittest import mock
 
 import pytest
 
+from diglibrary.database import copies as copies_module
 from diglibrary.database.copies import (
+    _NAMES_TRIED,
     COPY_SUFFIX,
+    CopyRefusedError,
     CopyUnreadableError,
+    NoFreeNameError,
     _refuse_a_copy_that_cannot_be_read,
     enforce_copy_limit,
     held_bytes,
@@ -343,3 +347,127 @@ def test_a_truncated_archive_is_never_named_as_a_copy(tmp_path: Path) -> None:
     assert list(folder.glob(f"*{COPY_SUFFIX}")) == [], "a copy nobody can unpack was published"
     assert list(folder.glob("*.partial")) == [], "a temporary was left behind"
     assert shutil.copyfileobj is real_copyfileobj
+
+
+def _one_second_for_every_restore(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every restore in a test land in the same second.
+
+    The clock moves on a runner and does not on a workbench, so a test that
+    waits for two restores to fall in one second is a test that passes by
+    chance. Held still, the collision is the thing being measured rather than
+    the thing being hoped for.
+    """
+    monkeypatch.setattr(copies_module.time, "strftime", lambda _pattern: "20260101-000000")
+
+
+def test_two_restores_in_one_second_each_keep_the_database_they_displaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The promise is that a restore displaces and never overwrites.
+
+    A name carrying only the second it happened in is one name for every restore
+    inside that second. The second restore then renames the database it found
+    onto the one the first restore had set aside — and on this project's
+    platform `rename` writes over what is there without a word, so what is lost
+    is the database the person started with, which is the one thing a restore
+    exists to be able to put back.
+    """
+    _one_second_for_every_restore(monkeypatch)
+    database = _database(tmp_path / "diglibrary.sqlite3", rows=1)
+    folder = tmp_path / "database-copies"
+    archive = take_copy(database, folder, LOGGER)
+    assert archive is not None
+
+    first = restore_copy(archive, database)
+    second = restore_copy(archive, database)
+
+    assert first != second, "both restores displaced a database under one name"
+    assert first.is_file() and second.is_file(), (
+        "one of the displaced databases is gone: the second restore moved over "
+        f"the first instead of beside it ({first.name}, {second.name})"
+    )
+    assert second.name.startswith(first.name), (
+        "the second name is not the first one taken further, which is what "
+        f"anything looking for these is written to find: {second.name!r}"
+    )
+
+
+def test_the_tail_files_are_displaced_under_the_same_name_as_their_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`-wal` and `-shm` mean nothing apart from the file they belong to.
+
+    So a free name is a name free for all three, and the three land together.
+    """
+    _one_second_for_every_restore(monkeypatch)
+    database = _database(tmp_path / "diglibrary.sqlite3", rows=1)
+    folder = tmp_path / "database-copies"
+    archive = take_copy(database, folder, LOGGER)
+    assert archive is not None
+
+    first = restore_copy(archive, database)
+    # The database opened above runs in WAL mode, so the first restore has
+    # already displaced a tail of its own under `first`. This one belongs to the
+    # database the *second* restore will find.
+    database.with_name(database.name + "-wal").write_bytes(b"the second tail")
+    second = restore_copy(archive, database)
+
+    assert second.with_name(second.name + "-wal").read_bytes() == b"the second tail", (
+        "the write-ahead file did not follow its database, so it is left beside "
+        "the one that arrived and read as its own uncommitted tail"
+    )
+    assert first.with_name(first.name + "-wal").read_bytes() != b"the second tail", (
+        "the tail landed on the first restore's name, where it is read as the "
+        "uncommitted tail of a database it was never part of"
+    )
+
+
+def test_a_restore_with_nowhere_to_keep_what_is_there_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal is a refusal, which means the live database is untouched.
+
+    `restore.py` answers every refusal with *nothing was changed*, and that
+    sentence has to be true of this one too — so the name is looked for before
+    anything moves, and the unpacked copy does not stay behind either.
+    """
+    _one_second_for_every_restore(monkeypatch)
+    database = _database(tmp_path / "diglibrary.sqlite3", rows=1)
+    folder = tmp_path / "database-copies"
+    archive = take_copy(database, folder, LOGGER)
+    assert archive is not None
+    before = database.read_bytes()
+
+    stem = f"{database.name}.replaced-20260101-000000"
+    for attempt in range(_NAMES_TRIED):
+        database.with_name(stem if attempt == 0 else f"{stem}-{attempt}").write_bytes(b"taken")
+
+    with pytest.raises(NoFreeNameError):
+        restore_copy(archive, database)
+
+    assert database.read_bytes() == before, "the live database was moved by a refusal"
+    assert not database.with_name(f".{database.name}.restoring").exists(), (
+        "the unpacked copy was left on the disk by a refusal, weighing what a " "database weighs"
+    )
+
+
+def test_every_refusal_a_restore_can_meet_is_one_the_caller_catches() -> None:
+    """The caller prints *nothing was changed*, so it catches the whole set.
+
+    Written as the complement: a refusal added later is caught by what is
+    already there, rather than by somebody remembering to widen a list.
+    """
+    assert issubclass(CopyUnreadableError, CopyRefusedError)
+    assert issubclass(NoFreeNameError, CopyRefusedError)
+
+    source = (
+        Path(__file__).resolve().parent.parent.parent
+        / "src"
+        / "diglibrary"
+        / "desktop"
+        / "restore.py"
+    ).read_text(encoding="utf-8")
+    assert "except CopyRefusedError" in source, (
+        "the one place that answers a refused restore names one of the refusals "
+        "instead of all of them"
+    )

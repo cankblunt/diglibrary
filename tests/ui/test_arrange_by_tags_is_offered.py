@@ -17,10 +17,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -41,9 +41,7 @@ def _offered(albums: list[dict[str, object]]) -> list[bool]:
 {_function()}
 process.stdout.write(JSON.stringify({json.dumps(albums)}.map(offersArrangeByTags)));
 """
-    run = subprocess.run(
-        ["node", "-e", harness], capture_output=True, text=True, timeout=30, check=False
-    )
+    run = run_node(harness, module=False, check=False)
     assert run.returncode == 0, run.stderr
     return json.loads(run.stdout)
 

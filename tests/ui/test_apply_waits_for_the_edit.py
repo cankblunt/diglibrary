@@ -22,10 +22,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -96,13 +96,7 @@ def _run(body: str) -> dict:
         )
         assert found, f"no {name}() to run, so this guard is reading the wrong file"
         pieces.append(found.group(0))
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", HARNESS + "\n".join(pieces) + body],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(HARNESS + "\n".join(pieces) + body)
     return json.loads(answer.stdout.strip())
 
 

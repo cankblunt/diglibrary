@@ -16,10 +16,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web"
 
@@ -109,9 +109,7 @@ def _run(body: str) -> object:
         f"{strings}\nconst REAL_NAMES = {json.dumps(REAL)};\n{HARNESS}\n"
         f"with (helpers) {{\n{''.join(pieces)}\n(async () => {{\n{body}\n}})();\n}}"
     )
-    done = subprocess.run(
-        ["node", "-e", program], capture_output=True, text=True, timeout=60, check=False
-    )
+    done = run_node(program, module=False, check=False, timeout=60)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
 

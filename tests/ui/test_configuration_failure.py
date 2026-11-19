@@ -59,14 +59,22 @@ def test_a_failure_that_is_not_about_settings_still_fails_loudly(
 
 def test_the_page_cannot_be_ended_early_by_a_path_or_a_message() -> None:
     """A folder with a `<` in its name is legal, and neither of these two values
-    is written by this project."""
+    is written by this project.
+
+    The folder's name carries no `/`, and that is not tidiness: a path is split
+    on the separator before anything here sees it, so a name written as
+    `<b>weird</b>` is two components on any platform and renders with the
+    separator the platform writes between them. On Windows what came back held
+    `&lt;b&gt;weird&lt;\b&gt;` — the escaping was perfect and the thing being
+    looked for had been cut in half by the path itself.
+    """
     page = app._configuration_failure_page(
-        Path("/Users/someone/<b>weird</b>/config.toml"), "Unsupported logging level: <script>"
+        Path("/Users/someone/<b>weird<b>/config.toml"), "Unsupported logging level: <script>"
     )
 
-    assert "<b>weird</b>" not in page
+    assert "<b>weird<b>" not in page
     assert "<script>" not in page
-    assert "&lt;b&gt;weird&lt;/b&gt;" in page and "&lt;script&gt;" in page
+    assert "&lt;b&gt;weird&lt;b&gt;" in page and "&lt;script&gt;" in page
 
 
 def test_the_error_it_answers_is_the_one_the_loader_raises() -> None:

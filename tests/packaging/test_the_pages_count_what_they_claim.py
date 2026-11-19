@@ -40,6 +40,7 @@ def _tests_this_repository_has() -> int:
     answer = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q"],
         capture_output=True,
+        encoding="utf-8",
         text=True,
         cwd=PROJECT,
         check=True,

@@ -81,6 +81,16 @@ class _TookTooLongError(Exception):
     pass
 
 
+#: The watchdog below is `signal.alarm`, which is POSIX and which Windows does
+#: not have. What it guards is pure arithmetic over bytes and behaves the same
+#: everywhere, so it is fuzzed where the alarm exists rather than given a second
+#: mechanism to be half-applied in.
+needs_an_alarm = pytest.mark.skipif(
+    not hasattr(signal, "SIGALRM"),
+    reason="the watchdog here is a POSIX alarm; what it guards is not platform-specific",
+)
+
+
 def _within(seconds: int):
     """Fail rather than hang: a loop that never ends is the defect, not a delay."""
 
@@ -105,6 +115,7 @@ def test_a_damaged_image_header_is_never_more_than_an_unreadable_image() -> None
 
 
 @pytest.mark.parametrize("suffix", sorted(CONTAINERS))
+@needs_an_alarm
 def test_a_damaged_container_is_never_more_than_an_unreadable_file(
     tmp_path: Path, suffix: str
 ) -> None:

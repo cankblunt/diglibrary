@@ -86,16 +86,41 @@ def test_the_catalogue_s_names_are_written_in_one_case(tmp_path: Path) -> None:
     assert album == ("Orquestra da Serra",)
 
 
+def _put_the_old_case_back(root: Path, folder: str, files: list[str]) -> tuple[str, list[str]]:
+    """Rename the album and its tracks to the case this project no longer writes.
+
+    Two tests need an album sitting on the disk under the old case, and a rename
+    that changes nothing but case is the one kind a filesystem may quietly
+    decline — the name it is given and the name it has are the same name to
+    anything that compares them without regard to case. A decline here leaves
+    the album already correctly named, so the plan that follows is empty and the
+    test fails saying only that no rename was planned, which is true and says
+    nothing about why.
+
+    So it is checked. What comes back is what the disk reports, not what was
+    asked for.
+    """
+    old_folder = folder.replace("Orquestra da Serra", "Orquestra Da Serra")
+    os.rename(root / folder, root / old_folder)
+    old_files = []
+    for name in files:
+        old = name.replace(" na ", " Na ")
+        os.rename(root / old_folder / name, root / old_folder / old)
+        old_files.append(old)
+
+    landed = _listed(root)
+    assert landed == (old_folder, sorted(old_files)), (
+        "the filesystem did not take a rename that changes only case, so this "
+        f"album is still named the way it already should be: {landed!r}"
+    )
+    return landed
+
+
 def test_an_album_named_in_the_old_case_is_renamed_when_it_is_planned(tmp_path: Path) -> None:
     """A rename that changes only case: refused by nothing, and landed on the disk."""
     _apply(_plan(_album(tmp_path, "incoming", ("a.flac", "b.flac")), _release()))
     folder, files = _listed(tmp_path)
-    old_folder = folder.replace("Orquestra da Serra", "Orquestra Da Serra")
-    os.rename(tmp_path / folder, tmp_path / old_folder)
-    for name in files:
-        os.rename(
-            tmp_path / old_folder / name, tmp_path / old_folder / name.replace(" na ", " Na ")
-        )
+    _put_the_old_case_back(tmp_path, folder, files)
 
     plan = _plan(_unit(tmp_path), _release())
     renamed = {operation.kind for operation in plan.operations}
@@ -131,14 +156,7 @@ def test_a_rename_that_changed_only_case_is_undone_to_the_old_case(tmp_path: Pat
     """The reversal restores the old case too, not only the forward rename."""
     _apply(_plan(_album(tmp_path, "incoming", ("a.flac", "b.flac")), _release()))
     folder, files = _listed(tmp_path)
-    old_folder = folder.replace("Orquestra da Serra", "Orquestra Da Serra")
-    os.rename(tmp_path / folder, tmp_path / old_folder)
-    old_files = []
-    for name in files:
-        old = name.replace(" na ", " Na ")
-        os.rename(tmp_path / old_folder / name, tmp_path / old_folder / old)
-        old_files.append(old)
-    before = _listed(tmp_path)
+    before = _put_the_old_case_back(tmp_path, folder, files)
 
     executor = ChangeExecutor(MutagenTagStore(), logging.getLogger("test.casing"))
     result = executor.apply(_plan(_unit(tmp_path), _release()))

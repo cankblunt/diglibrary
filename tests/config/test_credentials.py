@@ -8,6 +8,7 @@ read back out.
 
 import os
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -36,12 +37,132 @@ def test_a_key_reaches_the_file_and_this_process_at_once(env_file: Path) -> None
     assert credentials.connected()[credentials.DISCOGS] is True
 
 
+#: The machine's own three, measured on a Windows runner as what the list still
+#: names once this has written it: `S-1-5-18`, the account its services run as,
+#: `S-1-5-32-544`, its administrators, and `S-1-3-4`, which resolves to whoever
+#: owns the object and is therefore this account again. They are conceded for
+#: the reason `chmod 0o600` concedes `root` — whoever administers the machine is
+#: not a stranger to it, and no file permission on either platform is a promise
+#: against them. The promise here is against another *user* of the same machine.
+THE_PLATFORM_ITSELF = frozenset({"S-1-5-18", "S-1-5-32-544", "S-1-3-4"})
+
+
+#: The name the path travels under. `powershell -Command` appends anything
+#: after the script to the script itself rather than binding it — `$args` is
+#: what `-File` fills, which is why the first version of this ran the path as
+#: part of the pipeline and the whole call failed. Handed over in the
+#: environment there is nothing to quote, which a folder named with a space or
+#: a bracket would otherwise need.
+ASKED_ABOUT = "DIGLIBRARY_TEST_ACL_PATH"
+
+
+def _powershell(program: str, about: Path | None = None) -> str:
+    """Ask the platform one question, and report its own words when it refuses.
+
+    `check=True` would raise with the exit status and swallow what the shell
+    said, which is a failure that names no cause — so the status is read here
+    and the message is the one the platform wrote.
+
+    Every error is made a terminating one first. A name this cannot resolve is
+    otherwise written to the error stream while the exit status stays zero, and
+    the answer comes back one line short: a list that names fewer principals
+    than the file allows is exactly the shape of a check that passes by reading
+    nothing.
+    """
+    answer = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"$ErrorActionPreference = 'Stop'; {program}",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env={**os.environ, ASKED_ABOUT: str(about)} if about is not None else None,
+    )
+    if answer.returncode != 0:
+        raise AssertionError(
+            f"the platform refused to answer: {answer.stderr.strip() or answer.stdout.strip()}"
+        )
+    return answer.stdout
+
+
+def _sids_allowed(path: Path) -> set[str]:
+    """Every principal the platform's own listing says may reach ``path``.
+
+    Read as *whoever is named*, not as *none of the names we thought of*: a
+    system this has never run on will have accounts nobody here could list, and
+    the question is whether anybody at all is named besides the one that owns
+    the file and the platform itself.
+
+    Asked for as security identifiers rather than names, because the names are
+    shown in whatever language the system was installed in, while the identifier
+    of a built-in account is the same everywhere. A test reading names would be
+    a test of which language somebody installed.
+    """
+    listing = _powershell(
+        f"(Get-Acl -LiteralPath $env:{ASKED_ABOUT}).Access | ForEach-Object "
+        "{ $_.IdentityReference.Translate("
+        "[System.Security.Principal.SecurityIdentifier]).Value }",
+        path,
+    )
+    return {line.strip() for line in listing.splitlines() if line.strip()}
+
+
+def _this_account() -> str:
+    """This account's own security identifier, asked of the platform."""
+    return _powershell(
+        "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value"
+    ).strip()
+
+
 def test_the_file_is_not_readable_by_anyone_else(env_file: Path) -> None:
-    """A key in a world-readable file is a key on a shared machine's disk."""
+    """A key in a file anyone can open is a key on a shared machine's disk.
+
+    One promise asked the way each platform answers it. The POSIX bits are the
+    whole of it where they are honoured, and on Windows they are honoured by
+    nobody: a file protected only by `chmod` was measured there at `0o666`, so
+    what is asked for instead is the access list.
+
+    What that list may hold is written as the complement — this account, plus
+    the machine's own three, and nothing else named at all. Both halves are
+    measured on a Windows runner: under `chmod` alone the file stood at `0o666`,
+    and with the access list written it names this account and those three.
+    """
     credentials.store(credentials.DISCOGS, "abc123")
 
-    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
-    assert stat.S_IMODE(env_file.parent.stat().st_mode) == 0o700
+    if os.name != "nt":
+        assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+        assert stat.S_IMODE(env_file.parent.stat().st_mode) == 0o700
+        return
+
+    account = _this_account()
+    for path in (env_file, env_file.parent):
+        allowed = _sids_allowed(path)
+        assert allowed, f"the access list of {path.name} names nobody, which cannot be right"
+        assert account in allowed, (
+            f"the account that owns {path.name} has to be able to read it, or the "
+            "window has written a key it cannot use"
+        )
+        strangers = allowed - {account} - THE_PLATFORM_ITSELF
+        assert (
+            not strangers
+        ), f"somebody other than this account may reach {path.name}: {sorted(strangers)}"
+
+
+def test_a_file_that_cannot_be_protected_is_not_quietly_written(tmp_path: Path) -> None:
+    """The promise raises where it cannot be kept.
+
+    A token written into a file this could not close is the one case a caller
+    must not be free to read as success, so the refusal is the behaviour and
+    not a detail of it.
+    """
+    with pytest.raises(OSError):
+        credentials._only_this_account_may_read(tmp_path / "nothing is here")
 
 
 def test_setting_a_key_twice_leaves_one_line(env_file: Path) -> None:
@@ -186,6 +307,7 @@ def test_what_is_read_back_is_exactly_what_a_shell_would_read(env_file: Path) ->
         from_the_shell = subprocess.run(
             ["/bin/sh", "-c", f'. "{env_file}"; printf %s "${credentials.DISCOGS}"'],
             capture_output=True,
+            encoding="utf-8",
             text=True,
             check=True,
         ).stdout

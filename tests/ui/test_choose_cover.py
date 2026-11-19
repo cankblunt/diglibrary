@@ -18,10 +18,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -62,13 +62,7 @@ def _run(body: str) -> dict:
     source = SCRIPT.read_text(encoding="utf-8")
     found = re.search(r"async function chooseCover\(\) \{[\s\S]+?\n\}", source)
     assert found, "no chooseCover() to run, so this guard is looking at the wrong file"
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", HARNESS + found.group(0) + body],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(HARNESS + found.group(0) + body)
     return json.loads(answer.stdout.strip())
 
 
@@ -132,13 +126,7 @@ def _head(body: str) -> dict:
     }));
     """
     )
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(program)
     return json.loads(answer.stdout.strip())
 
 
@@ -180,13 +168,7 @@ def _sentence(files: int, icons: int) -> str:
     program = found.group(0).replace("export const STR", "const STR", 1) + (
         f"\nconsole.log(JSON.stringify(STR.coverWaiting({files}, {icons}, 1200, 1200)));"
     )
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(program)
     return json.loads(answer.stdout.strip())
 
 

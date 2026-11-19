@@ -2,6 +2,7 @@
 
 import hashlib
 import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -288,8 +289,17 @@ def test_a_file_with_no_picture_at_all_is_not_reported_as_lying(tmp_path: Path) 
 
 
 def _drawable_jpeg() -> bytes:
-    """A small JPEG the platform will render, made by the platform itself."""
-    import AppKit
+    """A small JPEG the platform will render, made by the platform itself.
+
+    Anywhere that is not macOS there is no such framework, and a test that only
+    needs *a real JPEG* should not stop running for that. The decoder this
+    project already depends on draws one instead, and where neither is present
+    there is nothing to draw with and the test says so.
+    """
+    try:
+        import AppKit
+    except ImportError:
+        return _jpeg_without_a_framework()
 
     image = AppKit.NSImage.alloc().initWithSize_((64, 64))
     image.lockFocus()
@@ -299,6 +309,31 @@ def _drawable_jpeg() -> bytes:
     bitmap = AppKit.NSBitmapImageRep.imageRepWithData_(image.TIFFRepresentation())
     data = bitmap.representationUsingType_properties_(AppKit.NSBitmapImageFileTypeJPEG, {})
     return bytes(data)
+
+
+def _jpeg_without_a_framework() -> bytes:
+    """The same square, drawn by the decoder this project already requires."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("a real JPEG needs either the platform's framework or the decoder")
+    drawn = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=orange:s=64x64",
+            "-frames:v",
+            "1",
+            "-f",
+            "mjpeg",
+            "-",
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return drawn.stdout
 
 
 def test_a_file_that_claims_an_icon_and_has_none_is_given_one(tmp_path: Path) -> None:

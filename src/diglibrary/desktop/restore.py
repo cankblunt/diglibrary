@@ -24,7 +24,7 @@ from pathlib import Path
 from diglibrary.config.home import resolve
 from diglibrary.config.loader import load_configuration
 from diglibrary.database.copies import (
-    CopyUnreadableError,
+    CopyRefusedError,
     available_copies,
     restore_copy,
 )
@@ -106,7 +106,10 @@ def restore(given: list[str]) -> int:
     print(f"\nrestoring {chosen.name}")
     try:
         displaced = restore_copy(chosen, database)
-    except CopyUnreadableError as error:
+    # Every refusal this can meet, not the one that was thought of first: the
+    # sentence below promises that nothing was changed, and that promise is what
+    # `CopyRefusedError` is the name of.
+    except CopyRefusedError as error:
         print(f"\nrefused: {error}\nNothing was changed.")
         return 1
     print(f"done. the database that was there is now {displaced.name}")

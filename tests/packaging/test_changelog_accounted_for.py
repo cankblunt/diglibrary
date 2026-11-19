@@ -41,6 +41,7 @@ def _read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str):
         lambda *arguments: subprocess.run(
             ["git", "-C", str(PROJECT), *arguments],
             capture_output=True,
+            encoding="utf-8",
             text=True,
             check=True,
         ).stdout.strip(),
@@ -86,6 +87,7 @@ def test_an_answer_is_filed_under_the_whole_hash(
     head = subprocess.run(
         ["git", "-C", str(PROJECT), "rev-parse", "HEAD"],
         capture_output=True,
+        encoding="utf-8",
         text=True,
         check=True,
     ).stdout.strip()

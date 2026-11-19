@@ -18,10 +18,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -71,13 +71,7 @@ def _run(body: str) -> dict:
     # followed by `(` is one expression to the parser, and the whole program
     # then fails at the point where it looks most correct.
     program = HARNESS + "\n".join(pieces) + ";\n(async () => {\n" + body + "\n})();"
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(program)
     return json.loads(answer.stdout.strip())
 
 

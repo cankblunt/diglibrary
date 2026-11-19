@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import sqlite3
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -404,7 +405,7 @@ def _last_sighting_in(
     connection: sqlite3.Connection, unit_id: int, folder: Path
 ) -> list[tuple[str, int]]:
     """`LibraryStore._last_sighting` over a connection the caller already holds."""
-    prefixes = tuple(str(Path(spelling)).rstrip("/") + "/" for spelling in _both_spellings(folder))
+    prefixes = tuple(_as_a_prefix(str(Path(spelling))) for spelling in _both_spellings(folder))
     rows = connection.execute(
         "SELECT path, file_size_bytes, last_seen_at FROM audio_files "
         "WHERE album_unit_id = ? AND file_size_bytes IS NOT NULL",
@@ -431,7 +432,7 @@ def _holds_its_last_sighting(
         return False
     # Composed, then cut: `_last_sighting_in` admits a row under either spelling
     # of ``was``, and the two are not the same number of characters.
-    folder = unicodedata.normalize("NFC", str(Path(was))).rstrip("/") + "/"
+    folder = _as_a_prefix(unicodedata.normalize("NFC", str(Path(was))))
     before = sorted(
         (unicodedata.normalize("NFC", str(Path(path)))[len(folder) :], size) for path, size in seen
     )
@@ -443,6 +444,25 @@ def _holds_its_last_sighting(
         for file in unit.audio_files
     )
     return before == now
+
+
+def _as_a_prefix(path: str) -> str:
+    """One folder's path, ending in the separator this platform writes.
+
+    The separator is what keeps `…/Name` from taking `…/Name Longer` with it,
+    and it was written here as a literal `/` — which is the separator on the
+    machine this was developed on and is nothing at all on Windows, where the
+    rows hold backslashes. Measured on a Windows runner: the prefix matched no
+    row ever, so every lookup of an album by its folder answered empty, and with
+    it went finding an album renamed by hand, saying which files joined a folder
+    and which left it, recognising a second copy, and carrying the rows along
+    when a folder moved.
+
+    Asked of the platform, in one place, because the same prefix was built in
+    three and a rule applied in one of the places that implement it is not
+    applied.
+    """
+    return path.rstrip("\\/") + os.sep
 
 
 def _both_spellings(path: Path | str) -> tuple[str, ...]:
@@ -596,8 +616,8 @@ class LibraryStore:
             folder = str(folder_row[0])
             keys = connection.execute(
                 "SELECT audio_key FROM audio_files WHERE album_unit_id = ? "
-                "AND substr(path, 1, length(?) + 1) = ? || '/'",
-                (unit_id, folder, folder),
+                "AND substr(path, 1, length(?) + 1) = ? || ?",
+                (unit_id, folder, folder, os.sep),
             ).fetchall()
             wanted = {key for (key,) in keys}
             if not wanted or None in wanted:
@@ -606,10 +626,10 @@ class LibraryStore:
                 "SELECT u.id, u.unit_signature, u.folder_path, u.state, u.origin, u.rating "
                 "FROM album_units u JOIN audio_files f ON f.album_unit_id = u.id "
                 "WHERE u.cleared_at IS NULL AND u.id != ? "
-                "AND substr(f.path, 1, length(u.folder_path) + 1) = u.folder_path || '/' "
+                "AND substr(f.path, 1, length(u.folder_path) + 1) = u.folder_path || ? "
                 f"AND f.audio_key IN ({_holes(tuple(wanted))}) "
                 "GROUP BY u.id HAVING COUNT(DISTINCT f.audio_key) = ? ORDER BY u.id",
-                (unit_id, *wanted, len(wanted)),
+                (unit_id, os.sep, *wanted, len(wanted)),
             ).fetchall()
         return tuple(
             StoredUnit(row[0], row[1], Path(row[2]), row[3], row[4], row[5]) for row in rows
@@ -628,8 +648,8 @@ class LibraryStore:
                 "SELECT COUNT(DISTINCT f.audio_key) FROM album_units u "
                 "JOIN audio_files f ON f.album_unit_id = u.id "
                 "WHERE u.id = ? AND f.audio_key IS NOT NULL "
-                "AND substr(f.path, 1, length(u.folder_path) + 1) = u.folder_path || '/'",
-                (unit_id,),
+                "AND substr(f.path, 1, length(u.folder_path) + 1) = u.folder_path || ?",
+                (unit_id, os.sep),
             ).fetchone()
         return int(row[0]) if row else 0
 
@@ -1109,8 +1129,8 @@ class LibraryStore:
         """
         moved = 0
         for spelling in spellings:
-            prefix = spelling.rstrip("/") + "/" if inside else spelling
-            destination = now.rstrip("/") + "/" if inside else now
+            prefix = _as_a_prefix(spelling) if inside else spelling
+            destination = _as_a_prefix(now) if inside else now
             cursor = connection.execute(
                 "UPDATE OR IGNORE audio_files SET path = ? || substr(path, ?) "
                 "WHERE substr(path, 1, ?) = ?",
@@ -1972,12 +1992,12 @@ class LibraryStore:
                 ).fetchall()
                 names: dict[str, set[str]] = {}
                 for signature, name in rows:
-                    if still_there is not None and "/" in name and not still_there(name):
+                    if still_there is not None and os.sep in name and not still_there(name):
                         continue
                     # `audio_files` keeps a whole path and the bench keeps a bare
                     # name, so they are compared on the last segment: the same
                     # rip in two folders is one name twice, not ambiguity.
-                    names.setdefault(signature, set()).add(name.rsplit("/", 1)[-1])
+                    names.setdefault(signature, set()).add(name.rsplit(os.sep, 1)[-1])
                 found.update(signature for signature, seen in names.items() if len(seen) > 1)
         return found
 
@@ -2018,19 +2038,22 @@ class LibraryStore:
         files alone.
         """
         with self._database.connect() as connection:
-            rows = connection.execute("""
+            rows = connection.execute(
+                """
                 SELECT file.path, unit.folder_path, file.audio_key, file.content_signature,
                        'library', unit.unit_signature, unit.id
                   FROM audio_files AS file
                   LEFT JOIN album_units AS unit ON unit.id = file.album_unit_id
                  WHERE unit.cleared_at IS NULL
                 UNION ALL
-                SELECT album.folder_path || '/' || bench.file_name, album.folder_path,
+                SELECT album.folder_path || ? || bench.file_name, album.folder_path,
                        bench.audio_key, bench.content_signature, 'bench',
                        album.unit_signature, NULL
                   FROM quality_bench_files AS bench
                   JOIN quality_bench_albums AS album ON album.id = bench.album_id
-                """).fetchall()
+                """,
+                (os.sep,),
+            ).fetchall()
             prints = connection.execute(
                 "SELECT content_signature, audio_key, fingerprint FROM acoustic_prints "
                 "WHERE audio_key IS NOT NULL"

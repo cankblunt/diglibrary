@@ -25,6 +25,7 @@ costs a second, and the same failure found during a restore costs the restore.
 
 import gzip
 import logging
+import os
 import shutil
 import sqlite3
 import time
@@ -91,7 +92,15 @@ def take_copy(database: Path, folder: Path, logger: logging.Logger) -> Path | No
         # decompressing it, and discovering it here costs a second while
         # discovering it during a restore costs the restore.
         _refuse_an_archive_that_cannot_be_unpacked(partial, plain.stat().st_size)
-        partial.rename(destination)
+        # `os.replace` rather than `Path.rename`, which is the same call on this
+        # project's own platform and a different one everywhere else: POSIX
+        # `rename` puts the file in place over whatever is there, and Windows
+        # refuses outright when the name is taken. A copy is named for the
+        # second it was taken in, so two taken inside one second want the same
+        # name — and there the whole copy was lost, logged as a failure, with
+        # the live database left with no copy of the moment. Replacing is what
+        # has always happened here; this is the call that says so on both.
+        os.replace(partial, destination)
     except Exception:
         logger.exception(
             "The database could not be copied.",
@@ -114,13 +123,68 @@ def take_copy(database: Path, folder: Path, logger: logging.Logger) -> Path | No
     return destination
 
 
-class CopyUnreadableError(RuntimeError):
+class CopyRefusedError(RuntimeError):
+    """Raised when a restore stops, with the live database still where it was.
+
+    What a caller needs to know is not which of the conditions it met but that
+    none of them happened after something moved — the sentence it prints says
+    *nothing was changed*, and that sentence has to be true of every refusal
+    there will ever be here. So this is what a caller catches, written as the
+    whole of the set rather than as the ones somebody had thought of.
+    """
+
+
+class CopyUnreadableError(CopyRefusedError):
     """Raised when a copy that was just written cannot be read back.
 
     Its own type so `take_copy` logs it as what it is — a copy that failed
     verification, not a database that failed to be read — and so a restore can
     name the same condition when it meets it later.
     """
+
+
+class NoFreeNameError(CopyRefusedError):
+    """Raised when the database being displaced has nowhere free to go."""
+
+
+#: How many names are tried before a restore refuses. The database being
+#: displaced is named for the second it happened in, so a second restore inside
+#: that second wants a name that is taken and is offered the next one. Sixteen
+#: restores of one database inside one second is not something a person does,
+#: and a search with no end, in the one path that moves somebody's database, is
+#: worse than a refusal that says what it could not find.
+_NAMES_TRIED = 16
+
+
+def _a_displaced_name_nobody_holds(database: Path) -> Path:
+    """A free name for the database being moved aside, its tail files included.
+
+    The promise this module makes about a restore is that the file it displaces
+    is *kept*, so that undoing the restore is one rename. A name carrying only
+    the second it happened in breaks that promise the moment two restores land
+    in one second: on this project's platform the second one renames over the
+    first database that was set aside, which is the original, and says nothing.
+
+    All three names are asked about together, because they move as one: the
+    database and the `-wal` and `-shm` beside it, which mean nothing apart from
+    the file they belong to. A stem where any of the three is taken is not free.
+
+    Choosing and moving are still two steps, and nothing here holds the name in
+    between. Two restores running at the very same instant can still choose one
+    name — what is gone is the certainty of it for everything inside one second,
+    which is the window a double gesture actually falls in.
+    """
+    stem = f"{database.name}.replaced-{time.strftime('%Y%m%d-%H%M%S')}"
+    for attempt in range(_NAMES_TRIED):
+        candidate = database.with_name(stem if attempt == 0 else f"{stem}-{attempt}")
+        if not any(
+            candidate.with_name(candidate.name + tail).exists() for tail in ("", "-wal", "-shm")
+        ):
+            return candidate
+    raise NoFreeNameError(
+        f"{_NAMES_TRIED} names beginning {stem} are already taken, so the database "
+        "that is there has nowhere to be kept."
+    )
 
 
 def _refuse_a_copy_that_cannot_be_read(copy: Path) -> None:
@@ -268,7 +332,15 @@ def restore_copy(archive: Path, database: Path) -> Path:
     except Exception:
         unpacked.unlink(missing_ok=True)
         raise
-    displaced = database.with_name(f"{database.name}.replaced-{time.strftime('%Y%m%d-%H%M%S')}")
+    try:
+        displaced = _a_displaced_name_nobody_holds(database)
+    except NoFreeNameError:
+        # Nothing has moved, so the sentence a caller prints is still true — but
+        # the unpacked copy beside the database is this application's own and
+        # weighs what a database weighs, so it does not stay on a disk that may
+        # be the reason the name search is meeting what it is meeting.
+        unpacked.unlink(missing_ok=True)
+        raise
     if database.is_file():
         database.rename(displaced)
     # And the write-ahead files of the database being displaced, which belong to

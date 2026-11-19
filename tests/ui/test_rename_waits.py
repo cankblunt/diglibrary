@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -55,13 +55,7 @@ def _run(answers: list[bool], waiting: object) -> dict:
         + f"\nawait offerReplanAfterWord({json.dumps(waiting)});"
         + "\nconsole.log(JSON.stringify({ asked, replanned }));"
     )
-    done = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    done = run_node(program)
     return json.loads(done.stdout.strip())
 
 

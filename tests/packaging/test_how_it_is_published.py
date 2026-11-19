@@ -1,4 +1,4 @@
-"""The upload carries no key, and cannot happen because somebody pushed.
+"""What the workflows may carry, and what may start the one that publishes.
 
 Publishing to an index is the one action here that reaches every machine that
 installed this application, and it is the one that cannot be undone: a version
@@ -14,7 +14,8 @@ import re
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent.parent
-WORKFLOW = PROJECT / ".github" / "workflows" / "publish.yml"
+WORKFLOWS = PROJECT / ".github" / "workflows"
+WORKFLOW = WORKFLOWS / "publish.yml"
 
 
 def _workflow() -> str:
@@ -22,19 +23,42 @@ def _workflow() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_the_publish_workflow_holds_no_secret_at_all() -> None:
+def _every_workflow() -> list[tuple[str, str]]:
+    """Every workflow in the folder, by name and text.
+
+    Two of the rules below are about what a workflow may carry rather than about
+    publishing, and they were written against one file by name — so the day a
+    second workflow arrived they would have gone on passing while asking nothing
+    about it. Read as whatever is in the folder, a workflow added later is
+    covered by having been added.
+    """
+    found = [
+        (path.name, path.read_text(encoding="utf-8")) for path in sorted(WORKFLOWS.glob("*.y*ml"))
+    ]
+    # A check that found no workflow to read passes, and proves nothing.
+    assert found, f"there is no workflow at all under {WORKFLOWS}"
+    return found
+
+
+def test_no_workflow_holds_a_secret_at_all() -> None:
     """Trusted publishing exists so that there is nothing to hold.
 
     The alternative keeps a long-lived token in a file, and its whole risk is
-    that a token exists. A `secrets.` reference here would mean the mechanism had
-    been swapped for the one with a key in it, which reads identically from the
-    outside: both publish, and one of them can be stolen.
+    that a token exists. A `secrets.` reference in the publishing workflow would
+    mean the mechanism had been swapped for the one with a key in it, which
+    reads identically from the outside: both publish, and one of them can be
+    stolen. Asked of every workflow, because a key is as stealable from the one
+    that only runs tests, and a repository is as compromised either way.
     """
-    referenced = re.findall(r"secrets\.[A-Za-z_][A-Za-z0-9_]*", _workflow())
+    referenced = {
+        f"{name}: {reference}"
+        for name, text in _every_workflow()
+        for reference in re.findall(r"secrets\.[A-Za-z_][A-Za-z0-9_]*", text)
+    }
 
-    assert referenced == [], (
-        "this publishes with a stored secret, which is the mechanism trusted "
-        f"publishing was chosen to remove: {sorted(set(referenced))}"
+    assert referenced == set(), (
+        "a stored secret is the mechanism trusted publishing was chosen to "
+        f"remove, and these name one: {sorted(referenced)}"
     )
 
 
@@ -60,18 +84,21 @@ def test_nothing_publishes_without_somebody_pressing_it() -> None:
     )
 
 
-def test_every_action_it_runs_is_pinned_to_a_commit() -> None:
-    """A tag moves, and the thing it moves to runs with permission to publish.
+def test_every_action_any_workflow_runs_is_pinned_to_a_commit() -> None:
+    """A tag moves, and the thing it moves to runs inside this repository.
 
     `@v1` is a label its author can repoint at any time, so trusting one is
     trusting whatever that repository contains on the day this runs. Pinned to a
     commit, an upgrade is a change somebody makes here on purpose. Written as
-    *every* action rather than as the five in the file today.
+    *every* action of *every* workflow: the rule was always stated that way and
+    was asked of one file by name, which is this project's most repeated defect
+    — a rule applied in one of the places that implement it.
     """
     unpinned = [
-        used
-        for used in re.findall(r"uses:\s*(\S+)", _workflow())
+        f"{name}: {used}"
+        for name, text in _every_workflow()
+        for used in re.findall(r"uses:\s*(\S+)", text)
         if not re.search(r"@[0-9a-f]{40}$", used)
     ]
 
-    assert unpinned == [], f"these run with this workflow's permissions and can move: {unpinned}"
+    assert unpinned == [], f"these run inside this repository and can move: {unpinned}"

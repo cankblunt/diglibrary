@@ -25,10 +25,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web"
 
@@ -80,13 +80,7 @@ def _display(chain: list[dict[str, object]]) -> str:
     }}
     console.log(display);
     """
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", harness],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(harness)
     return answer.stdout.strip()
 
 

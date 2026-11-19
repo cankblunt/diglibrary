@@ -4,6 +4,13 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.12.1
+
+### Fixed
+
+- Putting a copy of the database back keeps the database it found, always. Restoring twice inside one second used to give both of them the same name — the second restore moved the database it found over the one the first restore had set aside, which is the one you started with, and nothing said so. Each restore now keeps what it displaced under a name of its own, and a restore that cannot find a free name changes nothing at all.
+- On a Mac whose language and region are set to something other than UTF-8, the Finder tags offered in the plan left out every tag carried by a file whose path has an accent in it: the list of what you already use is read from Spotlight, and those paths were being read with the wrong character set. They are all offered now.
+
 ## 1.12.0
 
 ### Added

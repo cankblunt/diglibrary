@@ -168,3 +168,30 @@ def test_a_name_at_the_filesystem_s_line_can_still_be_rewritten(tmp_path: Path, 
     assert len(seen[0].name.encode()) <= 255
     assert seen[0].name.startswith(".2-11. ") and seen[0].suffix == ".flac"
     assert list(tmp_path.iterdir()) == [song]
+
+
+def test_a_rewrite_still_works_where_the_filesystem_cannot_be_asked_its_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The name limit is asked for, and not getting an answer is not a failure.
+
+    ``os.pathconf`` is POSIX and Windows does not have it at all, so there the
+    call raises ``AttributeError`` — which the two exceptions named here did not
+    cover. This function stands under every tag and every cover this application
+    writes, so on that platform both raised rather than falling back to the
+    floor, and the suite here could not see it: the call exists on this machine.
+    Taking it away is what asks the question.
+    """
+    # `raising=False` because the platform this is about does not have the
+    # attribute to begin with: removing it there is itself an AttributeError,
+    # so without this the guard passes exactly where the defect cannot happen
+    # and fails exactly where it can — which is what the first run showed.
+    monkeypatch.delattr("os.pathconf", raising=False)
+    song = _file(tmp_path / "Ação é Já.flac")
+    seen: list[Path] = []
+
+    replacing(song, lambda copy: (seen.append(copy), copy.write_bytes(b"retagged"))[1])
+
+    assert song.read_bytes() == b"retagged"
+    assert len(seen[0].name.encode()) <= 255, "the fallback must still fit a name"
+    assert list(tmp_path.iterdir()) == [song], "and leave no copy behind"

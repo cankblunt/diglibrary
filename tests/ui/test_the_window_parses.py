@@ -36,6 +36,7 @@ def _parsed(source: str) -> subprocess.CompletedProcess[str]:
         ["node", "--input-type=module", "--check"],
         input=source,
         capture_output=True,
+        encoding="utf-8",
         text=True,
         timeout=30,
     )

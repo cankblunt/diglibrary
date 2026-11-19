@@ -92,6 +92,7 @@ def _git(*arguments: str) -> str:
     return subprocess.run(
         ["git", "-C", str(PROJECT), *arguments],
         capture_output=True,
+        encoding="utf-8",
         text=True,
         check=True,
     ).stdout.strip()
@@ -401,6 +402,7 @@ def check_nothing_names_a_person(report: Report) -> None:
             *(f":!{path}" for path in sorted(DESCRIBES_THE_PATTERNS)),
         ],
         capture_output=True,
+        encoding="utf-8",
         text=True,
     )
     if found.stdout.strip():
@@ -450,6 +452,7 @@ def check_it_builds_and_the_commands_answer(report: Report, version: str) -> Non
     built = subprocess.run(
         [sys.executable, "-m", "build", "--outdir", str(workspace / "dist")],
         capture_output=True,
+        encoding="utf-8",
         text=True,
     )
     if built.returncode != 0:
@@ -467,6 +470,7 @@ def check_it_builds_and_the_commands_answer(report: Report, version: str) -> Non
     installed = subprocess.run(
         [str(python), "-m", "pip", "install", "-q", "--no-cache-dir", str(wheel)],
         capture_output=True,
+        encoding="utf-8",
         text=True,
     )
     if installed.returncode != 0:
@@ -475,7 +479,9 @@ def check_it_builds_and_the_commands_answer(report: Report, version: str) -> Non
 
     command = workspace / "venv" / "bin" / "diglibrary"
     for spoken in ([], ["make-icon"], ["restore-copy"]):
-        answered = subprocess.run([str(command), *spoken, "--help"], capture_output=True, text=True)
+        answered = subprocess.run(
+            [str(command), *spoken, "--help"], capture_output=True, encoding="utf-8", text=True
+        )
         name = " ".join(["diglibrary", *spoken])
         if answered.returncode != 0 or "usage:" not in answered.stdout:
             report.no(f"`{name} --help` describes itself", (answered.stdout + answered.stderr)[:90])
@@ -490,6 +496,7 @@ def check_it_builds_and_the_commands_answer(report: Report, version: str) -> Non
             "print(application_version())",
         ],
         capture_output=True,
+        encoding="utf-8",
         text=True,
     ).stdout.strip()
     if reported == version:
@@ -502,6 +509,7 @@ def check_it_builds_and_the_commands_answer(report: Report, version: str) -> Non
         checked = subprocess.run(
             [str(python), "-m", "twine", "check", "--strict", *artefacts],
             capture_output=True,
+            encoding="utf-8",
             text=True,
         )
         if checked.returncode == 0:

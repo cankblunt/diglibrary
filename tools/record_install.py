@@ -111,6 +111,7 @@ def record() -> tuple[list[Printed], float]:
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             env=environment,
+            encoding="utf-8",
             text=True,
             bufsize=1,
         )

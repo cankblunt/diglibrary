@@ -103,6 +103,11 @@ class SubprocessFingerprintRunner:
             [self._executable, *arguments],
             capture_output=True,
             text=True,
+            # Declared rather than left to the locale: `text=True` alone decodes
+            # with whatever the machine's codepage is, which off a UTF-8 system
+            # turns an accented path into something `json.loads` reads wrong or
+            # refuses. What is asked for here is `-json`, and JSON is UTF-8.
+            encoding="utf-8",
             timeout=self._timeout_seconds,
             check=False,
         )

@@ -21,10 +21,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web"
 
@@ -94,13 +94,7 @@ def _armed(call: str) -> list[int]:
         pieces.append(found.group(0))
 
     body = HARNESS + strings + "\n".join(pieces) + f"\n{call}\nconsole.log(JSON.stringify(armed));"
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", body],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(body)
     return json.loads(answer.stdout.strip())
 
 
@@ -109,13 +103,7 @@ def _length(expression: str) -> int:
     strings = (
         (WEB / "strings.js").read_text(encoding="utf-8").replace("export const STR", "const STR")
     )
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", strings + f"\nconsole.log(({expression}).length);"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(strings + f"\nconsole.log(({expression}).length);")
     return int(answer.stdout.strip())
 
 

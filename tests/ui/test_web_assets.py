@@ -21,9 +21,12 @@ deterministic, offline and instant.
 
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).parent.parent.parent / "src" / "diglibrary" / "ui" / "web"
 
@@ -2836,6 +2839,46 @@ def test_the_terminal_and_the_window_say_the_same_thing_about_the_icon() -> None
     )
 
 
+#: `__main__` refuses before it reads a word, on any system that is not macOS,
+#: and exits 1. Another system is intended and is not promised; until one
+#: arrives, the refusal is the behaviour. So there is no help to read there,
+#: and a guard over the help has nothing to measure. Skipped rather than
+#: relaxed: a test that quietly asserts less where it runs is a test that
+#: passes somewhere it proves nothing.
+#: What the gate itself does is measured in
+#: `tests/packaging/test_what_a_stranger_downloads.py`, by running it.
+needs_the_commands = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="no command answers --help here: `__main__` refuses the system first",
+)
+
+
+def _what_the_command_prints(*words: str) -> str:
+    """Run one command and return what it printed, or fail in its own words.
+
+    `check=True` raises naming the exit status and nothing else, which is a
+    failure that describes no cause: on a Windows runner three guards failed
+    that way at once and what they hid was the refusal saying which system it
+    was on. The status is read here, and the message is the one the command
+    wrote.
+    """
+    answered = subprocess.run(
+        [sys.executable, "-m", "diglibrary", *words],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        text=True,
+        check=False,
+    )
+    if answered.returncode != 0:
+        raise AssertionError(
+            f"`diglibrary {' '.join(words)}` exited {answered.returncode} and said: "
+            f"{(answered.stderr.strip() or answered.stdout.strip())!r}"
+        )
+    return answered.stdout
+
+
+@needs_the_commands
 def test_nothing_the_terminal_prints_promises_a_dock_this_application_cannot_reach() -> None:
     """The help of every command keeps the same promise as the window.
 
@@ -2850,20 +2893,12 @@ def test_nothing_the_terminal_prints_promises_a_dock_this_application_cannot_rea
     a person reads, and none of it may name the Dock except to say it may be
     dragged there.
     """
-    import subprocess
-    import sys
-
     allowed = "drag it to the Dock if you want it there"
     # All three. A command that did not answer `--help` at all — reading the
     # word as the name of a copy — would otherwise be left out of this list,
     # and a command left out of a guard is a command the guard does not cover.
     for words in ([], ["make-icon"], ["restore-copy"]):
-        printed = subprocess.run(
-            [sys.executable, "-m", "diglibrary", *words, "--help"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
+        printed = _what_the_command_prints(*words, "--help")
         offending = [
             line for line in printed.splitlines() if "Dock" in line and allowed not in line
         ]
@@ -2873,6 +2908,7 @@ def test_nothing_the_terminal_prints_promises_a_dock_this_application_cannot_rea
         )
 
 
+@needs_the_commands
 def test_every_word_this_application_answers_to_can_describe_itself() -> None:
     """A command that cannot say what it is, is a command nobody can use.
 
@@ -2884,21 +2920,14 @@ def test_every_word_this_application_answers_to_can_describe_itself() -> None:
     Asked of both words at once, because *the two commands answer `--help`* is
     one rule and two places implement it.
     """
-    import subprocess
-    import sys
-
     for word in ("make-icon", "restore-copy"):
-        answered = subprocess.run(
-            [sys.executable, "-m", "diglibrary", word, "--help"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        answered = _what_the_command_prints(word, "--help")
         assert (
-            f"usage: diglibrary {word}" in answered.stdout
-        ), f"`diglibrary {word} --help` does not describe itself: {answered.stdout!r}"
+            f"usage: diglibrary {word}" in answered
+        ), f"`diglibrary {word} --help` does not describe itself: {answered!r}"
 
 
+@needs_the_commands
 def test_a_word_a_command_does_not_know_is_refused_by_name() -> None:
     """The complement of the rule above, and the half that keeps it true.
 
@@ -2907,12 +2936,10 @@ def test_a_word_a_command_does_not_know_is_refused_by_name() -> None:
     rule rather than a patch is that anything beginning with `-` is an option,
     and an option the command does not define is named back to whoever typed it.
     """
-    import subprocess
-    import sys
-
     refused = subprocess.run(
         [sys.executable, "-m", "diglibrary", "restore-copy", "--newst"],
         capture_output=True,
+        encoding="utf-8",
         text=True,
     )
     assert refused.returncode != 0
@@ -2997,7 +3024,6 @@ def test_the_match_sentence_names_which_half_is_open() -> None:
     what it says is what a person sees.
     """
     import json
-    import subprocess
 
     found = re.search(r"(?:export )?const STR = \{[\s\S]+?\n\};", STRINGS)
     assert found, "no STR object in strings.js, so this guard reads the wrong file"
@@ -3007,15 +3033,7 @@ def test_the_match_sentence_names_which_half_is_open() -> None:
         + "STR.planMatchesDetail(10, 1, 2), STR.planMatchesDetail(12, 0, 0),"
         + "STR.planMatchesDetail(3, 2, 1)]));"
     )
-    said = json.loads(
-        subprocess.run(
-            ["node", "--input-type=module", "-e", program],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        ).stdout
-    )
+    said = json.loads(run_node(program).stdout)
     assert said == [
         "10 paired both ways · 1 file without a track · 2 tracks without a file",
         "12 paired both ways",

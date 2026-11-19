@@ -19,10 +19,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -52,13 +52,7 @@ def _run_eta(node: dict[str, object], files: list[dict[str, object]]) -> str:
             f"console.log(etaOf({json.dumps(node)}, {json.dumps(files)}));",
         ]
     )
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", harness],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(harness)
     return answer.stdout.strip()
 
 

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -73,13 +73,7 @@ def _run(body: str) -> dict:
         + "\nconsole.log(JSON.stringify({ made, open: $('same-audio-dialog').open,"
         + " lines: $('same-audio-message').children.map((line) => line.textContent) }));"
     )
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(program)
     return json.loads(answer.stdout.strip())
 
 

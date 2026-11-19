@@ -1,12 +1,13 @@
 """Tests for persisting scans, identifications, plans, and their outcomes."""
 
 import logging
+import os
 import shutil
 import sqlite3
 import unicodedata
 from dataclasses import replace
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import pytest
 
@@ -30,6 +31,29 @@ from diglibrary.library.planner import ChangeOperation, OperationKind
 from diglibrary.library.scanner import LibraryScanner
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "audio"
+
+
+def at(path: str) -> str:
+    """One fixture path, written the way the platform running this writes one.
+
+    The store answers *is this file inside that folder* by comparing stored text
+    against a folder plus the separator the platform writes, so a fixture that
+    types `/music/was` into the database by hand describes a POSIX machine and
+    nothing else. Where paths are written with a backslash the prefix built from
+    it is `\\music\\was\\`, which matches no row the fixture inserted, and
+    the test then fails for the one reason that is not about the store.
+
+    What needs it is a test whose fixture puts a file *inside* a folder, which
+    is the only question answered by a prefix; the rest of this file compares a
+    folder path to itself, where one separator is as good as another, and still
+    writes those paths by hand. A test that adds a file under a folder renders
+    both through this, and `WAS` and `NOW` below are the common pair.
+    """
+    return str(PurePath(path))
+
+
+WAS = at("/music/was")
+NOW = at("/music/now")
 
 
 def test_a_renamed_album_updates_its_row_instead_of_creating_a_second(tmp_path: Path) -> None:
@@ -663,32 +687,37 @@ def test_the_registered_files_move_with_the_album_that_holds_them(tmp_path: Path
     `ambiguous_signatures` looks for.
     """
     store = _store(tmp_path)
+    organized = at("/music/now (1979) [FLAC]")
+    sibling = at("/music/was not this one/01 Song.flac")
     with store._database.connect() as connection:
         connection.execute(
             "INSERT INTO album_units (folder_path, unit_signature, track_count) "
-            "VALUES ('/music/was', 'sig', 1)"
+            "VALUES (?, 'sig', 1)",
+            (WAS,),
         )
         connection.execute(
             "INSERT INTO audio_files (path, content_signature, file_size_bytes, modified_at) "
-            "VALUES ('/music/was/01 Song.flac', 'aaa', 1, 'now')"
+            "VALUES (?, 'aaa', 1, 'now')",
+            (at("/music/was/01 Song.flac"),),
         )
         # A folder whose name starts with the same letters, which is why the
         # prefix has to carry its separator.
         connection.execute(
             "INSERT INTO audio_files (path, content_signature, file_size_bytes, modified_at) "
-            "VALUES ('/music/was not this one/01 Song.flac', 'bbb', 1, 'now')"
+            "VALUES (?, 'bbb', 1, 'now')",
+            (sibling,),
         )
 
-    store.relocate_unit("/music/was", "/music/now (1979) [FLAC]")
+    store.relocate_unit(WAS, organized)
 
     with store._database.connect() as connection:
         paths = [row[0] for row in connection.execute("SELECT path FROM audio_files ORDER BY id")]
-    assert paths[0] == "/music/now (1979) [FLAC]/01 Song.flac", (
+    assert paths[0] == at("/music/now (1979) [FLAC]/01 Song.flac"), (
         "the files inside a moved album have to move with it, or every one of "
         "them names a file that is no longer there"
     )
     assert (
-        paths[1] == "/music/was not this one/01 Song.flac"
+        paths[1] == sibling
     ), "and a folder that merely starts with the same letters is a different folder"
 
 
@@ -700,23 +729,26 @@ def test_the_library_stops_calling_one_file_two_files_after_it_moves(tmp_path: P
     calls it ambiguous and the measured bitrate is withheld from its own name.
     """
     store = _store(tmp_path)
+    organized = at("/music/now (1979) [FLAC]")
     with store._database.connect() as connection:
         connection.execute(
             "INSERT INTO audio_files (path, content_signature, file_size_bytes, modified_at) "
-            "VALUES ('/music/was/Artist - Song.flac', 'aaa', 1, 'now')"
+            "VALUES (?, 'aaa', 1, 'now')",
+            (at("/music/was/Artist - Song.flac"),),
         )
 
     # What an apply does, in the order it does it: the file first, while the
     # folder still has the name it was planned under, and the folder last.
-    store.relocate_file("/music/was/Artist - Song.flac", "/music/was/01. Song.flac")
-    store.relocate_unit("/music/was", "/music/now (1979) [FLAC]")
+    store.relocate_file(at("/music/was/Artist - Song.flac"), at("/music/was/01. Song.flac"))
+    store.relocate_unit(WAS, organized)
     # And the scan that reads the album where it lives now registers the file it
     # finds there, which is the second row that used to appear.
     with store._database.connect() as connection:
         connection.execute(
             "INSERT OR IGNORE INTO audio_files "
             "(path, content_signature, file_size_bytes, modified_at) "
-            "VALUES ('/music/now (1979) [FLAC]/01. Song.flac', 'aaa', 1, 'now')"
+            "VALUES (?, 'aaa', 1, 'now')",
+            (at("/music/now (1979) [FLAC]/01. Song.flac"),),
         )
 
     assert store.ambiguous_signatures(["aaa"]) == set(), (
@@ -731,21 +763,21 @@ def test_a_moved_album_finds_its_files_under_either_spelling_of_an_accent(
 ) -> None:
     """The same trap as `_both_spellings`, one table over."""
     store = _store(tmp_path)
-    composed = unicodedata.normalize("NFC", "/music/Quixotação")
-    decomposed = unicodedata.normalize("NFD", "/music/Quixotação")
+    composed = unicodedata.normalize("NFC", at("/music/Quixotação"))
+    decomposed = unicodedata.normalize("NFD", at("/music/Quixotação"))
     assert composed != decomposed
     with store._database.connect() as connection:
         connection.execute(
             "INSERT INTO audio_files (path, content_signature, file_size_bytes, modified_at) "
             "VALUES (?, 'aaa', 1, 'now')",
-            (f"{decomposed}/01 Song.flac",),
+            (decomposed + os.sep + "01 Song.flac",),
         )
 
-    store.relocate_unit(composed, "/music/now")
+    store.relocate_unit(composed, NOW)
 
     with store._database.connect() as connection:
         path = connection.execute("SELECT path FROM audio_files").fetchone()[0]
-    assert path == "/music/now/01 Song.flac", (
+    assert path == NOW + os.sep + "01 Song.flac", (
         "the file system opens either spelling and SQLite compares bytes, so a "
         "path looked up in one spelling has to be offered the other"
     )
@@ -1191,9 +1223,10 @@ def test_files_that_could_not_follow_their_album_are_counted_out_loud(
     with store._database.connect() as connection:
         connection.execute(
             "INSERT INTO album_units (id, folder_path, unit_signature, track_count) "
-            "VALUES (1, '/music/was', 'sig-a', 12)"
+            "VALUES (1, ?, 'sig-a', 12)",
+            (WAS,),
         )
-        for path in ("/music/was/01 Song.flac", "/music/was/02 Other.flac"):
+        for path in (at("/music/was/01 Song.flac"), at("/music/was/02 Other.flac")):
             connection.execute(
                 "INSERT INTO audio_files (path, content_signature, file_size_bytes, modified_at) "
                 "VALUES (?, 'aaa', 1, 'then')",
@@ -1201,11 +1234,12 @@ def test_files_that_could_not_follow_their_album_are_counted_out_loud(
             )
         connection.execute(
             "INSERT INTO audio_files (path, content_signature, file_size_bytes, modified_at) "
-            "VALUES ('/music/now/01 Song.flac', 'aaa', 1, 'now')"
+            "VALUES (?, 'aaa', 1, 'now')",
+            (at("/music/now/01 Song.flac"),),
         )
 
     with caplog.at_level(logging.WARNING, logger="test.store"):
-        moved = store.relocate_unit("/music/was", "/music/now")
+        moved = store.relocate_unit(WAS, NOW)
 
     assert moved == 1, "the album itself moves; this is about the files under it"
     declined = [
@@ -1216,7 +1250,7 @@ def test_files_that_could_not_follow_their_album_are_counted_out_loud(
     ]
     assert len(declined) == 1
     assert declined[0].rows == 1, "one of the two files had its name taken, and only one"
-    assert declined[0].first == "/music/was/01 Song.flac"
+    assert declined[0].first == at("/music/was/01 Song.flac")
 
 
 def test_an_album_whose_files_all_follow_it_says_nothing(

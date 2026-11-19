@@ -37,6 +37,7 @@ def _tracked() -> list[Path]:
         ["git", "ls-files", "-z"],
         cwd=PROJECT,
         capture_output=True,
+        encoding="utf-8",
         text=True,
         check=True,
     )
@@ -189,6 +190,7 @@ def test_every_commit_is_authored_without_a_real_address() -> None:
         ["git", "log", "--all", "--format=%H %ae %ce"],
         cwd=PROJECT,
         capture_output=True,
+        encoding="utf-8",
         text=True,
         check=True,
     )

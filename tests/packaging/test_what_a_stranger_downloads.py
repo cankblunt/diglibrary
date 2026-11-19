@@ -11,6 +11,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 PROJECT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT / "tools"))
 
@@ -464,3 +466,49 @@ def test_a_stranger_on_another_system_is_told_rather_than_left_with_a_dead_windo
     assert (
         "Nothing was changed" in spoken
     ), "a refusal about somebody's music library must say that it touched nothing"
+
+
+def test_the_refusal_on_another_system_is_run_and_not_only_written(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The guard above reads the source; this one runs the gate.
+
+    Reading the file proves the sentence is written down and that it sits above
+    the line that reads the command line. It cannot say whether the gate fires,
+    what it exits with, or which stream it writes to — and on the one machine
+    this is developed on the condition is false, so the branch had never once
+    been taken. The first time it ran was on a Windows runner, where three
+    tests asked `--help` of a command that refuses before `--help` exists; each
+    of them raised on the exit status alone and swallowed the sentence that
+    would have said why, so what the gate does was read off the source for a
+    second time rather than measured.
+
+    `sys.platform` is the whole condition, so moving it is the whole of another
+    system as far as this line is concerned. Nothing else runs: the refusal is
+    the first statement of `main`.
+    """
+    import platform as platform_module
+
+    from diglibrary.__main__ import main
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "argv", ["diglibrary", "--help"])
+    monkeypatch.setattr(platform_module, "system", lambda: "Windows")
+
+    with pytest.raises(SystemExit) as refused:
+        main()
+
+    assert refused.value.code == 1, (
+        "a refusal that exits zero is a success to everything that reads an exit "
+        f"status — a shell, an installer script, a packager: {refused.value.code!r}"
+    )
+    said = capsys.readouterr()
+    assert said.out == "", (
+        "the refusal went to the output somebody may be piping into a file, where "
+        f"it reads as the answer to what they asked: {said.out!r}"
+    )
+    assert "Windows" in said.err, (
+        "the sentence does not name the system back to the reader, so whoever "
+        f"sees it cannot tell this ran at all: {said.err!r}"
+    )
+    assert "Nothing was changed" in said.err

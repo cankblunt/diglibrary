@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from tests.application.test_api import (
     _library,
     _tagged_album,
 )
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).resolve().parents[1] / "src/diglibrary/ui/web"
 
@@ -69,7 +69,7 @@ const album = {{ source: "tags" }};
 {block.group(0)}
 console.log(JSON.stringify(lit));
 """
-    finished = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=30)
+    finished = run_node(program, module=False, check=False)
     assert finished.returncode == 0, finished.stderr
     lit = json.loads(finished.stdout)
 

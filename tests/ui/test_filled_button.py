@@ -23,10 +23,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -83,7 +83,7 @@ def _answers() -> list[dict]:
     )
     assert block, "no filled-button block to run, so this guard is reading the wrong file"
     program = HARNESS.replace("__BLOCK__", block.group(0))
-    finished = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=30)
+    finished = run_node(program, module=False, check=False)
     assert finished.returncode == 0, finished.stderr
     return json.loads(finished.stdout)
 

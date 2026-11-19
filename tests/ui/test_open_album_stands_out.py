@@ -24,10 +24,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -161,13 +161,7 @@ def _run(body: str) -> dict:
         assert found, f"no {name}() to run, so this guard is looking at the wrong file"
         pieces.append(found.group(0))
     program = HARNESS + "\n".join(pieces) + ";\n(() => {\n" + body + "\n})();"
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
+    answer = run_node(program, check=False)
     # node's own message, not a wall of the program that produced it: a harness
     # that reports its failure as `CalledProcessError` hides the one line that
     # says which stub is missing.

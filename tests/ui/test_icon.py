@@ -14,11 +14,14 @@ against stays in `docs/`, where it is not shipped and not needed at runtime.
 """
 
 import math
+import shutil
 import struct
 import subprocess
 import tempfile
 import zlib
 from pathlib import Path
+
+import pytest
 
 from diglibrary.desktop import icon as make_icon
 
@@ -141,6 +144,10 @@ def test_the_reference_is_reproduced_at_full_size_without_being_shipped() -> Non
     assert math.isclose(make_icon.CORNER * 1024, 224.0)
 
 
+@pytest.mark.skipif(
+    not shutil.which("iconutil"),
+    reason="the shipped icon is repacked with the platform's own tool to be compared",
+)
 def test_the_icon_this_package_ships_is_the_drawing_it_claims_to_be() -> None:
     """It is carried rather than drawn, and a carried picture can go stale.
 

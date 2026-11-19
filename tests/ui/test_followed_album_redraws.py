@@ -20,10 +20,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -65,13 +65,7 @@ def _run(body: str) -> dict:
         + body
         + "\nconsole.log(JSON.stringify({...done, marked: [...state.marked]}));\n})();"
     )
-    ran = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    ran = run_node(program)
     return json.loads(ran.stdout.strip())
 
 
@@ -219,13 +213,7 @@ def _refresh(body: str) -> dict:
         + body
         + "\nconsole.log(JSON.stringify(done));\n})();"
     )
-    ran = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    ran = run_node(program)
     return json.loads(ran.stdout.strip())
 
 

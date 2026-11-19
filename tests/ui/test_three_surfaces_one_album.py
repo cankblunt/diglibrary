@@ -16,10 +16,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -57,12 +57,7 @@ def _press(album: dict) -> dict:
     body = re.search(r"async function scanThisAlbum\(event\) \{[\s\S]+?\n\}", source)
     assert body, "no scanThisAlbum() to run, so this guard is reading the wrong file"
     program = HARNESS.replace("__BODY__", body.group(0)).replace("__ALBUM__", json.dumps(album))
-    finished = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    finished = run_node(program, check=False)
     assert finished.returncode == 0, finished.stderr
     return json.loads(finished.stdout)
 

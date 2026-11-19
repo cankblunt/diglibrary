@@ -20,10 +20,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 SCRIPT = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web/app.js"
 
@@ -108,7 +108,7 @@ def _run() -> dict:
     # one expression to the parser, and the program then fails where it looks
     # most correct.
     program = HARNESS + "\n" + "\n".join(pieces) + "\n;(async () => {" + CASES + "})();\n"
-    finished = subprocess.run(["node", "-e", program], capture_output=True, text=True, check=False)
+    finished = run_node(program, module=False, check=False, timeout=None)
     assert finished.returncode == 0, finished.stderr
     return json.loads(finished.stdout)
 
@@ -171,7 +171,7 @@ def _run_gone() -> dict:
         assert found, f"no {name}() to run, so this guard is looking at the wrong file"
         pieces.append(found.group(0))
     program = HARNESS + "\n" + "\n".join(pieces) + "\n;" + GONE_CASES
-    finished = subprocess.run(["node", "-e", program], capture_output=True, text=True, check=False)
+    finished = run_node(program, module=False, check=False, timeout=None)
     assert finished.returncode == 0, finished.stderr
     return json.loads(finished.stdout)
 

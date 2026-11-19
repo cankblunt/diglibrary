@@ -16,10 +16,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from tests.ui.node_program import run_node
 
 WEB = Path(__file__).resolve().parents[2] / "src/diglibrary/ui/web"
 SCRIPT = WEB / "app.js"
@@ -73,13 +73,7 @@ def _functions(*names: str) -> str:
 
 
 def _run(program: str) -> dict:
-    answer = subprocess.run(
-        ["node", "--input-type=module", "-e", program],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
+    answer = run_node(program)
     return json.loads(answer.stdout.strip())
 
 

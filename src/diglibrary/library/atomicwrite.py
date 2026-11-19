@@ -97,7 +97,14 @@ def _stem_that_fits(path: Path) -> str:
     """
     try:
         limit = os.pathconf(path.parent, "PC_NAME_MAX")
-    except (OSError, ValueError):
+    except Exception:
+        # Written as *anything that is not an answer* rather than as the two
+        # failures somebody thought of. `os.pathconf` is POSIX and Windows does
+        # not have it at all, so there the call raises `AttributeError`, which
+        # neither listed name covers — and this function stands under every tag
+        # and every cover this application writes, so the whole of both raised
+        # on that platform rather than falling back. 255 is the floor every
+        # filesystem this writes to allows.
         limit = 255
     room = limit - len(f".-{path.suffix}".encode()) - _RANDOM_NAME_BYTES
     return path.stem.encode("utf-8")[: max(room, 0)].decode("utf-8", "ignore")
