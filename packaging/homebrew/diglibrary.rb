@@ -30,8 +30,8 @@ class Diglibrary < Formula
 
   desc "Identify albums, detect transcoded FLAC, and rename and tag reversibly"
   homepage "https://cankblunt.github.io/diglibrary/"
-  url "https://files.pythonhosted.org/packages/1d/b1/ffcfd0735de9609779a4a20c98e665800e6ba80158d2716d0e8a03dad0c9/diglibrary-1.12.0.tar.gz"
-  sha256 "db7e37b7f6126e4abccff4c591966412a1778ed0edf861df74adcd9e22f92795"
+  url "https://files.pythonhosted.org/packages/6a/6f/1a77681670523669016460c2714be56965353ca39d638740c50ee2d22db4/diglibrary-1.12.1.tar.gz"
+  sha256 "075c239d200283e00a3ce30fdae164b13aa57930f15e908d473b8c3594024806"
   license "MIT"
 
   # macOS only, and the application says so itself on any other system. Declared

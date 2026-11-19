@@ -79,7 +79,7 @@ REVIEWED_BINARIES: dict[str, str] = {
     "docs/brand/diglibrary-icon-1024.png": "ed33c283184fe5a8c70b6c1aab191122c0524bd53fdaad9e324bdc63d2ebe8ec",  # noqa: E501
     "docs/brand/diglibrary-lockup.png": "0d40f89cb9c49f9a12bf424183e1d3c200251c1d4ba4544745bb18554153d947",  # noqa: E501
     "docs/brand/diglibrary-stacked-1024.png": "96f693ecfe88812c624f1f31b23eba3d6b75ccdfa0605e9c3141748b84c0354b",  # noqa: E501
-    "docs/images/install.gif": "1167023cfdb5fd183bf5c72c9a2574fe36d6df1cb4c87ad4dbc3156eeba5eb41",
+    "docs/images/install.gif": "5cc886f9fb7933086db3c897ff5976c7301c607e90f157be945dfc3cc615b2a1",
     "docs/images/screen-library.png": "2aa0552c0bb1f405689242f3ac3b1f120f0d93b400bedb9f91f9fcb7e3fae72a",  # noqa: E501
     "docs/images/screen-mixing.png": "d390986b9148eef81e61e6033300283f29cc92195513356e0c7d96c999490819",  # noqa: E501
     "src/diglibrary/desktop/DigLibrary.icns": "ff6053bf880589a9242de81fada1877e697b1fcede34d8170891ba802513394e",  # noqa: E501
