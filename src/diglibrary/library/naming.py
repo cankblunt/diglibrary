@@ -407,6 +407,7 @@ class NamingPolicy:
         extension: str,
         track_number_width: int = 2,
         facts: "TrackFacts | None" = None,
+        credit_first: bool = False,
     ) -> str:
         """Render one track's file name, including its extension.
 
@@ -425,6 +426,7 @@ class NamingPolicy:
             track_artist,
             track_number_width,
             facts,
+            credit_first,
         )
         return (
             sanitize_component(
@@ -444,8 +446,13 @@ class NamingPolicy:
         track_artist: str | None,
         track_number_width: int = 2,
         facts: "TrackFacts | None" = None,
+        credit_first: bool = False,
     ) -> dict[str, str]:
         """Return what each piece of a track name would hold for this file.
+
+        ``credit_first`` says this one track is named by its whole credit on an
+        album that is not a compilation, because somebody other than the
+        album's artist leads it.
 
         The companion of ``folder_values``, and public for the same reason: the
         composer says which chosen piece this particular track has nothing to
@@ -458,7 +465,9 @@ class NamingPolicy:
                 "title": title,
                 "track": f"{track_number:0{track_number_width}d}",
                 "disc": str(disc_number) if disc_count > 1 else "",
-                "artist": track_artist if is_various(release) and track_artist else "",
+                "artist": (
+                    track_artist if (is_various(release) or credit_first) and track_artist else ""
+                ),
             }
         )
         if facts is not None:
@@ -567,7 +576,15 @@ def is_various(release: ReleaseMetadata) -> bool:
     and its file names lose the track credit that is the only thing telling
     those tracks apart. The second way is the release's own tracklist, read
     below.
+
+    **And one way the user can say it**, for the record both readings miss: a
+    tribute credited to the artist it honours, a split, a DJ mix whose DJ
+    contributes a track. The tracklist rule is conservative on purpose, so it
+    has known misses, and a miss needs a way to be put right that is not
+    abandoning the catalogue's answer altogether.
     """
+    if release.various_by_user:
+        return True
     if any(artist.name.strip().casefold() in _VARIOUS_CREDITS for artist in release.artists):
         return True
     return _every_track_is_somebody_else(release)
@@ -601,6 +618,16 @@ def _every_track_is_somebody_else(release: ReleaseMetadata) -> bool:
     with_a_credit = [names for names in per_track if names]
     if not with_a_credit or any(names & credited for names in with_a_credit):
         return False
+    # A credit read from one tag value arrives as a single name, `Lead, Guest`,
+    # which shares no whole name with the release however plainly the album's
+    # artist leads it. It is that artist's track with a guest, the reading
+    # ``guest_credit`` makes of the same value.
+    album = [artist.name.strip() for artist in release.artists if artist.name.strip()]
+    if any(
+        any(artist.name.strip() for artist in track.artists) and not _leads_another(album, track)
+        for track in release.tracks
+    ):
+        return False
     # More than one, or a single-artist album whose catalogue happens to spell
     # the credit differently on the tracks — `The Glass Herons` against
     # `Glass Herons` — would become a compilation of one person.
@@ -618,8 +645,8 @@ def guest_credit(release: ReleaseMetadata, track: TrackMetadata) -> str | None:
     credit before the title instead — and only where the album's own artist
     **leads** the track's credit. A track led by somebody else (`Ojel Varn With
     Zed Marrowby`) is not that artist's track with a guest, and saying so would turn
-    the credit around; a track that does not credit the album's artist at all
-    is named as before.
+    the credit around; such a track is named by its whole credit instead, which
+    is ``led_by_somebody_else``'s to say.
 
     Read from the track's artists, which the catalogue publishes as a list. A
     credit read from one tag value arrives as a single name, `Lead, Guest &
@@ -656,6 +683,49 @@ def guest_credit(release: ReleaseMetadata, track: TrackMetadata) -> str | None:
     if len(guests) == 1:
         return guests[0]
     return ", ".join(guests[:-1]) + " & " + guests[-1]
+
+
+def led_by_somebody_else(release: ReleaseMetadata, track: TrackMetadata) -> bool:
+    """Whether this track's file name carries its whole credit before the title.
+
+    The other half of ``guest_credit``, and written as its complement: on an
+    album that is not a compilation, a track either is led by the album's
+    artist — and names its guests as `(feat. …)` — or it is not, and then it
+    is named the way a compilation names a track, credit first. An album with
+    one disc of other performers and one of its own artist has both kinds, and
+    without this the first kind's file names say nothing of who performs them.
+
+    A track with no credit of its own is the album's artist's. So is every
+    track of an album whose tracks all carry one same credit that is not the
+    release's: that is a catalogue spelling the album's artist two ways, and
+    writing it into every file name would repeat the folder's name in other
+    letters.
+    """
+    if is_various(release):
+        return False
+    album = [artist.name.strip() for artist in release.artists if artist.name.strip()]
+    if not album or not _leads_another(album, track):
+        return False
+    credits = {
+        tuple(artist.name.strip().casefold() for artist in one.artists if artist.name.strip())
+        for one in release.tracks
+    }
+    return len(credits) > 1
+
+
+def _leads_another(album: list[str], track: TrackMetadata) -> bool:
+    """Whether somebody other than the album's artist is first in this track's credit."""
+    names = [artist.name.strip() for artist in track.artists if artist.name.strip()]
+    if not names:
+        return False
+    lead = names[0].casefold()
+    if lead in {name.casefold() for name in album}:
+        return False
+    # A credit read from one tag value, `Lead, Guest & Guest`, is led by the
+    # album's artist when it begins with them — the reading `guest_credit` makes.
+    return not any(
+        lead.startswith(name.casefold() + join) for name in album for join in _CREDIT_JOINS
+    )
 
 
 _DISTINCT_EDITION_WORDS = (

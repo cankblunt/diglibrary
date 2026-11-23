@@ -13,7 +13,7 @@ from diglibrary.application.contracts import (
     written_credit,
 )
 from diglibrary.library.models import AlbumUnit, AudioFileFacts
-from diglibrary.metadata.normalization import fold_accents, normalize_text
+from diglibrary.metadata.normalization import fold_accents, normalize_text, parallel_forms
 
 DURATION_TOLERANCE_MS = 6_000
 """How far a track may differ and still count as the same track when scoring.
@@ -655,7 +655,14 @@ def _similarity(left: str, right: str) -> float:
         return 0.0
     if _same_words(left, right):
         return 1.0
-    return round(SequenceMatcher(None, first, second).ratio(), 4)
+    whole = round(SequenceMatcher(None, first, second).ratio(), 4)
+    lefts, rights = parallel_forms(left), parallel_forms(right)
+    if len(lefts) == 1 and len(rights) == 1:
+        return whole
+    # A name a catalogue prints in two languages, `one = other`, is two whole
+    # spellings of it, and a file holds one. Compared against both at once, the
+    # half that agrees letter for letter scores under every bar.
+    return max(whole, *(_similarity(one, other) for one in lefts for other in rights))
 
 
 def _artist_similarity(hint_artist: str | None, release: ReleaseMetadata) -> float | None:
@@ -673,7 +680,13 @@ def _artist_similarity(hint_artist: str | None, release: ReleaseMetadata) -> flo
         or credited.strip().casefold() in _VARIOUS_NAMES
     ):
         return None
-    return _similarity(hint_artist, credited)
+    # The catalogue's own name for an artist and the spelling this sleeve
+    # printed are both the artist, and the files were tagged from the sleeve as
+    # often as from the catalogue. Compared only; what is written is unchanged.
+    as_printed = written_credit(
+        tuple(replace(artist, name=artist.credited_as or artist.name) for artist in release.artists)
+    )
+    return max(_similarity(hint_artist, credited), _similarity(hint_artist, as_printed))
 
 
 def _year_agreement(hint_year: int | None, release: ReleaseMetadata) -> float | None:

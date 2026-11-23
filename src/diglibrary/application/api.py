@@ -42,6 +42,7 @@ from diglibrary.application.contracts import (
     written_credit,
 )
 from diglibrary.application.identification import (
+    DEFAULT_CONFIDENCE_THRESHOLD,
     Decision,
     IdentificationOutcome,
     IdentificationWorkflow,
@@ -152,14 +153,25 @@ from diglibrary.library.naming import (
     format_label,
     guest_credit,
     is_various,
+    led_by_somebody_else,
     read_folder_name,
 )
 from diglibrary.library.planner import ChangeOperation, ChangePlan, ChangePlanner, OperationKind
 from diglibrary.library.report import AlbumReport, Ink, Run, change, write_change_report
 from diglibrary.library.scanner import LibraryScanner
-from diglibrary.library.spelling import a_whole_word_apart, one_word_apart
+from diglibrary.library.spelling import (
+    a_whole_word_apart,
+    one_word_apart,
+    path_now,
+    titles_before_this_application,
+)
 from diglibrary.library.tagrelease import read_tags
 from diglibrary.library.tags import WRITTEN_FIELDS, TagStore, as_the_container_writes
+from diglibrary.library.trackcredits import (
+    credits_distinguish,
+    keeping_file_credits,
+    read_file_credits,
+)
 from diglibrary.metadata.cache import DEFAULT_LIMIT_BYTES as DEFAULT_METADATA_CACHE_BYTES
 from diglibrary.metadata.cache import JsonMetadataCache
 from diglibrary.metadata.itunes import WitnessThrottledError
@@ -353,6 +365,14 @@ _RELEASE_LINKS = {
     MetadataSources.DISCOGS: "https://www.discogs.com/release/{id}",
     MetadataSources.MUSICBRAINZ: "https://musicbrainz.org/release/{id}",
 }
+
+VARIOUS_CORRECTION = "various"
+"""The correction that says an album is a compilation where its source does not.
+
+One row for the album, with no position. Its presence is the whole fact: it is
+recorded only where the source's own answer is *no*, so withdrawing it is
+always returning to what the source said.
+"""
 
 _TAGS_AFTER = "tags.not_before_unit"
 
@@ -3723,7 +3743,15 @@ class LibraryApi:
             # An album is named by the release it was identified as, and by its
             # folder when nothing has been. `_AlbumState` carries neither as a
             # field — it holds the outcome, and the name is read off that.
-            release = _shown(state.outcome.candidate.release if state.outcome.candidate else None)
+            # The same rule as the shelf's card, asked of the one function that
+            # decides it rather than restated here: a record this application
+            # proposed, below the bar that would let it act alone and approved
+            # by nobody, names this screen no more than it names the shelf. Two
+            # screens naming one album differently is the shape of defect this
+            # project keeps finding, and the fix for the card alone would have
+            # left this line saying the record the card had stopped saying.
+            proposed = state.outcome.candidate.release if state.outcome.candidate else None
+            release = _shown(None if self._name_is_unapproved(state) else proposed)
             album_name = (release.title if release else None) or unit.folder_path.name
             artist_name = written_credit(release.artists) if release else ""
             # The same rule as the queue's, because it is the same claim: this
@@ -5319,8 +5347,15 @@ class LibraryApi:
         track_artists: dict[str, str] | None = None,
         track_files: dict[str, str] | None = None,
         finder_tags: list[str] | None = None,
+        various: bool | None = None,
     ) -> dict[str, object]:
         """Apply the user's corrections to names and titles, and re-plan.
+
+        ``various`` says whether the user calls this album a compilation.
+        ``True`` records it where the source's own credit and tracklist do not
+        say so already, ``False`` withdraws it, and ``None`` says nothing. It
+        cannot turn a compilation the source declares into an artist's album:
+        that would need an artist to name, and none was given.
 
         ``track_titles`` maps the release track position to the corrected
         title. An empty string withdraws a correction, restoring the
@@ -5379,7 +5414,7 @@ class LibraryApi:
 
         # The same shape for the credit, read against the same rule: the credit
         # as this track's file name would write it.
-        catalogue_credits = {track.position: _written_credit(track) for track in release.tracks}
+        catalogue_credits = self._credits_as_planned(state, release)
         for key, value in (track_artists or {}).items():
             position = int(key)
             value = value.strip()
@@ -5389,6 +5424,13 @@ class LibraryApi:
             self._store.record_correction(
                 state.unit_id, "track_artist", value, catalogue_credits.get(position), position
             )
+        if various is not None:
+            # Compared against the source's own answer, like every other
+            # correction: saying what the source already says records nothing.
+            if various and not is_various(release):
+                self._store.record_correction(state.unit_id, VARIOUS_CORRECTION, "1", None)
+            else:
+                self._store.clear_correction(state.unit_id, VARIOUS_CORRECTION, None)
         # A pairing of a file to a track made by hand. It is recorded against
         # the release it was made on and by the file's content signature, never
         # its path: organizing renames every file of this album, and a pairing
@@ -5424,6 +5466,48 @@ class LibraryApi:
         self._replan_after_correction(state)
         return {"ok": True, "album": self._album_payload(state)}
 
+    def _may_be_a_compilation(self, state: _AlbumState, release: ReleaseMetadata) -> bool:
+        """Whether anything says this album's tracks are not all one artist's.
+
+        Calling an album a compilation is offered where there is evidence it
+        might be one, and an album every file and every track credit to one
+        artist has none. Two things count, and either is enough: the files'
+        own ``artist`` tags differ among themselves, or the source credits a
+        track to somebody other than the album's artist. A guest named after
+        the album's artist is not such a track, by the rule that names the
+        file. Decided here so the window reads an answer instead of
+        assembling one.
+        """
+        if any(led_by_somebody_else(release, track) for track in release.tracks):
+            return True
+        return credits_distinguish(read_file_credits(state.unit, self._pipeline.tag_store))
+
+    def _credits_as_planned(
+        self, state: "_AlbumState", release: ReleaseMetadata
+    ) -> dict[int | None, str]:
+        """Each track's credit as the plan writes it, before any correction.
+
+        The source's own credit, and where the source published none, the
+        credit the track's file holds when the planner keeps it. One function
+        for the two places that need it: what the credit field opens filled
+        with, and what a submitted field is compared against — so a field
+        nobody touched is never recorded as a correction, whichever of the two
+        the credit came from.
+        """
+        credits: dict[int | None, str] = {
+            track.position: _written_credit(track) for track in release.tracks
+        }
+        alignment = state.outcome.alignment
+        if alignment is None:
+            return credits
+        kept = keeping_file_credits(
+            release, alignment, read_file_credits(state.unit, self._pipeline.tag_store)
+        )
+        for assignment in kept.assignments:
+            if not credits.get(assignment.track.position):
+                credits[assignment.track.position] = _written_credit(assignment.track)
+        return credits
+
     def _replan_after_correction(self, state: "_AlbumState") -> None:
         """Rebuild the plan from every correction that stands, after one changed.
 
@@ -5442,7 +5526,7 @@ class LibraryApi:
         # Read back, not accumulated: what re-plans is every correction still
         # standing after the writes above, so a field emptied here is simply not
         # among them and the catalogue's own value is what gets planned.
-        folder, standing_titles, standing_artists = self._stored_corrections(state.unit_id)
+        folder, standing_titles, standing_artists, various = self._stored_corrections(state.unit_id)
         wanted_tags = self._stored_finder_tags(state.unit_id)
         release = state.outcome.candidate.release if state.outcome.candidate else None
         pinned, _ = self._stored_pairings(state.unit_id, release)
@@ -5458,6 +5542,7 @@ class LibraryApi:
             finder_tags=wanted_tags,
             track_titles=standing_titles or None,
             track_artists=standing_artists or None,
+            various=various,
             transcoded=self._transcoded_for(state.unit),
             # **What the audio measured, or the file loses the word that warns
             # about it.** Not the number instead of the word, which is what the
@@ -5509,7 +5594,7 @@ class LibraryApi:
             return {"ok": False, "error": "This album is already applied; revert it first."}
         if state.outcome.candidate is None:
             return {"ok": False, "error": "This album has no identification to correct."}
-        _, standing, _ = self._stored_corrections(unit_id)
+        _, standing, _, _ = self._stored_corrections(unit_id)
         if position not in standing:
             return {"ok": False, "error": "Nothing of yours stands on that line."}
         self._store.clear_correction(unit_id, "track_title", position)
@@ -5541,7 +5626,7 @@ class LibraryApi:
             return {"ok": False, "error": "This album is already applied; revert it first."}
         if state.outcome.candidate is None:
             return {"ok": False, "error": "This album has no identification to correct."}
-        _, standing, _ = self._stored_corrections(unit_id)
+        _, standing, _, _ = self._stored_corrections(unit_id)
         if not standing:
             return {"ok": False, "error": "Nothing of yours stands on this album's titles."}
         if not confirmed:
@@ -5834,7 +5919,7 @@ class LibraryApi:
         """
         if state.outcome.candidate is None:
             return state.outcome
-        folder, titles, artists = self._stored_corrections(state.unit_id)
+        folder, titles, artists, various = self._stored_corrections(state.unit_id)
         wanted_tags = self._stored_finder_tags(state.unit_id)
         candidate, pinned, _ = self._planned_from(
             state.unit_id, state.unit, state.outcome.candidate
@@ -5847,6 +5932,7 @@ class LibraryApi:
                 finder_tags=wanted_tags,
                 track_titles=titles or None,
                 track_artists=artists or None,
+                various=various,
                 transcoded=self._transcoded_for(state.unit),
                 # The same reason as every other re-plan: without it the mark
                 # comes off the track.
@@ -7925,7 +8011,7 @@ class LibraryApi:
             return outcome
         if not self._store.corrections(unit_id):
             return outcome
-        folder, titles, artists = self._stored_corrections(unit_id)
+        folder, titles, artists, various = self._stored_corrections(unit_id)
         wanted_tags = self._stored_finder_tags(unit_id)
         # Added tracks go in before anything is aligned, so the aligner, the
         # planner and the naming all work on a release that simply has them.
@@ -7944,6 +8030,7 @@ class LibraryApi:
             folder
             or titles
             or artists
+            or various
             or wanted_tags is not None
             or pinned
             or candidate.release != outcome.candidate.release
@@ -7957,6 +8044,7 @@ class LibraryApi:
                 finder_tags=wanted_tags,
                 track_titles=titles or None,
                 track_artists=artists or None,
+                various=various,
                 taken_names=taken_names,
                 transcoded=self._transcoded_for(unit),
                 measured_rates=self._rates,
@@ -8067,7 +8155,7 @@ class LibraryApi:
         # callers that walk the shelf.
         if not by_hand and (state.applied or state.organized):
             return False
-        folder, titles, artists = self._stored_corrections(state.unit_id)
+        folder, titles, artists, various = self._stored_corrections(state.unit_id)
         wanted_tags = self._stored_finder_tags(state.unit_id)
         pinned, _ = self._stored_pairings(state.unit_id, state.outcome.candidate.release)
         state.outcome = replace(
@@ -8078,6 +8166,7 @@ class LibraryApi:
                 finder_tags=wanted_tags,
                 track_titles=titles or None,
                 track_artists=artists or None,
+                various=various,
                 transcoded=self._transcoded_for(state.unit),
                 measured_rates=self._rates,
                 track_files=pinned or None,
@@ -8300,10 +8389,25 @@ class LibraryApi:
             return {}
         titles = local_track_titles(unit, self._pipeline.tag_store)
         by_path = dict(zip((file.path for file in unit.audio_files), titles, strict=False))
+        # A title this application wrote is not the file's own spelling. Once
+        # an album has been organized every file says what the catalogue says,
+        # so read as the file's word it leaves nothing to offer, and a title
+        # the catalogue misspells could no longer be put right from the plan.
+        # What the file said before is in the trail of what was written.
+        unit_id = getattr(state, "unit_id", None)
+        steps = self._store.standing_operations(unit_id) if unit_id is not None else ()
+        for path, (said, wrote) in titles_before_this_application(steps).items():
+            if said and by_path.get(path) == wrote:
+                by_path[path] = said
+        # A pairing made before the plan was applied still names each file by
+        # the path it had then.
         return {
             assignment.track.position: mine
             for assignment in alignment.assignments
-            if (mine := by_path.get(assignment.file.path))
+            if (
+                mine := by_path.get(assignment.file.path)
+                or by_path.get(path_now(assignment.file.path, steps))
+            )
         }
 
     def finder_tag_list(self) -> dict[str, object]:
@@ -8384,8 +8488,9 @@ class LibraryApi:
 
     def _stored_corrections(
         self, unit_id: int
-    ) -> tuple[str | None, dict[int, str], dict[int, str]]:
-        """Return every correction standing for this album: folder, titles, credits.
+    ) -> tuple[str | None, dict[int, str], dict[int, str], bool]:
+        """Return every correction standing for this album: folder, titles, credits,
+        and whether the user called it a compilation.
 
         The whole standing set, because this is what every re-plan is given.
         A caller that passes only what it has just been handed leaves a
@@ -8402,7 +8507,8 @@ class LibraryApi:
             }
             for field in ("track_title", "track_artist")
         }
-        return folder, by_position["track_title"], by_position["track_artist"]
+        various = any(row["field"] == VARIOUS_CORRECTION for row in rows)
+        return folder, by_position["track_title"], by_position["track_artist"], various
 
     def _measure_for_naming(
         self, units: Sequence[AlbumUnit], *, again: bool = False
@@ -9375,6 +9481,35 @@ class LibraryApi:
         )
         return {"ok": True, "rating": rating}
 
+    def _name_is_unapproved(self, state: _AlbumState) -> bool:
+        """Whether nothing stands behind the record's name for this album.
+
+        Three things vouch for a name and any one of them is enough: this
+        application was confident enough to apply it on its own, the name is
+        already on the disk, or the plan built from it has been written. Said
+        as the three that vouch rather than as the cases to refuse, so a fourth
+        way of standing behind a name falls on the right side of this the day
+        it is added.
+
+        What is left is the one case: a record this application proposed, below
+        the confidence that would let it act alone, that nobody has approved.
+        The shelf draws the folder instead, and the badge beside it already says
+        the album is waiting to be looked at.
+
+        The threshold is the matcher's own — the same number that decides
+        whether this application may rename an album by itself — so a shelf
+        that stops naming a proposal and a run that stops applying one can
+        never disagree about which proposals those are.
+        """
+        if state.outcome.candidate is None:
+            return False
+        if state.organized or state.applied or state.written:
+            return False
+        threshold = (
+            self._pipeline.threshold if self._pipeline is not None else DEFAULT_CONFIDENCE_THRESHOLD
+        )
+        return state.outcome.confidence < threshold
+
     def _album_summary(self, state: _AlbumState) -> dict[str, object]:
         outcome = state.outcome
         release = _shown(outcome.candidate.release if outcome.candidate else None)
@@ -9506,6 +9641,21 @@ class LibraryApi:
                 loose=state.unit.is_loose_track,
             ),
             "applicable": bool(outcome.plan is not None and outcome.plan.is_applicable),
+            # **Whether the record named below is a proposal nobody stands
+            # behind.** The shelf draws the folder's own name for one of these,
+            # because a card naming a record nobody approved reads exactly like
+            # a card naming the record the album is: a folder of loose tracks
+            # was shown on the shelf as a record it holds no file of, named from
+            # one file of it at a confidence near zero.
+            #
+            # Computed here and named, never reassembled in the window out of
+            # the confidence and the state — the window draws the name in two
+            # functions, and two copies of one condition is how they drift.
+            # **This dialog is built from this same payload and names the record
+            # regardless**, which is the point: the screen that exists to show a
+            # proposal, its confidence and its reason is the one place the
+            # proposal belongs.
+            "name_is_unapproved": self._name_is_unapproved(state),
             "title": release.title if release else None,
             "artist": (written_credit(release.artists) if release else None),
             "year": (
@@ -9696,7 +9846,9 @@ class LibraryApi:
         # release itself stays as the source published it, since that is what a
         # correction is measured against, so the standing set is laid over it
         # here rather than kept in it.
-        _, corrected_titles, corrected_credits = self._stored_corrections(state.unit_id)
+        _, corrected_titles, corrected_credits, said_various = self._stored_corrections(
+            state.unit_id
+        )
         # How many titles of this album carry a correction, which is what arms
         # the album's own way out. Counted from the same set the fields are
         # filled from, so the number on the button and the words on the rows
@@ -9715,14 +9867,32 @@ class LibraryApi:
         # several edits apart, which no rule over letters may settle.
         backing = _witness_backing_user_titles(outcome.verification)
         release = normalize_release(outcome.candidate.release) if outcome.candidate else None
+        # What the source says on its own, before the user's word is added to
+        # it: the window offers the control only where this is false, since
+        # that is the only place it does anything.
+        various_by_source = release is not None and is_various(release)
+        # Whether calling it one is worth offering, asked of the source's own
+        # release before the user's word is laid over it.
+        various_offered = (
+            release is not None
+            and not various_by_source
+            and self._may_be_a_compilation(state, release)
+        )
+        if release is not None and said_various:
+            # The same release the plan was made from, so that every question
+            # below — the credit field, the guests — gets the plan's answer.
+            release = replace(release, various_by_user=True)
         various = release is not None and is_various(release)
+        planned_credits = self._credits_as_planned(state, release) if release is not None else {}
         payload["release_tracks"] = (
             [
                 {
                     "position": track.position,
                     "title": corrected_titles.get(track.position, track.title),
                     # The credit as this track's file name writes it.
-                    "artist": corrected_credits.get(track.position, _written_credit(track)),
+                    "artist": corrected_credits.get(
+                        track.position, planned_credits.get(track.position, "")
+                    ),
                     # Whether this track's file name carries a credit, so the
                     # window offers the field to correct it: every track of a
                     # compilation, a track whose name gives its guests as
@@ -9730,7 +9900,13 @@ class LibraryApi:
                     # a correction that took the guests away can be withdrawn.
                     "credited": various
                     or guest_credit(release, track) is not None
+                    or led_by_somebody_else(release, track)
                     or track.position in corrected_credits,
+                    # Whether the name writes the credit whole, before the
+                    # title, rather than its guests after it. Decided per track
+                    # by the rule that names the file, so the field's hint says
+                    # what this track's name does with what is typed.
+                    "credit_first": various or led_by_somebody_else(release, track),
                     **_user_spelling_offer(
                         mine.get(track.position),
                         track.title,
@@ -9750,9 +9926,15 @@ class LibraryApi:
         # window is told the facts rather than deriving them: the rule that
         # decides the name has to be the rule that decides the field, or the
         # field appears where the name has nowhere to put what it holds.
-        payload["is_various"] = (
-            is_various(outcome.candidate.release) if outcome.candidate else False
-        )
+        payload["is_various"] = various
+        # The two facts behind it, apart: whether the source says so, and
+        # whether the user did. The second is what the window's control shows
+        # as set, and what it withdraws.
+        payload["various_by_source"] = various_by_source
+        payload["various_by_user"] = bool(release is not None and said_various)
+        # And whether the control is offered at all. Its way back is drawn
+        # wherever the user's word stands, whatever this answers.
+        payload["various_offered"] = various_offered
         payload["corrections"] = list(self._store.corrections(state.unit_id))
         # What the corrections form opens filled with. It is computed here
         # rather than in the window so that what is offered and what counts as

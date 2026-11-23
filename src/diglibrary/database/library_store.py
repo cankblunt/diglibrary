@@ -21,6 +21,7 @@ from diglibrary.library.executor import AppliedOperation
 from diglibrary.library.fingerprint import AudioFingerprint
 from diglibrary.library.models import AlbumUnit
 from diglibrary.library.planner import ChangeOperation, OperationKind
+from diglibrary.metadata.normalization import release_in_latin_spelling
 
 
 @dataclass(frozen=True, slots=True)
@@ -2248,7 +2249,10 @@ class LibraryStore:
         if row is None:
             return None
         try:
-            return deserialize_release(row[0])
+            # Read by the spelling rule in force, not the one in force when it
+            # was stored: a plan made around the release on record asks no
+            # catalogue, so this is the only place an older row can catch up.
+            return release_in_latin_spelling(deserialize_release(row[0]))
         except UnreadableReleaseError:
             # One cached release this build cannot read is one lookup that has
             # to be asked again, not a library that fails to open.
@@ -2508,6 +2512,34 @@ class LibraryStore:
                 )
             )
         return tuple(trail)
+
+    def standing_operations(
+        self, unit_id: int
+    ) -> tuple[tuple[str, Path, Mapping[str, object], Mapping[str, object]], ...]:
+        """Return every operation still standing on one album, oldest first.
+
+        Across all of the album's plans, not the last one alone: what a file
+        said before this application first wrote it is in the earliest plan,
+        and a later plan's `before` is already this application's own word.
+        An operation that has come back is left out, as in ``applied_trail``.
+        """
+        with self._database.connect() as connection:
+            rows = connection.execute(
+                "SELECT o.kind, o.target_path, o.before_state, o.after_state "
+                "FROM change_operations o JOIN change_plans p ON p.id = o.change_plan_id "
+                "WHERE p.album_unit_id = ? AND o.applied_at IS NOT NULL "
+                "AND o.reverted_at IS NULL ORDER BY o.change_plan_id, o.sequence",
+                (unit_id,),
+            ).fetchall()
+        return tuple(
+            (
+                kind,
+                Path(target_path),
+                json.loads(before_json) if before_json else {},
+                json.loads(after_json),
+            )
+            for kind, target_path, before_json, after_json in rows
+        )
 
     def record_download(
         self,

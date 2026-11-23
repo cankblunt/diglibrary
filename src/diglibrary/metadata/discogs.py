@@ -16,6 +16,8 @@ from diglibrary.application.contracts import (
 )
 from diglibrary.metadata.authentication import EnvironmentCredentials, discogs_headers
 from diglibrary.metadata.normalization import (
+    artists_in_latin_spelling,
+    latin_spelling,
     normalize_discogs_artist_name,
     normalize_identifier,
     normalize_text,
@@ -103,7 +105,7 @@ class DiscogsClient:
         return AlbumBehindPressings(
             source=MetadataSources.DISCOGS,
             group_id=str(group_id),
-            title=normalize_text(_string(payload, "title")) or "",
+            title=latin_spelling(normalize_text(_string(payload, "title")) or ""),
             artists=_discogs_artists(payload.get("artists")),
             first_released=year if isinstance(year, int) and year > 0 else None,
             main_release_id=str(main) if main else None,
@@ -117,7 +119,7 @@ class DiscogsClient:
 
 def _map_discogs_search_result(payload: Mapping[str, Any]) -> ReleaseMetadata:
     identifier = normalize_identifier(payload.get("id")) or ""
-    title = (
+    title = _summary_in_latin_spelling(
         normalize_text(payload.get("title") if isinstance(payload.get("title"), str) else None)
         or ""
     )
@@ -144,6 +146,22 @@ def _map_discogs_search_result(payload: Mapping[str, Any]) -> ReleaseMetadata:
     )
 
 
+_SUMMARY_JOIN = " - "
+"""What a search answer prints between the credit and the title, as one string."""
+
+
+def _summary_in_latin_spelling(title: str) -> str:
+    """Write a search answer's `Artist - Title` the way the release itself is named.
+
+    A search answers with one string, and for a sleeve in two scripts each
+    half of it is printed twice: `原名 = Name - 題 = Title`. Nothing in the
+    answer says where the credit ends, and a title may hold a dash of its own,
+    so each stretch between dashes is read by the rule the release is read by.
+    The line a person picks then says what picking it will write.
+    """
+    return _SUMMARY_JOIN.join(latin_spelling(part) for part in title.split(_SUMMARY_JOIN))
+
+
 def _map_discogs_release(payload: Mapping[str, Any]) -> ReleaseMetadata:
     identifier = normalize_identifier(payload.get("id")) or ""
     labels = _mapping_values(payload.get("labels"), "name")
@@ -151,7 +169,7 @@ def _map_discogs_release(payload: Mapping[str, Any]) -> ReleaseMetadata:
     return ReleaseMetadata(
         source=MetadataSources.DISCOGS,
         source_release_id=identifier,
-        title=normalize_text(_string(payload, "title")) or "",
+        title=latin_spelling(normalize_text(_string(payload, "title")) or ""),
         artists=_discogs_artists(payload.get("artists")),
         tracks=_discogs_tracks(payload.get("tracklist")),
         released_on=parse_partial_date(_string(payload, "released") or _string(payload, "year")),
@@ -190,7 +208,7 @@ def _discogs_artists(value: object) -> tuple[ArtistMetadata, ...]:
                     joined_by=normalize_text(_string(item, "join")),
                 )
             )
-    return tuple(artists)
+    return artists_in_latin_spelling(tuple(artists))
 
 
 _DISCOGS_MEDIUM_POSITION = re.compile(r"^\s*(\d{1,2})\s*[-.]\s*(\d{1,3})\s*$")
@@ -225,7 +243,7 @@ def _discogs_tracks(value: object) -> tuple[TrackMetadata, ...]:
         medium_number, position_on_medium = _discogs_medium(_string(item, "position"))
         tracks.append(
             TrackMetadata(
-                title=title,
+                title=latin_spelling(title),
                 position=position,
                 medium_number=medium_number,
                 position_on_medium=position_on_medium,

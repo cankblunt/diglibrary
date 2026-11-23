@@ -3694,6 +3694,13 @@ body.is-dropping .drop-veil {
   font-size: var(--chip-font);
 }
 
+/* Whether the album is a compilation, under the folder name it changes. */
+.plan-various {
+  display: block;
+  color: var(--muted);
+  font-size: var(--chip-font);
+}
+
 /* Said only when a position given by hand moved a track the catalogue numbered. */
 .plan-numbering {
   color: var(--warn);

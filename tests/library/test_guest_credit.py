@@ -20,7 +20,7 @@ from diglibrary.application.contracts import (
 )
 from diglibrary.library.audio import MutagenAudioProbe
 from diglibrary.library.matching import align_tracks
-from diglibrary.library.naming import NamingPolicy, guest_credit
+from diglibrary.library.naming import NamingPolicy, guest_credit, led_by_somebody_else
 from diglibrary.library.planner import ChangePlanner, OperationKind
 from diglibrary.library.scanner import LibraryScanner
 from diglibrary.library.tags import MutagenTagStore
@@ -152,3 +152,65 @@ def test_a_name_that_already_says_feat_is_not_given_it_twice(tmp_path: Path) -> 
     )
 
     assert _renames(plan)[0] == "01. Every Hollow (feat. Mirén Zoélle & Ty Quarrel).flac"
+
+
+def test_a_track_somebody_else_leads_is_named_by_its_whole_credit(tmp_path: Path) -> None:
+    """One album, two kinds of track: the artist's own, and other performers'.
+
+    The first kind names its guests after the title. The second kind is not the
+    album's artist with a guest, so it is named the way a compilation names a
+    track — and that holds whether or not the album's artist appears later in
+    the credit.
+    """
+    unit = _album(tmp_path, ("aaa.flac", "bbb.flac"))
+    release = _release(
+        _track("Hollow Blues", "Ojel Varn", LEAD, position=1, duration_ms=400),
+        _track("Plain Hollow", LEAD, "Ty Quarrel", position=2, duration_ms=900),
+    )
+    alignment = align_tracks(unit, release, tolerance_ms=100, ordered_tolerance_ms=100)
+
+    plan = ChangePlanner(NamingPolicy(), MutagenTagStore()).plan(unit, release, alignment)
+
+    assert _renames(plan) == [
+        "01. Ojel Varn & Zed Marrowby - Hollow Blues.flac",
+        "02. Plain Hollow (feat. Ty Quarrel).flac",
+    ]
+
+
+def test_every_track_is_either_led_by_the_album_s_artist_or_by_somebody_else() -> None:
+    """The two rules are one question, so no credited track falls between them."""
+    own = _track("Plain Hollow", LEAD, position=1)
+    with_guest = _track("Every Hollow", LEAD, "Ty Quarrel", position=2)
+    in_one_value = _track("Third Hollow", f"{LEAD}, Ty Quarrel", position=3)
+    another = _track("Hollow Song", "Ojel Varn", position=4)
+    uncredited = _track("Bare Hollow", position=5)
+    release = _release(own, with_guest, in_one_value, another, uncredited)
+
+    assert [led_by_somebody_else(release, one) for one in release.tracks] == [
+        False,
+        False,
+        False,
+        True,
+        False,
+    ]
+    assert guest_credit(release, another) is None
+    assert guest_credit(release, in_one_value) == "Ty Quarrel"
+
+
+def test_one_credit_on_every_track_is_the_album_s_artist_spelled_another_way() -> None:
+    """A catalogue that writes the artist two ways does not rename every file."""
+    release = _release(
+        _track("Plain Hollow", "The Zed Marrowby Band", position=1),
+        _track("Every Hollow", "The Zed Marrowby Band", position=2),
+    )
+
+    assert not any(led_by_somebody_else(release, one) for one in release.tracks)
+
+
+def test_a_compilation_is_not_asked_because_it_names_every_track_by_its_credit() -> None:
+    release = _release(
+        _track("Plain Hollow", "Ojel Varn", position=1),
+        _track("Every Hollow", "Ty Quarrel", position=2),
+    )
+
+    assert not any(led_by_somebody_else(release, one) for one in release.tracks)

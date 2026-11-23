@@ -4686,6 +4686,36 @@ def test_a_kept_line_says_so_and_carries_the_way_back(tmp_path: Path) -> None:
     assert kept["album"]["title_corrections"] == 1
 
 
+def test_an_album_already_organized_still_offers_the_file_s_own_spelling(tmp_path: Path) -> None:
+    """Applying the catalogue's word does not make it the file's.
+
+    Once the plan is applied every file says what the catalogue says, so read
+    off the disk the file agrees with the catalogue by construction and the
+    offer was never made again: a title the catalogue misspells could not be
+    put right from the plan of an album that had been organized once. What the
+    file said is in the trail of what was written over it.
+    """
+    api, unit_id = _album_where_one_word_differs(tmp_path)
+    assert api.approve(unit_id)["ok"]
+
+    replanned = api.plan_anyway(unit_id)
+
+    assert replanned["ok"]
+    offered = _first_line(replanned["album"])
+    assert offered["title"] == "Brumal Tago", "the catalogue's word is what was written"
+    assert offered["yours"] == "Brumal Tavo", "and the file's own is still on the table"
+
+    kept = api.correct(unit_id, track_titles={"1": "Brumal Tavo"})
+
+    assert kept["ok"]
+    assert _first_line(kept["album"])["kept"] == "Brumal Tavo"
+    assert any(
+        operation["kind"] == "write_tags"
+        and operation["after"]["tags"].get("title") == ["Brumal Tavo"]
+        for operation in kept["album"]["operations"]
+    ), "and the plan writes it back"
+
+
 def test_pressing_both_ways_in_turn_leaves_the_album_exactly_as_it_started(
     tmp_path: Path,
 ) -> None:
@@ -11323,3 +11353,229 @@ def test_an_album_not_yet_organized_is_named_by_the_catalogue(tmp_path: Path) ->
 
     assert api.state()["albums"][0]["named_on_disk"] is None
     assert api.album(unit_id)["album"]["names_applied"] == []
+
+
+def test_a_proposal_nobody_approved_does_not_name_the_card(tmp_path: Path) -> None:
+    """The shelf names a record this application proposed only if it stands behind it.
+
+    A card that names a record nobody approved reads exactly like a card naming
+    the record the album is: a folder of loose tracks was shown on the shelf as
+    a record it holds no file of. The threshold here is the matcher's own, so a
+    shelf that stops naming a proposal and a run that stops applying one cannot
+    disagree about which proposals those are.
+
+    And the dialog is built from this same payload: it goes on naming the
+    proposal, because that screen exists to show it with its confidence and its
+    reason.
+    """
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api._album_snapshot()[0].unit_id
+    named = api.state()["albums"][0]
+    assert named["name_is_unapproved"] is False, "above the bar the card names the record"
+    assert named["title"], "and there is a name to withhold in the first place"
+
+    assert api.set_settings({"threshold": 1.01})["ok"]
+
+    shelf = api.state()["albums"][0]
+    assert shelf["name_is_unapproved"] is True
+    dialog = api.album(unit_id)["album"]
+    assert dialog["name_is_unapproved"] is True
+    assert dialog["title"] == named["title"], "the dialog names the proposal it exists to show"
+
+
+def test_a_name_already_on_the_disk_is_not_withheld_by_any_bar(tmp_path: Path) -> None:
+    """What was written is named, whatever the confidence behind it was.
+
+    Measured over a whole shelf before this was written, about one album in
+    nine carried an identification below the bar, and almost every one of those
+    had been accepted by hand and applied. A refusal that asked only about
+    confidence would have taken the name off every one of them — each a name
+    somebody chose.
+    """
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api._album_snapshot()[0].unit_id
+    assert api.approve(unit_id)["ok"]
+
+    assert api.set_settings({"threshold": 1.01})["ok"]
+
+    shelf = api.state()["albums"][0]
+    assert shelf["name_is_unapproved"] is False
+    assert api.album(unit_id)["album"]["name_is_unapproved"] is False
+
+
+def test_an_album_can_be_called_a_compilation_and_given_back(tmp_path: Path) -> None:
+    """The source credits one artist, and the user says it is a compilation.
+
+    The plan is rebuilt as a compilation's, the window is told both facts
+    apart — what the source says and what the user said — and withdrawing it
+    returns every name to the source's, since the release itself was never
+    changed.
+    """
+    library = _library(tmp_path)
+    source = FakeSource(
+        summaries=(_release("r1", (400, 900)),),
+        details={"r1": _release("r1", (400, 900))},
+    )
+    api = _api(tmp_path, source)
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+    before = api.album(unit_id)["album"]
+    assert before["is_various"] is False
+    assert before["various_by_source"] is False
+    assert before["various_by_user"] is False
+
+    marked = api.correct(unit_id, various=True)
+
+    assert marked["ok"]
+    album = marked["album"]
+    assert album["is_various"] is True
+    assert album["various_by_source"] is False
+    assert album["various_by_user"] is True
+    assert album["planned_folder"].startswith("VA - "), album["planned_folder"]
+    assert _tags_written(album, "aaa.flac")["albumartist"] == ["Various Artists"]
+    assert _tags_written(album, "aaa.flac")["compilation"] == ["1"]
+    # Every track keeps the artist it had, which here is the release's.
+    assert _tags_written(album, "aaa.flac")["artist"] == ["Marina do Acordeão"]
+    assert all(track["credited"] for track in album["release_tracks"])
+    # And it is what a later re-plan reads back, not only what this call held.
+    assert api.album(unit_id)["album"]["various_by_user"] is True
+
+    withdrawn = api.correct(unit_id, various=False)
+
+    assert withdrawn["album"]["corrections"] == []
+    assert withdrawn["album"]["is_various"] is False
+    assert withdrawn["album"]["planned_folder"] == before["planned_folder"]
+
+
+def test_an_album_every_file_and_track_credits_to_one_artist_is_not_offered_the_mark(
+    tmp_path: Path,
+) -> None:
+    """Nothing says its tracks are anybody else's, so nothing offers to say so."""
+    library = _library(tmp_path)
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+    unit_id = api.state()["albums"][0]["unit_id"]
+
+    assert api.album(unit_id)["album"]["various_offered"] is False
+
+    # The word still stands where it was given, and that is what draws the way
+    # back: the offer is about evidence, and the withdrawal is about the word.
+    marked = api.correct(unit_id, various=True)["album"]
+    assert (marked["various_by_user"], marked["various_offered"]) == (True, False)
+
+
+def test_files_that_credit_different_artists_are_offered_the_mark(tmp_path: Path) -> None:
+    """The files tell the tracks apart, which is the evidence a tribute leaves."""
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    store = MutagenTagStore()
+    store.write(folder / "aaa.flac", {"artist": ["Olga Hirt"]})
+    store.write(folder / "bbb.flac", {"artist": ["Elba Soriano"]})
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+
+    album = api.album(api.state()["albums"][0]["unit_id"])["album"]
+
+    assert album["various_by_source"] is False
+    assert album["various_offered"] is True
+
+
+def test_files_that_all_credit_one_artist_are_not_offered_the_mark(tmp_path: Path) -> None:
+    """A credit every file repeats is the album's, whoever it names."""
+    library = _library(tmp_path)
+    folder = library / "marina do acordeao - forro"
+    store = MutagenTagStore()
+    for name in ("aaa.flac", "bbb.flac"):
+        store.write(folder / name, {"artist": ["Olga Hirt"]})
+    release = _release("r1", (400, 900))
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+
+    assert api.album(api.state()["albums"][0]["unit_id"])["album"]["various_offered"] is False
+
+
+def test_a_track_the_source_credits_to_somebody_else_is_offered_the_mark(
+    tmp_path: Path,
+) -> None:
+    """The source's own word, and a guest after the album's artist is not it."""
+    library = _library(tmp_path)
+    plain = _release("r1", (400, 900))
+    marina = ArtistMetadata(name="Marina do Acordeão")
+
+    def offered(first: tuple[ArtistMetadata, ...], where: Path) -> bool:
+        release = replace(plain, tracks=(replace(plain.tracks[0], artists=first), plain.tracks[1]))
+        api = _api(where, FakeSource(summaries=(release,), details={"r1": release}))
+        _scan_and_wait(api, library)
+        return api.album(api.state()["albums"][0]["unit_id"])["album"]["various_offered"]
+
+    assert offered((ArtistMetadata(name="Olga Hirt"),), tmp_path / "other") is True
+    assert offered((marina, ArtistMetadata(name="Olga Hirt")), tmp_path / "guest") is False
+
+
+def test_a_compilation_by_the_source_is_not_offered_the_mark(tmp_path: Path) -> None:
+    """The gesture does nothing there, whatever the credits say."""
+    api, unit_id = _compilation_api(tmp_path, ("Olga Hirt", "Elba Soriano"))
+
+    album = api.album(unit_id)["album"]
+
+    assert album["various_by_source"] is True
+    assert album["various_offered"] is False
+
+
+def test_calling_a_compilation_a_compilation_records_nothing(tmp_path: Path) -> None:
+    """A correction is what differs from the source, and this one does not."""
+    api, unit_id = _compilation_api(tmp_path, ("Olga Hirt", "Elba Soriano"))
+
+    marked = api.correct(unit_id, various=True)
+
+    assert marked["album"]["corrections"] == []
+    assert marked["album"]["various_by_source"] is True
+    assert marked["album"]["various_by_user"] is False
+
+
+def test_a_track_led_by_somebody_else_offers_its_credit_and_says_how_it_is_written(
+    tmp_path: Path,
+) -> None:
+    """The rule that names the file is the rule that offers the field.
+
+    On an artist's album, a track somebody else leads is named by its whole
+    credit, so it has a credit to correct and the window is told the name
+    writes it whole. The artist's own track beside it has neither.
+    """
+    library = _library(tmp_path)
+    release = _release("r1", (400, 900))
+    release = replace(
+        release,
+        tracks=(
+            replace(release.tracks[0], artists=(ArtistMetadata(name="Olga Hirt"),)),
+            release.tracks[1],
+        ),
+    )
+    api = _api(tmp_path, FakeSource(summaries=(release,), details={"r1": release}))
+    _scan_and_wait(api, library)
+    album = api.album(api.state()["albums"][0]["unit_id"])["album"]
+
+    assert album["is_various"] is False
+    first, second = album["release_tracks"]
+    assert (first["credited"], first["credit_first"], first["artist"]) == (True, True, "Olga Hirt")
+    assert (second["credited"], second["credit_first"]) == (False, False)
+    renames = [
+        Path(str(operation["after"]["path"])).name
+        for operation in album["operations"]
+        if operation["kind"] == "rename_file"
+    ]
+    assert sorted(renames) == ["01. Olga Hirt - Faixa 1.flac", "02. Faixa 2.flac"]

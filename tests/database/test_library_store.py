@@ -120,6 +120,22 @@ def test_a_release_survives_a_round_trip_through_storage(tmp_path: Path) -> None
     assert restored == release
 
 
+def test_a_release_stored_in_two_scripts_is_read_by_the_rule_in_force(tmp_path: Path) -> None:
+    """A plan made around the release on record asks no catalogue, so the row catches up here."""
+    store = _store(tmp_path)
+    stored = replace(
+        _release(),
+        title="北の風 = Brumel Tarvo",
+        tracks=(TrackMetadata(title="朝 = Olnic Reva", position=1),),
+    )
+
+    restored = store.release(store.record_release(stored))
+
+    assert restored is not None
+    assert restored.title == "Brumel Tarvo"
+    assert [track.title for track in restored.tracks] == ["Olnic Reva"]
+
+
 def test_recording_the_same_release_twice_updates_one_row(tmp_path: Path) -> None:
     """A re-fetch refreshes the cache rather than duplicating it."""
     store = _store(tmp_path)

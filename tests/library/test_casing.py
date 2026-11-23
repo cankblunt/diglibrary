@@ -46,7 +46,7 @@ from diglibrary.library.casing import (
         # Spanish.
         ("Quedar bien con el vecino", "Quedar Bien con el Vecino"),
         # Left exactly as written: initialisms, abbreviations, numbers, inner capitals.
-        ("A.E.I. (A Dança)", "A.E.I. (A Dança)"),
+        ("A.E.I. (A Plimba)", "A.E.I. (A Plimba)"),
         ("Night Bird Call (Galpão No. 2)", "Night Bird Call (Galpão No. 2)"),
         ("Return to the 12th Floor", "Return to the 12th Floor"),
         ("eMail Blues", "eMail Blues"),
@@ -59,7 +59,7 @@ from diglibrary.library.casing import (
         ("O rumo da pá.lavra", "O Rumo da Pá.lavra"),
         # A title in capitals from end to end is kept.
         ("ZUNTO QUE TE PLIMO", "ZUNTO QUE TE PLIMO"),
-        ("A TOADA LIVRE DE ZÉ BARRENTO", "A TOADA LIVRE DE ZÉ BARRENTO"),
+        ("A PLIMBA LIVRE DE ZÉ BARRENTO", "A PLIMBA LIVRE DE ZÉ BARRENTO"),
     ],
 )
 def test_the_one_rule_for_names(catalogue: str, written: str) -> None:

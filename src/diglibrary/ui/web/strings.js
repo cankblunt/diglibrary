@@ -913,6 +913,17 @@ export const STR = {
     "Edit who this track is credited to. In the file name the album's artist "
     + "is left out and everyone after them is written as (feat. …); in the tag "
     + "every artist is stored, split at every “,” and “&”.",
+  // On the folder's row, where the source does not call the album a
+  // compilation. The tip says what changes, since the two words alone do not.
+  planVariousMark: "Treat as a compilation",
+  planVariousMarkTip:
+    "Name this album as a compilation: the folder starts with the compilation "
+    + "label instead of an artist, each track's artist goes into its file name, "
+    + "and the album artist is written as Various Artists. Each track keeps its "
+    + "own artist.",
+  planVariousDrop: "Not a compilation",
+  planVariousDropTip:
+    "Take this back and name the album the way the catalogue credits it.",
   planNoArtist: "no artist",
   historyAlbum: "Artist - Album",
   historyWhen: "Applied",

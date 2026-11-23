@@ -1271,6 +1271,10 @@ async function scanOneFromMenu(unitId) {
 function fullNameFor(album) {
   // An organized album is named by its folder, so the folder is the full name.
   if (album.named_on_disk) return album.folder;
+  // The same rule as the shelf's own name, for the same reason: this tooltip is
+  // the card's two lines spelled out, and a tooltip naming a record the card
+  // refuses to name is the card's rule applied by half.
+  if (album.name_is_unapproved) return album.folder;
   const named = [album.artist, album.title].filter(Boolean).join(" — ");
   if (!named) return album.folder;
   // An organized album's folder *is* its credit and title, plus the year and
@@ -1299,6 +1303,12 @@ function fullNameFor(album) {
 function onDiskName(album) {
   const disk = album.named_on_disk;
   if (disk) return { artist: disk.artist, title: disk.title, year: disk.year };
+  // A record this application proposed and was not confident enough to apply
+  // on its own, that nobody has approved, does not name the shelf — the folder
+  // does. The server decides this and says it in one word; it is deliberately
+  // not worked out here from the confidence and the state, because the window
+  // names an album in two places and two copies of one condition drift.
+  if (album.name_is_unapproved) return { artist: "", title: album.folder, year: "" };
   return { artist: album.artist || "", title: album.title || album.folder, year: album.year || "" };
 }
 
@@ -2659,20 +2669,30 @@ function renderPlanEditor(album, offered) {
   const planned = folderRename
     ? basename(folderRename.after.path)
     : album.planned_folder || album.folder;
-  body.append(
-    planRow({
-      key: "folder",
-      label: STR.planFolder,
-      hint: STR.editFolder,
-      value: planned,
-      before: album.folder,
-      after: planned,
-      dataset: { key: "folder", field: "folder" },
-      // No flag here. A folder holds no audio, so it cannot have been lossy
-      // before it arrived. The word is said on the files; the folder name
-      // follows from them.
-    }),
-  );
+  const folderRow = planRow({
+    key: "folder",
+    label: STR.planFolder,
+    hint: STR.editFolder,
+    value: planned,
+    before: album.folder,
+    after: planned,
+    dataset: { key: "folder", field: "folder" },
+    // No flag here. A folder holds no audio, so it cannot have been lossy
+    // before it arrived. The word is said on the files; the folder name
+    // follows from them.
+  });
+  // Whether this album is a compilation, on the row whose name it changes
+  // first. Offered only where the server says there is reason to — the source
+  // does not already call it one, and something credits its tracks to more
+  // than one artist — and drawn afterwards as its own way back, on the same
+  // spot, wherever the user's word stands.
+  if (album.various_by_user || album.various_offered) {
+    // Under the name, in the name's own cell. The row's last cell is the
+    // narrow one that holds a file's quality word, and a control put there is
+    // drawn past the edge of the dialog.
+    folderRow.querySelector(".plan-after").append(variousControl(album));
+  }
+  body.append(folderRow);
   const tagsRow = finderTagsRow(album, offered);
   if (tagsRow) body.append(tagsRow);
   // The wrong-record quieting, asked once for the whole editor.
@@ -2777,7 +2797,7 @@ function renderPlanEditor(album, offered) {
           ? {
               key: `track-${track.position}-artist`,
               value: credits.get(track.position) || track.artist || "",
-              hint: album.is_various ? STR.editArtist : STR.editGuests,
+              hint: track.credit_first ? STR.editArtist : STR.editGuests,
               placeholder: STR.planNoArtist,
               dataset: {
                 key: `track-${track.position}-artist`,
@@ -3663,6 +3683,47 @@ function sendFinderTags(names) {
     renderAlbumDialog(response.album);
     const field = $("plan-editor").querySelector(".finder-input");
     if (field) field.focus();
+    await refresh();
+    return true;
+  });
+}
+
+/** Say this album is a compilation, or take that back.
+ *
+ * One control with two states, the offer and the withdrawal, so the way back
+ * sits where the gesture was made and reads as what it undoes.
+ */
+function variousControl(album) {
+  const said = Boolean(album.various_by_user);
+  const control = document.createElement("button");
+  control.type = "button";
+  control.className = "link-button plan-various";
+  control.textContent = said ? STR.planVariousDrop : STR.planVariousMark;
+  control.title = said ? STR.planVariousDropTip : STR.planVariousMarkTip;
+  control.addEventListener("click", () => sendVarious(!said));
+  return control;
+}
+
+/** Record or withdraw the compilation mark, and redraw from the answer.
+ *
+ * Through `whileCorrecting`, like every gesture that changes the plan.
+ */
+function sendVarious(various) {
+  return whileCorrecting(async () => {
+    let response;
+    try {
+      response = await api().correct(
+        state.openAlbum.unit_id, null, null, null, null, null, various,
+      );
+    } catch (error) {
+      toastError(String(error));
+      return false;
+    }
+    if (!response.ok) {
+      toastError(response.error);
+      return false;
+    }
+    renderAlbumDialog(response.album);
     await refresh();
     return true;
   });

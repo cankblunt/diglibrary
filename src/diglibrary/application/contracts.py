@@ -91,6 +91,9 @@ class ArtistMetadata:
     # ways: a sleeve can restore punctuation or an accent the canonical name
     # lacks, and it can equally drop an accent the canonical name has. Which
     # spelling wins is a choice for the user, not for this field.
+    # Where the catalogue's name is in another script and a Latin spelling is
+    # written in its place, this holds the catalogue's name instead: either
+    # way it is the artist's other spelling, and it is only ever compared.
     credited_as: str | None = None
     # The words the source prints *between* this artist and the next one:
     # `&`, `,`, `Feat.`, `Presents`, `Convida`. Kept on the artist it follows
@@ -192,6 +195,14 @@ class ReleaseMetadata:
     formats: tuple[str, ...] = ()
     release_group_id: str | None = None
     external_ids: Mapping[MetadataSourceId, str] = field(default_factory=dict)
+    # Whether the user said this album is a compilation where the source's own
+    # credit and tracklist do not. Never published by a source and never
+    # stored with the release: it is set on the copy a plan is made from, out
+    # of a correction the database holds, so withdrawing the correction is
+    # enough to take it back. It travels on the release for the reason
+    # `added_by_user` travels on a track — the release is what every name and
+    # tag is drawn from, and a flag kept beside it would part from it.
+    various_by_user: bool = False
 
 
 @dataclass(frozen=True, slots=True)

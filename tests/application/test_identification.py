@@ -1071,3 +1071,37 @@ def test_an_answer_nobody_could_check_does_not_end_the_search(tmp_path: Path) ->
     )
     assert outcome.candidate is not None
     assert outcome.candidate.release.source_release_id == "right"
+
+
+def test_a_source_that_names_nobody_per_track_does_not_end_the_search(tmp_path: Path) -> None:
+    """The first source is confident, pairs every file, and credits one artist.
+
+    The files credit two different people. Stopping there writes the release's
+    artist over both, and the source that publishes who performs each track is
+    never asked — so the search goes on, and between two answers that both
+    clear the line the one that says who performs each track is the one used.
+    """
+    unit = _album(tmp_path, "marina do acordeao - forro")
+    for name, artist in (("aaa.flac", "Olga Hirt"), ("bbb.flac", "Elba Soriano")):
+        audio = FLAC(unit.folder_path / name)
+        audio["artist"] = [artist]
+        audio.save()
+    primary = FakeSource(
+        summaries=(_summary("r1", "Forró"),),
+        details={"r1": _release("r1", "Forró", (400, 900))},
+    )
+    credited = _musicbrainz_release("mb1", (400, 900))
+    credited = replace(
+        credited,
+        tracks=tuple(
+            replace(track, artists=(ArtistMetadata(name=artist),))
+            for track, artist in zip(credited.tracks, ("Olga Hirt", "Elba Soriano"), strict=True)
+        ),
+    )
+    secondary = FakeSource(summaries=(credited,))
+
+    outcome = _workflow(primary, secondary).identify(unit)
+
+    assert outcome.sources_consulted == (MetadataSources.DISCOGS, MetadataSources.MUSICBRAINZ)
+    assert outcome.candidate is not None
+    assert outcome.candidate.release.source == MetadataSources.MUSICBRAINZ

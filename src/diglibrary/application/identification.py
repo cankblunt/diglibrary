@@ -48,6 +48,7 @@ from diglibrary.library.planner import (
 from diglibrary.library.spelling import a_whole_word_apart
 from diglibrary.library.tagrelease import TagReading, read_tags
 from diglibrary.library.tags import TagStore
+from diglibrary.library.trackcredits import drops_file_credits, read_file_credits
 from diglibrary.metadata.normalization import fold_accents
 from diglibrary.metadata.service import MetadataService
 from diglibrary.metadata.transport import CredentialError
@@ -274,6 +275,7 @@ class IdentificationWorkflow:
         # same medley cost one request between them, and so that the tracklist
         # question and the verification below read one answer.
         witness = _AskedWitness(unit, hints, titles, self._verifier, self._logger)
+        credits = read_file_credits(unit, self._tag_store)
 
         best_by_source: list[tuple[MetadataSourceId, MatchCandidate, TrackAlignment]] = []
         consulted: list[MetadataSourceId] = []
@@ -294,10 +296,17 @@ class IdentificationWorkflow:
             # publishes the track title exactly as the file spells it. The
             # score is about the album; the disagreement is about a word, and
             # nothing in the score can see it.
+            #
+            # Nor is one that publishes no credit for tracks whose files credit
+            # different people. It would be written as an album by whoever the
+            # release names, and the next source may publish who performs each
+            # track. The same kind of question as the word: nothing in the
+            # score looks at a credit.
             settled_here = (
                 candidate.confidence >= self._threshold
                 and alignment.is_usable
                 and not _rewrites_a_user_word(alignment, unit, titles)
+                and not drops_file_credits(candidate.release, alignment, credits)
             )
             if not self._consult_every_source and settled_here:
                 break
@@ -349,6 +358,13 @@ class IdentificationWorkflow:
                 entry[2].is_usable,
                 -len(entry[2].unmatched_files),
                 entry[1].signals.durations_compared > 0 or entry[1].signals.titles_agreeing > 0,
+                # Between two answers that both could win, the one that says
+                # who performs each track outranks the one that leaves it to
+                # the release's credit — above the score, because both scores
+                # already cleared the line and the difference between them is
+                # not about this.
+                entry[1].confidence >= self._threshold
+                and not drops_file_credits(entry[1].release, entry[2], credits),
                 entry[1].confidence,
             ),
         )
@@ -760,8 +776,15 @@ class IdentificationWorkflow:
         offline: bool = False,
         artwork: Artwork | None = None,
         finder_tags: Sequence[FinderTag] | None = None,
+        various: bool = False,
     ) -> IdentificationOutcome:
         """Re-plan an identified album around the user's corrections.
+
+        ``various`` says the user called this album a compilation where the
+        source did not. It is planned exactly as a release the source credits
+        to nobody in particular — the folder, the album artist, the
+        `compilation` tag and the credit in each file name — while every track
+        keeps the artist it had.
 
         A corrected track title replaces the catalogue's for the tag and the
         file name, keyed by the track's position on the release. The candidate
@@ -811,6 +834,8 @@ class IdentificationWorkflow:
                     for track in release.tracks
                 ),
             )
+        if various:
+            corrected = replace(corrected, various_by_user=True)
         # The release as the source published it travels with the corrected one:
         # a typed name is what gets written, and it pairs a file only where a
         # file answers to it. Aligned against the typed names alone, typing a

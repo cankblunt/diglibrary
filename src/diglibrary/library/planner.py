@@ -30,6 +30,7 @@ from diglibrary.library.naming import (
     format_label,
     guest_credit,
     is_distinct_edition,
+    led_by_somebody_else,
     odd_track_labels,
     replace_format_segment,
     sanitize_component,
@@ -45,6 +46,7 @@ from diglibrary.library.tags import (
     as_the_container_writes,
     desired_tags,
 )
+from diglibrary.library.trackcredits import keeping_file_credits, read_file_credits
 from diglibrary.metadata.normalization import fold_accents
 
 
@@ -202,6 +204,11 @@ class ChangePlanner:
         # the pairing is what both of those are rendered from.
         release, alignment = _named(release, alignment, user_titles)
         release, alignment = self._resolve_spelling(unit, release, alignment)
+        # After the names are cased, because a credit kept from a file is kept
+        # as the file holds it: the case rule is for what a catalogue wrote.
+        alignment = keeping_file_credits(
+            release, alignment, read_file_credits(unit, self._tag_store)
+        )
 
         # Only a track that differs from what the album mostly holds carries
         # its quality in its name. The album's own folder already says what it
@@ -304,6 +311,7 @@ class ChangePlanner:
                 disc_number=assignment.disc_number,
                 disc_count=disc_count,
                 track_artist=_track_artist(assignment),
+                credit_first=led_by_somebody_else(release, assignment.track),
                 extension=source.suffix,
                 track_number_width=width,
                 # The header's own numbers, for the templates that name them.

@@ -5,7 +5,12 @@ import unicodedata
 from dataclasses import replace
 from datetime import date
 
-from diglibrary.application.contracts import TrackMetadata
+from diglibrary.application.contracts import (
+    ArtistMetadata,
+    MetadataSources,
+    ReleaseMetadata,
+    TrackMetadata,
+)
 
 _WHITESPACE = re.compile(r"\s+")
 _DISCOGS_DISAMBIGUATION = re.compile(r"\s*\(\d+\)$")
@@ -32,6 +37,62 @@ def fold_accents(value: str) -> str:
         "NFC",
         "".join(character for character in decomposed if not unicodedata.combining(character)),
     )
+
+
+PARALLEL_JOIN = " = "
+"""How a catalogue writes one name in two languages: `original = translation`."""
+
+
+def parallel_forms(value: str) -> tuple[str, ...]:
+    """Return each spelling of a name written `one = other`, or the name alone.
+
+    A catalogue that prints a title in two scripts joins them with an equals
+    sign between spaces. Each side is the whole name, so each side is what a
+    file's own tag may hold.
+    """
+    parts = tuple(part.strip() for part in value.split(PARALLEL_JOIN))
+    return tuple(part for part in parts if part) or (value,)
+
+
+def is_latin(text: str) -> bool:
+    """Whether every letter of this text belongs to the Latin script.
+
+    The first four blocks of Unicode are Latin whatever a character is called
+    there: `º` in `Nº 1` is a letter named for what it indicates, not for its
+    script.
+    """
+    return all(
+        ord(character) < 0x250 or unicodedata.name(character, "").startswith("LATIN")
+        for character in text
+        if character.isalpha()
+    )
+
+
+def latin_spelling(value: str) -> str:
+    """Return the Latin spelling of a name printed in two scripts, where it has one.
+
+    A catalogue prints such a name as `original = translation`, leading with
+    the sleeve's script. A library is sorted, grouped and searched by typing,
+    so the side written in Latin letters is the one kept, and the other is
+    dropped rather than carried behind an equals sign.
+
+    Only where one side is wholly Latin and another is not. Two titles in two
+    Latin-script languages are both kept, in the catalogue's order, and so is a
+    title that merely contains an equals sign; a name with no Latin side is
+    returned as the catalogue wrote it. A side that repeats an earlier one,
+    compared without case or accents, is written once.
+    """
+    kept: list[str] = []
+    seen: set[str] = set()
+    for part in parallel_forms(value):
+        folded = fold_accents(part).casefold()
+        if folded not in seen:
+            seen.add(folded)
+            kept.append(part)
+    latin = [part for part in kept if is_latin(part)]
+    if latin and len(latin) < len(kept):
+        kept = latin
+    return PARALLEL_JOIN.join(kept)
 
 
 def normalize_discogs_artist_name(value: str) -> str:
@@ -102,3 +163,94 @@ def renumber_after_drop(tracks: tuple[TrackMetadata, ...]) -> tuple[TrackMetadat
         seen[medium] = seen.get(medium, 0) + 1
         renumbered.append(replace(track, position=index, position_on_medium=seen[medium]))
     return tuple(renumbered)
+
+
+_PARALLEL_CREDIT_JOIN = "="
+"""What Discogs prints between one credit and the same credit in another script."""
+
+
+def artists_in_latin_spelling(artists: tuple[ArtistMetadata, ...]) -> tuple[ArtistMetadata, ...]:
+    """Name each artist once, in Latin letters where the catalogue has them.
+
+    A sleeve printed in two scripts is entered as the same artists twice, the
+    two credits joined by an equals sign, each entry carrying the spelling one
+    side printed. Read as a list, that is every artist named twice, and written
+    by the catalogue's own name it is one name on both sides of the sign.
+
+    Each artist is kept once, in the order first met. The name is the
+    catalogue's own when that is in Latin letters, and otherwise the first
+    Latin spelling a sleeve credit gives; an artist with neither keeps the
+    catalogue's name. The same choice is made for an artist entered once, so a
+    name is not written in one script on one record and another on the next
+    for want of an equals sign.
+
+    Reading its own answer changes nothing, because a stored release is read
+    through it again.
+    """
+    if not any((artist.joined_by or "").strip() == _PARALLEL_CREDIT_JOIN for artist in artists):
+        return tuple(_named_in_latin(artist, (artist.credited_as,)) for artist in artists)
+    met: dict[str, list[ArtistMetadata]] = {}
+    for artist in artists:
+        key = artist.external_ids.get(MetadataSources.DISCOGS) or artist.name.casefold()
+        met.setdefault(key, []).append(artist)
+    named: list[ArtistMetadata] = []
+    for position, entries in enumerate(met.values(), start=1):
+        joins = [(entry.joined_by or "").strip() for entry in entries]
+        # What joins this artist to the next is read from the side printed in
+        # Latin letters, and the last artist left is joined to nobody.
+        join = next(
+            (one for one in joins if one and one != _PARALLEL_CREDIT_JOIN and is_latin(one)), None
+        )
+        named.append(
+            replace(
+                _named_in_latin(entries[0], tuple(entry.credited_as for entry in entries)),
+                joined_by=join if position < len(met) else None,
+            )
+        )
+    return tuple(named)
+
+
+def _named_in_latin(artist: ArtistMetadata, printed: tuple[str | None, ...]) -> ArtistMetadata:
+    """Return the artist under a Latin name, given how the sleeve spelled them."""
+    latin = next((spelling for spelling in printed if spelling and is_latin(spelling)), None)
+    if is_latin(artist.name):
+        if latin is None:
+            # Nothing Latin was printed: what stands beside the name is the
+            # other script, kept for comparison, and it stays there.
+            return artist
+        return replace(artist, credited_as=latin if latin != artist.name else None)
+    if latin is None:
+        return artist
+    # The catalogue's own spelling stays beside the one written, for comparison
+    # only: files tagged in the original script are still files by this artist.
+    return replace(artist, name=latin, credited_as=artist.name)
+
+
+def release_in_latin_spelling(release: ReleaseMetadata) -> ReleaseMetadata:
+    """Return a Discogs release as the rule in force names it.
+
+    The spelling is chosen when a catalogue's answer is mapped, and a release
+    is stored as mapped. One stored before the rule existed still holds both
+    scripts, and an album planned again around the release on record asks no
+    catalogue, so it would go on being named by a rule no longer in force.
+    Everything the rule reads is in what was stored, so it is applied again on
+    the way out. A release already in that form comes back equal.
+
+    Only the catalogue whose convention this is. Another catalogue's title may
+    hold an equals sign that joins no translation.
+    """
+    if release.source != MetadataSources.DISCOGS:
+        return release
+    return replace(
+        release,
+        title=latin_spelling(release.title),
+        artists=artists_in_latin_spelling(release.artists),
+        tracks=tuple(
+            replace(
+                track,
+                title=latin_spelling(track.title),
+                artists=artists_in_latin_spelling(track.artists),
+            )
+            for track in release.tracks
+        ),
+    )

@@ -1,14 +1,18 @@
 """Unit tests for distinguishing a real change from a change of case or accent."""
 
+from pathlib import Path
+
 import pytest
 
 from diglibrary.library.spelling import (
     a_whole_word_apart,
     is_spelling_variant,
     one_word_apart,
+    path_now,
     preserve_existing_spelling,
     resolve_spelling,
     richer_spelling,
+    titles_before_this_application,
 )
 
 
@@ -224,3 +228,58 @@ def test_a_name_the_disk_holds_decomposed_is_not_renamed_to_itself() -> None:
 
     on_disk = unicodedata.normalize("NFD", "Élan Yard")
     assert resolve_spelling(on_disk, "Élan Yard") == on_disk
+
+
+def _tags(title: str) -> dict[str, object]:
+    return {"tags": {"title": [title], "artist": ["Zed Marrowby"]}}
+
+
+def test_a_title_is_followed_to_the_path_the_file_has_now() -> None:
+    """Tags are written first, then the file is renamed, then the folder."""
+    old, new = Path("/music/old"), Path("/music/new")
+    held = titles_before_this_application(
+        [
+            ("write_tags", old / "a.flac", _tags("Brumal Tavo"), _tags("Brumal Tago")),
+            ("rename_file", old / "a.flac", {}, {"path": str(old / "01. Brumal Tago.flac")}),
+            ("rename_folder", old, {}, {"path": str(new)}),
+            ("write_image", new / "cover.jpg", {}, {"source": "x"}),
+        ]
+    )
+
+    assert held == {new / "01. Brumal Tago.flac": ("Brumal Tavo", "Brumal Tago")}
+
+
+def test_the_first_word_is_the_file_s_and_the_last_is_this_application_s() -> None:
+    """A second plan's `before` is already what the first one wrote."""
+    path = Path("/music/a.flac")
+    held = titles_before_this_application(
+        [
+            ("write_tags", path, _tags("Brumal Tavo"), _tags("Brumal Tago")),
+            ("write_tags", path, _tags("Brumal Tago"), _tags("Brumal Tagus")),
+        ]
+    )
+
+    assert held == {path: ("Brumal Tavo", "Brumal Tagus")}
+
+
+def test_an_operation_that_wrote_no_title_holds_nothing() -> None:
+    path = Path("/music/a.flac")
+
+    assert (
+        titles_before_this_application(
+            [("write_tags", path, {"tags": {}}, {"tags": {"artist": ["Zed Marrowby"]}})]
+        )
+        == {}
+    )
+
+
+def test_a_path_from_before_the_plan_is_followed_to_where_the_file_is() -> None:
+    old, new = Path("/music/old"), Path("/music/new")
+    steps = [
+        ("rename_file", old / "a.flac", {}, {"path": str(old / "01. A.flac")}),
+        ("rename_folder", old, {}, {"path": str(new)}),
+    ]
+
+    assert path_now(old / "a.flac", steps) == new / "01. A.flac"
+    assert path_now(old / "b.flac", steps) == new / "b.flac"
+    assert path_now(Path("/elsewhere/a.flac"), steps) == Path("/elsewhere/a.flac")

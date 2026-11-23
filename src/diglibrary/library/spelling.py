@@ -2,6 +2,8 @@
 
 import re
 import unicodedata
+from collections.abc import Iterable, Mapping
+from pathlib import Path
 
 from diglibrary.library.casing import is_shouted
 
@@ -242,3 +244,73 @@ def _diacritics(value: str) -> int:
     return sum(
         1 for character in unicodedata.normalize("NFD", value) if unicodedata.combining(character)
     )
+
+
+def titles_before_this_application(
+    steps: Iterable[tuple[str, Path, Mapping[str, object], Mapping[str, object]]],
+) -> dict[Path, tuple[str, str]]:
+    """Return, per file as it is now, the title it held and the title written over it.
+
+    ``steps`` are the operations still standing on an album, oldest first, each
+    as its kind, its target and its states before and after. A plan writes a
+    track's tags and then renames the file and the folder, so the title is
+    followed along both renames to the path the file has today.
+
+    The first value is what the file said before this application ever wrote
+    its title, and the second is what this application wrote last. A file whose
+    title is the second is carrying this application's word, not its own:
+    read back as the file's own spelling, it agrees with the catalogue by
+    construction, and the offer to keep the file's spelling can never be made
+    again for an album that has been organized once.
+    """
+    held: dict[Path, tuple[str, str]] = {}
+    for kind, target, before, after in steps:
+        if kind == "write_tags":
+            wrote = _first_title(after)
+            if wrote:
+                said = held[target][0] if target in held else _first_title(before)
+                held[target] = (said, wrote)
+        elif kind == "rename_file":
+            moved = after.get("path")
+            if target in held and isinstance(moved, str):
+                held[Path(moved)] = held.pop(target)
+        elif kind == "rename_folder":
+            moved = after.get("path")
+            if isinstance(moved, str):
+                held = {
+                    (
+                        Path(moved) / path.relative_to(target)
+                        if path.is_relative_to(target)
+                        else path
+                    ): (titles)
+                    for path, titles in held.items()
+                }
+    return held
+
+
+def path_now(
+    path: Path, steps: Iterable[tuple[str, Path, Mapping[str, object], Mapping[str, object]]]
+) -> Path:
+    """Return where a file is after the standing operations that renamed it.
+
+    A pairing made before a plan was applied names each file by the path it
+    had then. Asked of the same steps as ``titles_before_this_application``, so
+    the two follow a file the same way.
+    """
+    for kind, target, _, after in steps:
+        moved = after.get("path")
+        if not isinstance(moved, str):
+            continue
+        if kind == "rename_file" and target == path:
+            path = Path(moved)
+        elif kind == "rename_folder" and path.is_relative_to(target):
+            path = Path(moved) / path.relative_to(target)
+    return path
+
+
+def _first_title(state: Mapping[str, object]) -> str:
+    tags = state.get("tags")
+    values = tags.get("title") if isinstance(tags, Mapping) else None
+    if isinstance(values, (list, tuple)) and values and isinstance(values[0], str):
+        return values[0]
+    return ""

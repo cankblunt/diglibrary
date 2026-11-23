@@ -15,6 +15,7 @@ from diglibrary.application.contracts import (
 )
 from diglibrary.metadata.authentication import EnvironmentCredentials, musicbrainz_headers
 from diglibrary.metadata.normalization import (
+    is_latin,
     normalize_identifier,
     normalize_text,
     parse_duration_ms,
@@ -90,7 +91,7 @@ class MusicBrainzClient:
         """Retrieve and map one full MusicBrainz release by MBID."""
         payload = self._get(
             f"/release/{release_id}",
-            {"inc": "artists+recordings+labels+release-groups+genres"},
+            {"inc": "artists+recordings+labels+release-groups+genres+aliases"},
         )
         return _map_musicbrainz_release(payload)
 
@@ -111,7 +112,7 @@ class MusicBrainzClient:
         """
         payload = self._get(
             "/release",
-            {"release-group": group_id, "inc": "recordings artist-credits", "limit": "100"},
+            {"release-group": group_id, "inc": "recordings artist-credits aliases", "limit": "100"},
         )
         releases = payload.get("releases", [])
         if not isinstance(releases, list):
@@ -127,7 +128,9 @@ class MusicBrainzClient:
         the catalogue saying what that identifier is, so a screen can name the
         audio it found instead of printing a code.
         """
-        payload = self._get(f"/recording/{quote(recording_id, safe='')}", {"inc": "artist-credits"})
+        payload = self._get(
+            f"/recording/{quote(recording_id, safe='')}", {"inc": "artist-credits aliases"}
+        )
         title = normalize_text(_string(payload, "title"))
         if not title:
             return None
@@ -190,17 +193,56 @@ def _musicbrainz_artists(value: object) -> tuple[ArtistMetadata, ...]:
         artist = credit.get("artist")
         if not isinstance(artist, dict):
             continue
-        name = normalize_text(_string(artist, "name"))
-        if name:
+        catalogued = normalize_text(_string(artist, "name"))
+        if catalogued:
             identifier = normalize_identifier(artist.get("id"))
+            name = _latin_name(catalogued, credit, artist)
             artists.append(
                 ArtistMetadata(
                     name=name,
                     sort_name=normalize_text(_string(artist, "sort-name")),
                     external_ids={MetadataSources.MUSICBRAINZ: identifier} if identifier else {},
+                    # The catalogue's own spelling stays beside the one written,
+                    # for comparison only: files tagged in the original script
+                    # are still files by this artist.
+                    credited_as=catalogued if name != catalogued else None,
                 )
             )
     return tuple(artists)
+
+
+_ALIAS_LOCALE = "en"
+"""The locale whose primary alias is read as an artist's name in Latin letters."""
+
+
+def _latin_name(catalogued: str, credit: Mapping[str, Any], artist: Mapping[str, Any]) -> str:
+    """Return the artist's name in Latin letters, where the catalogue has one.
+
+    A name already in Latin letters is the catalogue's and is kept. Otherwise
+    the spelling this release prints comes first, and after it the alias the
+    catalogue marks as the primary one for English, which is entered in
+    reading order where the sort name is inverted. An artist with neither
+    keeps the catalogue's name: nothing here transliterates.
+
+    The catalogue says its aliases are not deliberately ordered, so among
+    several that qualify the choice is by name and not by position.
+    """
+    if is_latin(catalogued):
+        return catalogued
+    printed = normalize_text(_string(credit, "name"))
+    if printed and is_latin(printed):
+        return printed
+    aliases = artist.get("aliases")
+    named = sorted(
+        name
+        for alias in (aliases if isinstance(aliases, list) else ())
+        if isinstance(alias, dict)
+        and alias.get("primary") is True
+        and alias.get("locale") == _ALIAS_LOCALE
+        and (name := normalize_text(_string(alias, "name")))
+        and is_latin(name)
+    )
+    return named[0] if named else catalogued
 
 
 def _musicbrainz_tracks(value: object) -> tuple[TrackMetadata, ...]:

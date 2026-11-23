@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from tests.application.test_api import FakeSource, _api, _finish, _library
+from tests.application.test_api import FakeSource, _api, _finish, _library, _release
 
 from diglibrary.harmonic.analyzer import HarmonicAnalyzer
 from diglibrary.harmonic.keys import _CAMELOT
@@ -156,3 +156,39 @@ def test_a_bare_id_from_a_cached_script_still_measures(tmp_path: Path) -> None:
 def test_measuring_nothing_is_refused_rather_than_started(tmp_path: Path) -> None:
     api = _measured_api(tmp_path)
     assert api.measure_harmonics([])["ok"] is False
+
+
+def test_a_proposal_nobody_approved_does_not_name_the_album_on_the_wheel(
+    tmp_path: Path,
+) -> None:
+    """The shelf's rule, in the second place that implements it.
+
+    `harmonics()` names each row by the release the album was identified as, so
+    a record this application proposed and was not confident enough to apply on
+    its own named the wheel as confidently as the card did. The card was taught
+    to draw the folder instead; this line is the neighbour that would have gone
+    on saying the record — which is this project's most repeated defect.
+    """
+    library = _library(tmp_path)
+    api = _api(
+        tmp_path,
+        FakeSource(
+            summaries=(_release("r1", (400, 900)),), details={"r1": _release("r1", (400, 900))}
+        ),
+    )
+    api._harmonic_analyzer = HarmonicAnalyzer(
+        _SilentDecoder(_a_major_chord()), logging.getLogger("test.harmonics")
+    )
+    assert api.scan(str(library))["ok"]
+    _finish(api._job, "scan")
+    unit_id = api.state()["albums"][0]["unit_id"]
+    assert api.measure_harmonics([unit_id])["ok"]
+    _finish(api._harmonics_job, "harmonic measurement")
+    named = {track["album"] for track in api.harmonics()["tracks"]}
+    assert named == {"Forró"}, f"the record has to name the wheel first: {named}"
+
+    assert api.set_settings({"threshold": 1.01})["ok"]
+
+    withheld = {track["album"] for track in api.harmonics()["tracks"]}
+    assert withheld == {"marina do acordeao - forro"}, "the folder names it now"
+    assert "Forró" not in withheld

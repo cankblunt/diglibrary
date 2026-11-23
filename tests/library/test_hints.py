@@ -7,6 +7,7 @@ import pytest
 
 from diglibrary.library.containers import numbers_deny_one_album
 from diglibrary.library.hints import (
+    _VARIOUS_CANONICAL,
     derive_hints,
     files_in_track_order,
     folders_carry_an_index,
@@ -141,7 +142,7 @@ def test_a_title_without_a_conjunction_grows_no_conjunction_rungs() -> None:
     [
         # A collection that numbers its folders: the number is not the artist.
         ("003 - Tico Barque - Armação [1971]", "Tico Barque", "Armação", None),
-        ("015 - Jonas Bem - Toada Esquema Torto", "Jonas Bem", "Toada Esquema Torto", None),
+        ("015 - Jonas Bem - Zorca Esquema Torto", "Jonas Bem", "Zorca Esquema Torto", None),
         # A leading year is kept as the year rather than read as a credit.
         ("1972 - Zorva", None, "Zorva", 1972),
         # And what must not be touched: a band whose name is a number, and an
@@ -149,8 +150,8 @@ def test_a_title_without_a_conjunction_grows_no_conjunction_rungs() -> None:
         ("404 - Undergrowth", "404", "Undergrowth", None),
         ("1200 Amps - Live in Zorvia (2005)", "1200 Amps", "Live in Zorvia", 2005),
         (
-            "110 Discos de Toada Costeira - Por DJ 440",
-            "110 Discos de Toada Costeira",
+            "110 Discos de Zorca Costeira - Por DJ 440",
+            "110 Discos de Zorca Costeira",
             "Por DJ 440",
             None,
         ),
@@ -451,3 +452,153 @@ def test_a_repeated_title_does_not_decide_whether_a_folder_holds_two_albums() ->
     assert numbers_deny_one_album(numbered, len(names)).startswith(
         "The track numbers here describe 2 different albums"
     )
+
+
+def test_a_folder_of_loose_tracks_is_not_named_by_one_file_that_speaks() -> None:
+    """One file is not the album, and a minority names nothing.
+
+    The shape this came from: a folder of loose tracks where almost every file
+    carries no album and no album artist, and the handful that do carry
+    different ones. Read from the first file that said anything, the whole hint
+    — artist, album and year — came from one file, and the shelf then named the
+    folder after a record none of its files belong to.
+    """
+    files = tuple(_numbered(f"{index}.mp3") for index in range(1, 6))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    one_speaks = _Tags(
+        {
+            "1.mp3": {"album": ("Dusk",), "artist": ("Mickey Marlow",), "date": ("1978",)},
+            "2.mp3": {},
+            "3.mp3": {},
+            "4.mp3": {},
+            "5.mp3": {},
+        }
+    )
+
+    hints = derive_hints(unit, one_speaks)
+
+    assert hints.album == "Album"
+    assert hints.artist is None
+    assert hints.year is None
+
+
+def test_the_album_that_most_of_the_files_name_is_the_hint() -> None:
+    """A retag that reached three files of four leaves the fourth outvoted."""
+    files = tuple(_numbered(f"{index}.flac") for index in range(1, 5))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    # The dissenting file is read **first**, which is where the old rule obeyed
+    # it: a fixture that puts it last passes against the defect this replaces.
+    mostly = _Tags(
+        {
+            "1.flac": {"album": ("Something Else",), "albumartist": ("Another Band",)},
+            "2.flac": {"album": ("Lenha Zorca",), "albumartist": ("Banda Zinco Pardo",)},
+            "3.flac": {"album": ("Lenha Zorca",), "albumartist": ("Banda Zinco Pardo",)},
+            "4.flac": {"album": ("Lenha Zorca",), "albumartist": ("Banda Zinco Pardo",)},
+        }
+    )
+
+    hints = derive_hints(unit, mostly)
+
+    assert hints.album == "Lenha Zorca"
+    assert hints.artist == "Banda Zinco Pardo"
+
+
+def test_exactly_half_the_files_is_not_more_than_half() -> None:
+    """The boundary that was chosen: the majority is of *all* the files.
+
+    Two files of four carrying a title is not the album saying what it is, and
+    the folder's own name is asked instead.
+    """
+    files = tuple(_numbered(f"{index}.flac") for index in range(1, 5))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    half = _Tags(
+        {
+            "1.flac": {"album": ("Lenha Zorca",)},
+            "2.flac": {"album": ("Lenha Zorca",)},
+            "3.flac": {},
+            "4.flac": {},
+        }
+    )
+
+    assert derive_hints(unit, half).album == "Album"
+
+
+def test_a_file_that_cannot_be_read_does_not_count_against_the_album() -> None:
+    """An unreadable file is an absence of evidence, not a tag that disagrees.
+
+    ``_Tags`` raises for a file it was not told about, which is what a file
+    with a damaged header does.
+    """
+    # Three of the five files cannot be read, so the two that can are a minority
+    # of the album and a majority of the evidence. Counting the unreadable three
+    # in the denominator would refuse this album's own title, which is the
+    # other way this could have been written.
+    files = tuple(_numbered(f"{index}.flac") for index in range(1, 6))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    mostly_unreadable = _Tags(
+        {
+            "4.flac": {"album": ("Lenha Zorca",)},
+            "5.flac": {"album": ("Lenha Zorca",)},
+        }
+    )
+
+    assert derive_hints(unit, mostly_unreadable).album == "Lenha Zorca"
+
+
+def test_the_credit_is_asked_of_the_album_before_it_is_asked_of_a_track() -> None:
+    """A compilation agrees on its album artist and on nothing else.
+
+    Every file credits its own performer, so ``artist`` answers about the track
+    and could never hold a majority; ``albumartist`` is what the album agrees
+    on, and it is asked first.
+    """
+    files = tuple(_numbered(f"{index}.flac") for index in range(1, 5))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    # The first file carries no album artist, which is where the old rule took
+    # that file's own performer for the album's credit.
+    compilation = _Tags(
+        {
+            "1.flac": {"album": ("Janela Meridiano",), "artist": ("One",)},
+            "2.flac": {"album": ("Janela Meridiano",), "albumartist": ("VA",), "artist": ("Two",)},
+            "3.flac": {
+                "album": ("Janela Meridiano",),
+                "albumartist": ("VA",),
+                "artist": ("Three",),
+            },
+            "4.flac": {"album": ("Janela Meridiano",), "albumartist": ("VA",), "artist": ("Four",)},
+        }
+    )
+
+    # The library's own word for a compilation, which is what the catalogues
+    # are not asked by: `to_query` drops it.
+    assert derive_hints(unit, compilation).artist == _VARIOUS_CANONICAL
+
+
+def test_the_album_credit_falls_to_the_track_credit_when_the_album_has_none() -> None:
+    """A single-artist album that nobody gave an album artist still has one."""
+    files = (_numbered("1.flac"), _numbered("2.flac"), _numbered("3.flac"))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    only_tracks = _Tags(
+        {
+            "1.flac": {"artist": ("Banda Zinco Pardo",)},
+            "2.flac": {"artist": ("Banda Zinco Pardo",)},
+            "3.flac": {"artist": ("Banda Zinco Pardo",)},
+        }
+    )
+
+    assert derive_hints(unit, only_tracks).artist == "Banda Zinco Pardo"
+
+
+def test_the_year_is_the_one_most_of_the_files_carry() -> None:
+    """One file retagged with the reissue's year does not move the album's."""
+    files = (_numbered("1.flac"), _numbered("2.flac"), _numbered("3.flac"))
+    unit = AlbumUnit(folder_path=Path("/music/Album"), unit_signature="unit", audio_files=files)
+    mostly_1974 = _Tags(
+        {
+            "1.flac": {"album": ("Lenha Zorca",), "date": ("1999",)},
+            "2.flac": {"album": ("Lenha Zorca",), "date": ("1974-05-01",)},
+            "3.flac": {"album": ("Lenha Zorca",), "date": ("1974-11-30",)},
+        }
+    )
+
+    assert derive_hints(unit, mostly_1974).year == 1974

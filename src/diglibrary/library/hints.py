@@ -1,7 +1,8 @@
 """Turning what is on disk into a search query, without trusting it as truth."""
 
 import re
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -517,25 +518,85 @@ def clean_album_title(title: str) -> str:
 
 
 def _hints_from_tags(unit: AlbumUnit, tag_store: TagStore) -> SearchHints | None:
+    """The hint this album's own tags give, where its files agree on it.
+
+    **One file is not the album.** This read the first file that carried an
+    ``album`` or an ``artist`` and returned its three values, so a folder of
+    loose tracks — dozens of files crediting almost as many artists, a handful
+    of them carrying an album title and no two the same — was searched for, and
+    then named on the shelf, as a record none of its files belong to. The whole
+    hint came from one file: the first in alphabetical order.
+
+    Each field is now what **more than half of this album's files** say. A
+    value a minority carries answers nothing about the album, and the folder's
+    own name, which is asked next, is the better starting point. Measured
+    against a whole shelf before it was changed, the rule moved the hint of no
+    album that was already in order: files this application has tagged agree
+    with each other, which is why this defect belongs to arrival.
+
+    A file whose tags could not be read votes for nothing and is not counted —
+    an unreadable file is an absence of evidence, not a tag that disagrees. An
+    empty tag is the opposite: it was read, it says nothing about the album,
+    and it counts. That is what stops a handful of tagged files from naming a
+    folder full of untagged ones.
+
+    Nothing here is tie-broken because nothing can tie: two values cannot each
+    be carried by more than half of the same files. That is the difference from
+    ``tagrelease._agreed``, which takes what most files say even where "most"
+    is one file in dozens. That path can afford the looser rule, because it
+    refuses an incomplete reading outright and names every file that dissented;
+    a hint leaves as a search with nothing asking it to be complete.
+    """
+    readings: list[dict[str, tuple[str, ...]]] = []
     for file in unit.audio_files:
         try:
-            tags = tag_store.read(file.path)
+            readings.append(tag_store.read(file.path))
         except Exception:
             continue
-        album = _first(tags, "album")
-        artist = _first(tags, "albumartist") or _first(tags, "artist")
-        if album or artist:
-            date = _first(tags, "date") or ""
-            year = int(date[:4]) if date[:4].isdigit() else None
-            artist = _canonical_artist(artist)
-            album = clean_album_title(album) if album else album
-            return SearchHints(
-                artist=artist,
-                album=album,
-                year=year,
-                text=" ".join(part for part in (artist, album) if part),
+    if not readings:
+        return None
+    album = _what_more_than_half_the_files_say(_first(tags, "album") for tags in readings)
+    # The album's credit, asked of the field that is about the album before the
+    # one that is about the track. Asked of the album and not of each file: a
+    # file-by-file preference lets one file's `artist` stand in for an
+    # `albumartist` the rest of the album agrees on.
+    artist = _what_more_than_half_the_files_say(
+        _first(tags, "albumartist") for tags in readings
+    ) or _what_more_than_half_the_files_say(_first(tags, "artist") for tags in readings)
+    if not (album or artist):
+        return None
+    said_year = _what_more_than_half_the_files_say(
+        (_first(tags, "date") or "")[:4] for tags in readings
+    )
+    return SearchHints(
+        artist=_canonical_artist(artist) if artist else None,
+        album=clean_album_title(album) if album else None,
+        year=int(said_year) if said_year.isdigit() else None,
+        text=" ".join(
+            part
+            for part in (
+                _canonical_artist(artist) if artist else None,
+                clean_album_title(album) if album else None,
             )
-    return None
+            if part
+        ),
+    )
+
+
+def _what_more_than_half_the_files_say(values: Iterable[str | None]) -> str:
+    """The value more than half of these files carry, or nothing at all.
+
+    Empty values count in the denominator, because a field only a minority of
+    the files filled in is not the album's answer about itself. No tie-break is
+    needed or possible: two values cannot each be carried by more than half of
+    the same files.
+    """
+    read = list(values)
+    counted = Counter(value for value in read if value)
+    if not counted:
+        return ""
+    value, carried = counted.most_common(1)[0]
+    return value if carried * 2 > len(read) else ""
 
 
 def _first(tags: dict[str, tuple[str, ...]], name: str) -> str | None:

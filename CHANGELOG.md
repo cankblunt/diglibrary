@@ -4,6 +4,28 @@ What changed, grouped by what it means for your files and your screen rather
 than by where the code moved. It begins with the changes that make up 1.7.0;
 earlier versions are not described here.
 
+## 1.13.0
+
+### Added
+
+- *Treat as a compilation*, under the folder name in an album's dialog, for an album the catalogue credits to an artist and you file as a compilation — a tribute credited to the artist it honours, a split, a DJ mix. The folder then starts with your compilation label instead of an artist, each track's artist goes into its file name, the album artist is written as Various Artists, and each track keeps its own artist. *Not a compilation*, in the same place, takes it back. It is offered where the catalogue does not already call the album a compilation and something says its tracks are not all one artist's: the files credit different artists, or the catalogue credits a track to somebody other than the album's artist.
+
+### Changed
+
+- A release Discogs prints in two scripts is written in Latin letters where it has them. A title given as `original = translation` keeps the side in Latin letters, and an artist entered once per script is named once, by the Latin spelling. Two titles in two Latin-script languages are both kept, as before, and a name with no Latin spelling stays as the catalogue wrote it. The lines a Discogs search answers with are named the same way, so the one you pick says what picking it writes. An album already organized keeps its names until you plan it again; planning it again is enough, and it does not need to be identified again.
+- An artist MusicBrainz files under a name in another script is written in Latin letters where MusicBrainz has a spelling to give: the one that release prints, and otherwise the name MusicBrainz lists for the artist in English. An artist with neither keeps the name as it is, and nothing is transliterated. Titles are unchanged. Files tagged in the original script are still recognised as that artist's. An album already organized keeps its names until it is identified again.
+- On an album credited to an artist, a track somebody else leads is named with its whole credit before the title, the way a compilation names a track: `01. Other Artist - Title`. A track the album's artist leads goes on naming its guests as `(feat. …)` after the title, and a track with no credit of its own is named as before. The tags are unchanged — they already held every artist of the track. An album already organized keeps its names until it is planned again.
+
+### Fixed
+
+- Planning an organized album again offers *Keep yours* where it did before the plan was applied. Once applied, every file carried the catalogue's spelling, so the offer compared the catalogue with itself and never appeared again, and a title the catalogue misspells could only be put right by typing it. The spelling the file had is read from the record of what was written over it.
+- An album whose catalogue entry prints each title in two languages is now recognised. A file holding one of the two spellings was compared against both at once and agreed with neither, so the album got no plan, even with the release's address pasted in. The same holds for an artist the catalogue names in one script and the sleeve in another.
+- An album arranged from its own tags is no longer called a compilation because each track's artist is written as the album's artist followed by a guest in a single value. Such a track is the album artist's, and its guest goes into the file name as `(feat. …)`.
+- An album whose files credit different artists is no longer planned from the first catalogue that answers when that catalogue names no artist for any track. The next catalogue is asked as well, and when both recognise the album the one that says who performs each track is the one used. An album whose files all credit the same artist is identified exactly as before.
+- Where the catalogue names no artist for a track and the album's files credit different artists, each file keeps the artist it already has instead of being given the album's. A file that credits the album's own artist, in whatever spelling, still gets the catalogue's spelling, and an album whose files all carry one artist is written as before.
+- An album is no longer searched for under a name only one of its files carries. What the album's own tags say is read as the album's answer where more than half of its files say the same thing, so a folder of loose tracks — where almost every file names a different artist and only a few name an album at all — is searched for by its folder's name instead of by whichever file came first. An album whose files agree with each other is unaffected, and nothing already on your shelf changes.
+- The shelf no longer puts a record's name over an album when that record is only a proposal this application was not confident enough to apply on its own and nobody has approved. The folder's own name is shown instead, beside the badge that already says the album is waiting for you, and the album's dialog goes on naming the proposal with its confidence and its reason — which is where the decision is made. A name already written to your files is shown as before, whatever the confidence behind it was, and so is a record you chose yourself. The same now holds on the mixing screen, which was naming such an album by the proposal.
+
 ## 1.12.1
 
 ### Fixed
